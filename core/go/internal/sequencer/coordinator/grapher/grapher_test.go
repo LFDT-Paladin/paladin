@@ -161,7 +161,7 @@ func TestLockMintsOnRead_DependsOnMinter(t *testing.T) {
 
 func TestLockMintsOnSpend_DependsOnEveryInFlightReader(t *testing.T) {
 	ctx := t.Context()
-	g := testGrapher(t)
+	g := testGrapherUnlocked(t)
 	readerA := uuid.New()
 	readerB := uuid.New()
 	spenderID := uuid.New()
@@ -171,23 +171,24 @@ func TestLockMintsOnSpend_DependsOnEveryInFlightReader(t *testing.T) {
 	g.LockMintsOnReadAndSpend(ctx, endorsable(stateID), endorsable(), readerB)
 	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), spenderID)
 
-	assert.ElementsMatch(t, []uuid.UUID{readerA, readerB}, g.GetDependencies(ctx, spenderID))
+	assert.ElementsMatch(t, []uuid.UUID{readerA, readerB}, g.readDeps.GetPrerequisites(ctx, spenderID))
+	assert.Empty(t, g.GetDependencies(ctx, spenderID), "read dependencies must stay out of the post-assembly chain")
 }
 
 func TestLockMintsOnSpend_ReadAndSpendSameStateNoSelfDependency(t *testing.T) {
 	ctx := t.Context()
-	g := testGrapher(t)
+	g := testGrapherUnlocked(t)
 	txID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("c8", 32))
 
 	g.LockMintsOnReadAndSpend(ctx, endorsable(stateID), endorsable(stateID), txID)
 
-	assert.Empty(t, g.GetDependencies(ctx, txID))
+	assert.Empty(t, g.readDeps.GetPrerequisites(ctx, txID))
 }
 
 func TestLockMintsOnSpend_NoDependencyOnConfirmedReader(t *testing.T) {
 	ctx := t.Context()
-	g := testGrapher(t)
+	g := testGrapherUnlocked(t)
 	readerID := uuid.New()
 	spenderID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("c9", 32))
@@ -196,12 +197,12 @@ func TestLockMintsOnSpend_NoDependencyOnConfirmedReader(t *testing.T) {
 	g.ForgetTransaction(ctx, readerID, 10)
 	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), spenderID)
 
-	assert.Empty(t, g.GetDependencies(ctx, spenderID))
+	assert.Empty(t, g.readDeps.GetPrerequisites(ctx, spenderID))
 }
 
 func TestLockMintsOnSpend_NoDependencyOnForgottenReader(t *testing.T) {
 	ctx := t.Context()
-	g := testGrapher(t)
+	g := testGrapherUnlocked(t)
 	readerID := uuid.New()
 	spenderID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("d3", 32))
@@ -210,12 +211,12 @@ func TestLockMintsOnSpend_NoDependencyOnForgottenReader(t *testing.T) {
 	g.ForgetTransactionAndLocks(ctx, readerID)
 	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), spenderID)
 
-	assert.Empty(t, g.GetDependencies(ctx, spenderID))
+	assert.Empty(t, g.readDeps.GetPrerequisites(ctx, spenderID))
 }
 
 func TestLockMintsOnSpend_ReaderSurvivesSpenderRevert(t *testing.T) {
 	ctx := t.Context()
-	g := testGrapher(t)
+	g := testGrapherUnlocked(t)
 	readerID := uuid.New()
 	firstSpender := uuid.New()
 	secondSpender := uuid.New()
@@ -226,7 +227,7 @@ func TestLockMintsOnSpend_ReaderSurvivesSpenderRevert(t *testing.T) {
 	g.ForgetTransactionAndLocks(ctx, firstSpender)
 	g.LockMintsOnReadAndSpend(ctx, endorsable(), endorsable(stateID), secondSpender)
 
-	assert.Equal(t, []uuid.UUID{readerID}, g.GetDependencies(ctx, secondSpender))
+	assert.Equal(t, []uuid.UUID{readerID}, g.readDeps.GetPrerequisites(ctx, secondSpender))
 }
 
 func TestGetDependencies_UnknownTransaction_ReturnsNil(t *testing.T) {

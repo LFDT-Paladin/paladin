@@ -84,6 +84,7 @@ const (
 	Event_PreAssembleDependencyTerminated                                                       // the pre-assemble (FIFO ordering) predecessor has reached a terminal state
 	Event_PrepareSucceeded                                                                      // the prepare goroutine built the dispatch
 	Event_PrepareFailed                                                                         // the prepare goroutine exhausted its retries
+	Event_ReadDependencyRemoved                                                                 // another transaction, which reads a state this transaction spends, has been reset or reverted
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -733,20 +734,8 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Blocked: {
 		Events: map[EventType]EventHandlers{
-			Event_DependencyReady: {
-				Match: statemachine.MatchFirst,
-				Handlers: []EventHandler{{
-					Actions: []ActionRule{
-						{
-							Action: action_UpdateSigningIdentity,
-							If:     statemachine.GuardNot(guard_HasSigner),
-						}},
-					Transitions: []Transition{{
-						To: State_Confirming_Dispatchable,
-						If: statemachine.GuardNot(guard_HasDependenciesNotReady),
-					}},
-				}},
-			},
+			Event_DependencyReady:       dependencyReadyHandler,
+			Event_ReadDependencyRemoved: readDependencyRemovedHandler,
 			// When we see a dependency reset or revert while in Blocked:
 			// - A transaction with a chained dependency will always go to PreAssembly_Blocked as its
 			// chained dependency is now unassembled.

@@ -30,7 +30,7 @@ import (
 )
 
 // The Grapher package provides 3 core functions to Paladin:
-// 1. It allows transactions to link to each other in a bi-directional dependency graph, based entirely on post-assembly outputs. This ensures
+// 1. It allows transactions to link to each other in a bi-directional dependency graph, based entirely on post-assembly outputs and reads. This ensures
 //    base-ledger state changes are correctly ordered, crucial to transaction success.
 // 2. It records ahead-of-chain state changes, such as inputs being locked, to allow successful ahead-of-chain assembly for new transactions.
 // 3. It provides interfaces onto the current ahead-of-chain state changes: query evaluation for assembling originators
@@ -90,6 +90,7 @@ type grapher struct {
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore
 
 	dependencyChain          dependencytracker.DependencyChain
+	readDeps                 dependencytracker.DependencyChain
 	transactionByID          map[uuid.UUID]*grapherTX
 	transactionByOutputState map[string]*grapherTX
 	outputStatesByMinter     map[uuid.UUID][]string                     // reverse lookup by transactions ID for building dependency chains and transaction-driven cleanup
@@ -109,6 +110,7 @@ func NewGrapher(dependencyTracker dependencytracker.DependencyTracker, stateVisi
 		blockHeightTolerance:     blockHeightTolerance,
 		stateVisibilityTracker:   stateVisibilityTracker,
 		dependencyChain:          dependencyTracker.GetPostAssemblyDeps(),
+		readDeps:                 dependencyTracker.GetReadDeps(),
 		transactionByOutputState: make(map[string]*grapherTX),
 		transactionByID:          make(map[uuid.UUID]*grapherTX),
 		outputStatesByMinter:     make(map[uuid.UUID][]string),
@@ -163,7 +165,7 @@ func (g *grapher) ForgetTransactionAndLocks(ctx context.Context, transactionID u
 
 	g.dependencyChain.Delete(ctx, transactionID)
 	g.forgetTxMints(transactionID)
-	g.forgetTxReads(transactionID)
+	g.forgetTxReads(ctx, transactionID)
 	g.forgetTxLocks(transactionID)
 	delete(g.transactionByID, transactionID)
 }
@@ -184,7 +186,7 @@ func (g *grapher) ForgetTransaction(ctx context.Context, transactionID uuid.UUID
 
 	g.dependencyChain.Delete(ctx, transactionID)
 	g.forgetTxMints(transactionID)
-	g.forgetTxReads(transactionID)
+	g.forgetTxReads(ctx, transactionID)
 
 	// Stamp confirmedAtBlock on the transaction's locks and clear the transaction reference.
 	// Each stateLock object is shared by pointer between locksByTransaction and the type-segregated
@@ -316,7 +318,8 @@ func (g *grapher) forgetTxMints(transactionID uuid.UUID) {
 }
 
 // Caller must hold g.mu write lock.
-func (g *grapher) forgetTxReads(transactionID uuid.UUID) {
+func (g *grapher) forgetTxReads(ctx context.Context, transactionID uuid.UUID) {
+	g.readDeps.Delete(ctx, transactionID)
 	for _, stateID := range g.readStatesByReader[transactionID] {
 		delete(g.readersByStateID[stateID], transactionID)
 		if len(g.readersByStateID[stateID]) == 0 {
@@ -411,7 +414,7 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*pro
 		// A read state must still be unspent when its reader executes on chain.
 		for readerID := range g.readersByStateID[stateID] {
 			if readerID != transactionID {
-				g.dependencyChain.AddPrerequisites(ctx, transactionID, readerID)
+				g.readDeps.AddPrerequisites(ctx, transactionID, readerID)
 			}
 		}
 	}

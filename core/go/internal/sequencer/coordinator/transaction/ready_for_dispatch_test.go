@@ -592,3 +592,47 @@ func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
 	err := depTx.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)
 }
+
+func TestReadDeps_HasDependenciesNotReady_BlockedByReader(t *testing.T) {
+	ctx := t.Context()
+	g, depTracker := newTestGrapher()
+
+	reader, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(g).DependencyTracker(depTracker).
+		Build()
+	spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(g).DependencyTracker(depTracker).
+		Build()
+	spender.getCoordinatorTransactionState = coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+		reader.pt.ID:  reader,
+		spender.pt.ID: spender,
+	})
+	depTracker.GetReadDeps().AddPrerequisites(ctx, spender.pt.ID, reader.pt.ID)
+
+	assert.True(t, spender.hasDependenciesNotReady(ctx))
+}
+
+func TestReadDeps_NotifyDependentsOfReadiness_UnblocksSpender(t *testing.T) {
+	ctx := t.Context()
+	g, depTracker := newTestGrapher()
+
+	spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(g).DependencyTracker(depTracker).
+		Build()
+	reader, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(g).DependencyTracker(depTracker).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			spender.pt.ID: spender,
+		}).
+		Build()
+	spender.getCoordinatorTransactionState = coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+		reader.pt.ID:  reader,
+		spender.pt.ID: spender,
+	})
+	depTracker.GetReadDeps().AddPrerequisites(ctx, spender.pt.ID, reader.pt.ID)
+
+	err := reader.notifyDependentsOfReadiness(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, State_Confirming_Dispatchable, spender.GetCurrentState())
+}

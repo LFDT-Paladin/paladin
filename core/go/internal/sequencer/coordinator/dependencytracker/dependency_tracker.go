@@ -21,6 +21,9 @@
 //     the dependency tracker directly, based on calls to the grapher to mint/lock/clear states.
 //   - chained dependencies. These are determined when transaction dispatches result in a new chained transactions, where each of
 //     the chained transactions has a dependency link with the chained transactions of previous parent transactions.
+//   - read dependencies. These are determined by the grapher package. A transaction that spends a state depends on every in-flight
+//     transaction that reads it, because a read state must still be unspent when the reader executes on chain. They order
+//     dispatch only: a reader being reset or reverted does not invalidate the spender.
 
 // The dependency tracker also implements a discrete interface DependencyChain which each of the above types of dependency is
 // represented by. Some dependencies are graph-like (e.g. TX3 pre-reqs TX1 and TX2). Some are linked-lists, and the DependencyChain
@@ -37,11 +40,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// DependencyTracker holds three independent dependency chains: pre-assembly, post-assembly, and chained.
+// DependencyTracker holds four independent dependency chains: pre-assembly, post-assembly, chained, and read.
 type DependencyTracker interface {
 	GetPreassemblyDeps() SingleDependencyChain
 	GetPostAssemblyDeps() DependencyChain
 	GetChainedDeps() ChainedTransactionDependencyChain
+	GetReadDeps() DependencyChain
 	Delete(ctx context.Context, txID uuid.UUID)
 }
 
@@ -106,6 +110,7 @@ type dependencyTracker struct {
 	preAssembly  *singleDependencyChain
 	postAssembly *dependencyChain
 	chained      *chainedDependencies
+	read         *dependencyChain
 }
 
 func newDependencyChain() *dependencyChain {
@@ -129,6 +134,7 @@ func NewDependencyTracker() DependencyTracker {
 			unassembledDependencies: make(map[uuid.UUID]map[uuid.UUID]struct{}),
 			children:                make(map[uuid.UUID]uuid.UUID),
 		},
+		read: newDependencyChain(),
 	}
 }
 
@@ -144,10 +150,15 @@ func (dt *dependencyTracker) GetChainedDeps() ChainedTransactionDependencyChain 
 	return dt.chained
 }
 
+func (dt *dependencyTracker) GetReadDeps() DependencyChain {
+	return dt.read
+}
+
 func (dt *dependencyTracker) Delete(ctx context.Context, txID uuid.UUID) {
 	dt.chained.Delete(ctx, txID)
 	dt.postAssembly.Delete(ctx, txID)
 	dt.preAssembly.Delete(ctx, txID)
+	dt.read.Delete(ctx, txID)
 }
 
 func (cd *chainedDependencies) AddUnassembledDependencies(_ context.Context, txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID) {

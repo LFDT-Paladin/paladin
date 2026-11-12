@@ -102,8 +102,8 @@ func action_MarkChainedDependencyUnassembled(ctx context.Context, txn *coordinat
 }
 
 func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	// We emit a DependencyResetEvent for chained and post assembly dependencies whenever we transition to
-	// State_Pooled or State_PreAssembly_Blocked.
+	// We emit a DependencyResetEvent for chained and post assembly dependencies, and a ReadDependencyRemovedEvent
+	// for read dependencies, whenever we transition to State_Pooled or State_PreAssembly_Blocked.
 	// For the initial transition from State_Initial and the transition from State_Assembling to State_Pooled
 	// the only dependents we expect are chained dependencies
 	if err := txn.notifyDependentsOfReset(ctx); err != nil {
@@ -118,6 +118,21 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
+	// Remove the read dependency links before notifying, so a spender that re-checks its dependencies is no
+	// longer held by this transaction as a reader.
+	readDependents := t.dependencyTracker.GetReadDeps().GetDependents(ctx, t.pt.ID)
+	t.dependencyTracker.GetReadDeps().Delete(ctx, t.pt.ID)
+	for _, dependentID := range readDependents {
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &ReadDependencyRemovedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentID,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
+		if err != nil {
+			return err
+		}
+	}
 	for _, dependentID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)...) {
 		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencyResetEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{

@@ -835,6 +835,16 @@ func TestDependencyReadyEvent_TypeString(t *testing.T) {
 	assert.Equal(t, "Event_DependencyReady", event.TypeString())
 }
 
+func TestReadDependencyRemovedEvent_Type(t *testing.T) {
+	event := &ReadDependencyRemovedEvent{}
+	assert.Equal(t, Event_ReadDependencyRemoved, event.Type())
+}
+
+func TestReadDependencyRemovedEvent_TypeString(t *testing.T) {
+	event := &ReadDependencyRemovedEvent{}
+	assert.Equal(t, "Event_ReadDependencyRemoved", event.TypeString())
+}
+
 func TestDependencyReadyEvent_GetTransactionID(t *testing.T) {
 	txID := uuid.New()
 	event := &DependencyReadyEvent{
