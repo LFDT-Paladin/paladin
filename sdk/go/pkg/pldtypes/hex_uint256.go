@@ -105,6 +105,20 @@ func (hi *HexUint256) HexString() string {
 	return hi.Int().Text(16)
 }
 
+// Big-endian, left-padded with zeros - nil is all zeros
+func (hi *HexUint256) Bytes32(ctx context.Context) (Bytes32, error) {
+	var b Bytes32
+	if hi == nil {
+		return b, nil
+	}
+	i := hi.Int()
+	if i.Sign() < 0 || i.BitLen() > 256 {
+		return b, i18n.NewError(ctx, pldmsgs.MsgTypesUint256NotBytes32, i.String())
+	}
+	i.FillBytes(b[:])
+	return b, nil
+}
+
 func (hi *HexUint256) Value() (driver.Value, error) {
 	if hi == nil {
 		return nil, nil

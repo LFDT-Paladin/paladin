@@ -1,8 +1,18 @@
-/*
- * Copyright © 2024 Kaleido, Inc.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// Copyright contributors to Paladin, an LFDT project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package fungible
 
@@ -16,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
@@ -30,7 +41,7 @@ import (
 
 // TestZetoCreateLockArgsTupleABI_RoundTrip ensures createArgs bytes match Solidity abi.decode(createArgs, (ZetoCreateLockArgs)).
 func TestZetoCreateLockArgsTupleABI_RoundTrip(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	wire := zetoCreateLockArgsWireJSON{
 		TxID:          "0x" + strings.Repeat("aa", 32),
 		Inputs:        []string{"0x01", "0x02"},
@@ -64,7 +75,7 @@ func TestZetoCreateLockArgsTupleABI_RoundTrip(t *testing.T) {
 // ethers v6: AbiCoder.encode(["tuple(bytes32,uint256[],uint256[],uint256[],bytes)"], [obj])
 // prefixes the payload with a 0x20 offset word (see zeto_anon.ts encodeCreateArgs).
 func TestZetoCreateLockArgsTupleABI_FirstWordMatchesEthers(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	wire := zetoCreateLockArgsWireJSON{
 		TxID:          "0x" + strings.Repeat("11", 32),
 		Inputs:        []string{"0x01", "0x02"},
@@ -348,4 +359,256 @@ func TestCreateLockAssemble_BadContractAddress(t *testing.T) {
 	}
 	_, err := h.Assemble(ctx, tx, req)
 	require.Error(t, err)
+}
+
+func TestCreateLockAssemble_MissingRecipientVerifier(t *testing.T) {
+	ctx := context.Background()
+	h := NewCreateLockHandler("zeto", mockLockAssembleCallbacks("", nil),
+		testAssembleSchemas().CoinSchema, testAssembleSchemas().MerkleTreeRootSchema, testAssembleSchemas().MerkleTreeNodeSchema, testAssembleSchemas().LockInfoSchema)
+	txSpec := &prototk.TransactionSpecification{
+		From:          "controller@node",
+		TransactionId: "0x" + strings.Repeat("58", 32),
+		ContractInfo:  &prototk.ContractInfo{ContractAddress: "0x1234567890123456789012345678901234567890"},
+	}
+	tx := &types.ParsedTransaction{
+		Transaction: txSpec,
+		DomainConfig: &types.DomainInstanceConfig{
+			TokenName: "Zeto_Anon",
+			Circuits:  &zetosignerapi.Circuits{types.METHOD_TRANSFER: {Name: "anon", UsesNullifiers: false}},
+		},
+		Params: &types.CreateLockParams{
+			From: "controller@node",
+			Recipients: []*types.FungibleTransferParamEntry{
+				{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
+			},
+		},
+	}
+	req := &prototk.AssembleTransactionRequest{
+		Transaction: txSpec,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{Lookup: "controller@node", Verifier: testCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+			{Lookup: "controller@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019", Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS},
+		},
+	}
+	_, err := h.Assemble(ctx, tx, req)
+	require.Error(t, err)
+}
+
+func TestCreateLockAssemble_NullifierWithRemainder(t *testing.T) {
+	ctx := context.Background()
+	cb := newMerkleNullifierCallbacks("coin", merkleUTXOCoinOwnerBJJ)
+	h := NewCreateLockHandler("zeto", cb,
+		testAssembleSchemas().CoinSchema, testAssembleSchemas().MerkleTreeRootSchema,
+		testAssembleSchemas().MerkleTreeNodeSchema, testAssembleSchemas().LockInfoSchema)
+	txSpec := &prototk.TransactionSpecification{
+		From:          "controller@node",
+		TransactionId: "0x" + strings.Repeat("5b", 32),
+		ContractInfo:  &prototk.ContractInfo{ContractAddress: "0x1234567890123456789012345678901234567890"},
+	}
+	tx := &types.ParsedTransaction{
+		Transaction: txSpec,
+		DomainConfig: &types.DomainInstanceConfig{
+			TokenName: constants.TOKEN_ANON_NULLIFIER,
+			Circuits:  &zetosignerapi.Circuits{types.METHOD_TRANSFER: {Name: "anon", UsesNullifiers: true}},
+		},
+		Params: &types.CreateLockParams{
+			From: "controller@node",
+			Recipients: []*types.FungibleTransferParamEntry{
+				{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
+			},
+		},
+	}
+	req := &prototk.AssembleTransactionRequest{
+		Transaction: txSpec,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{Lookup: "controller@node", Verifier: merkleUTXOCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+			{Lookup: "controller@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019", Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS},
+			{Lookup: "recipient@node", Verifier: merkleUTXOCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+		},
+	}
+	res, err := h.Assemble(ctx, tx, req)
+	require.NoError(t, err)
+	assert.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
+	assert.Greater(t, len(res.AssembledTransaction.OutputStates), 2)
+}
+
+func TestCreateLockAssemble_NullifierTokenSuccess(t *testing.T) {
+	ctx := context.Background()
+	cb := newMerkleNullifierCallbacks("coin", merkleUTXOCoinOwnerBJJ)
+	h := NewCreateLockHandler("zeto", cb,
+		testAssembleSchemas().CoinSchema, testAssembleSchemas().MerkleTreeRootSchema,
+		testAssembleSchemas().MerkleTreeNodeSchema, testAssembleSchemas().LockInfoSchema)
+	txSpec := &prototk.TransactionSpecification{
+		From:          "controller@node",
+		TransactionId: "0x" + strings.Repeat("5a", 32),
+		ContractInfo:  &prototk.ContractInfo{ContractAddress: "0x1234567890123456789012345678901234567890"},
+	}
+	tx := &types.ParsedTransaction{
+		Transaction: txSpec,
+		DomainConfig: &types.DomainInstanceConfig{
+			TokenName: constants.TOKEN_ANON_NULLIFIER,
+			Circuits:  &zetosignerapi.Circuits{types.METHOD_TRANSFER: {Name: "anon", UsesNullifiers: true}},
+		},
+		Params: &types.CreateLockParams{
+			From: "controller@node",
+			Recipients: []*types.FungibleTransferParamEntry{
+				{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
+			},
+		},
+	}
+	req := &prototk.AssembleTransactionRequest{
+		Transaction: txSpec,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{Lookup: "controller@node", Verifier: merkleUTXOCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+			{Lookup: "controller@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019", Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS},
+			{Lookup: "recipient@node", Verifier: merkleUTXOCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+		},
+	}
+	res, err := h.Assemble(ctx, tx, req)
+	require.NoError(t, err)
+	assert.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
+	assert.NotEmpty(t, res.AttestationPlan)
+}
+
+func TestCreateLockAssemble_RevertInsufficientInputs(t *testing.T) {
+	ctx := context.Background()
+	h := NewCreateLockHandler("zeto", mockLockAssembleCallbacks("", map[string]string{
+		"coin-in-1": testCoinJSONAmount(false, "0x01"),
+	}), testAssembleSchemas().CoinSchema, testAssembleSchemas().MerkleTreeRootSchema, testAssembleSchemas().MerkleTreeNodeSchema, testAssembleSchemas().LockInfoSchema)
+	txSpec := &prototk.TransactionSpecification{
+		From:          "controller@node",
+		TransactionId: "0x" + strings.Repeat("3f", 32),
+		ContractInfo:  &prototk.ContractInfo{ContractAddress: "0x1234567890123456789012345678901234567890"},
+	}
+	tx := &types.ParsedTransaction{
+		Transaction: txSpec,
+		DomainConfig: &types.DomainInstanceConfig{
+			TokenName: "Zeto_Anon",
+			Circuits:  &zetosignerapi.Circuits{types.METHOD_TRANSFER: {Name: "anon", UsesNullifiers: false}},
+		},
+		Params: &types.CreateLockParams{
+			From: "controller@node",
+			Recipients: []*types.FungibleTransferParamEntry{
+				nil,
+				{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(100)},
+			},
+		},
+	}
+	req := &prototk.AssembleTransactionRequest{
+		Transaction: txSpec,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{Lookup: "controller@node", Verifier: testCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+			{Lookup: "controller@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019", Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS},
+			{Lookup: "recipient@node", Verifier: testCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+		},
+	}
+	res, err := h.Assemble(ctx, tx, req)
+	require.NoError(t, err)
+	assert.Equal(t, prototk.AssembleTransactionResponse_REVERT, res.AssemblyResult)
+}
+
+type createLockRemainderCallbacks struct {
+	lockAssembleCallbacks
+}
+
+func (c *createLockRemainderCallbacks) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+	if req.SchemaId == "coin" {
+		return &prototk.FindAvailableStatesResponse{
+			States: []*prototk.StoredState{{
+				Id: "coin-in-1", DataJson: testCoinJSONAmount(false, "0x05"),
+			}},
+		}, nil
+	}
+	return &prototk.FindAvailableStatesResponse{}, nil
+}
+
+func TestCreateLockAssemble_WithRemainderOutput(t *testing.T) {
+	ctx := context.Background()
+	h := NewCreateLockHandler("zeto", &createLockRemainderCallbacks{},
+		testAssembleSchemas().CoinSchema, testAssembleSchemas().MerkleTreeRootSchema, testAssembleSchemas().MerkleTreeNodeSchema, testAssembleSchemas().LockInfoSchema)
+
+	txSpec := &prototk.TransactionSpecification{
+		From:          "controller@node",
+		TransactionId: "0x" + strings.Repeat("99", 32),
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress: "0x1234567890123456789012345678901234567890",
+		},
+	}
+	tx := &types.ParsedTransaction{
+		Transaction: txSpec,
+		DomainConfig: &types.DomainInstanceConfig{
+			TokenName: "Zeto_Anon",
+			Circuits: &zetosignerapi.Circuits{
+				types.METHOD_TRANSFER: {Name: "anon", UsesNullifiers: false},
+			},
+		},
+		Params: &types.CreateLockParams{
+			From: "controller@node",
+			Recipients: []*types.FungibleTransferParamEntry{
+				{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
+			},
+		},
+	}
+	req := &prototk.AssembleTransactionRequest{
+		Transaction: txSpec,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{Lookup: "controller@node", Verifier: testCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+			{Lookup: "controller@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019", Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS},
+			{Lookup: "recipient@node", Verifier: testCoinOwnerBJJ, Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X},
+		},
+	}
+	res, err := h.Assemble(ctx, tx, req)
+	require.NoError(t, err)
+	require.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
+	require.Greater(t, len(res.AssembledTransaction.OutputStates), 2)
+}
+
+func TestCreateLockAssemble_Success(t *testing.T) {
+	ctx := context.Background()
+	h := NewCreateLockHandler("zeto", mockLockAssembleCallbacks("", nil),
+		testAssembleSchemas().CoinSchema, testAssembleSchemas().MerkleTreeRootSchema, testAssembleSchemas().MerkleTreeNodeSchema, testAssembleSchemas().LockInfoSchema)
+
+	txSpec := &prototk.TransactionSpecification{
+		From:          "controller@node",
+		TransactionId: "0x" + strings.Repeat("88", 32),
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress: "0x1234567890123456789012345678901234567890",
+		},
+	}
+	tx := &types.ParsedTransaction{
+		Transaction: txSpec,
+		DomainConfig: &types.DomainInstanceConfig{
+			TokenName: "Zeto_Anon",
+			Circuits: &zetosignerapi.Circuits{
+				types.METHOD_TRANSFER: {Name: "anon", UsesNullifiers: false},
+			},
+		},
+		Params: &types.CreateLockParams{
+			From: "controller@node",
+			Recipients: []*types.FungibleTransferParamEntry{
+				{To: "recipient@node", Amount: pldtypes.Uint64ToUint256(1)},
+			},
+		},
+	}
+	req := &prototk.AssembleTransactionRequest{
+		Transaction: txSpec,
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			{
+				Lookup: "controller@node", Verifier: testCoinOwnerBJJ,
+				Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
+			},
+			{
+				Lookup: "controller@node", Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019",
+				Algorithm: algorithms.ECDSA_SECP256K1, VerifierType: verifiers.ETH_ADDRESS,
+			},
+			{
+				Lookup: "recipient@node", Verifier: testCoinOwnerBJJ,
+				Algorithm: h.getAlgoZetoSnarkBJJ(), VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
+			},
+		},
+	}
+	res, err := h.Assemble(ctx, tx, req)
+	require.NoError(t, err)
+	require.Equal(t, prototk.AssembleTransactionResponse_OK, res.AssemblyResult)
+	assert.NotEmpty(t, res.AttestationPlan)
 }

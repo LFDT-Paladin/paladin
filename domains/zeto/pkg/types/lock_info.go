@@ -1,8 +1,18 @@
-/*
- * Copyright © 2026 Kaleido, Inc.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// Copyright contributors to Paladin, an LFDT project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package types
 
@@ -33,21 +43,21 @@ type ZetoLockInfoState struct {
 	Salt   *pldtypes.HexUint256 `json:"salt"`
 	LockID pldtypes.Bytes32     `json:"lockId"`
 
-	Owner   string `json:"owner"`   // 0x-prefixed ETH address hex
-	Spender string `json:"spender"` // 0x-prefixed ETH address hex
+	Owner   *pldtypes.EthAddress `json:"owner"`
+	Spender *pldtypes.EthAddress `json:"spender"`
 
 	// Locked collateral commitments (shared proof inputs for spendLock and cancelLock).
-	LockedOutputs []string `json:"lockedOutputs"`
+	LockedOutputs []pldtypes.HexUint256 `json:"lockedOutputs"`
 
 	// Preimage for spend commitment (see _buildUnlockHash with _SPEND_HASH_DOMAIN).
-	SpendOutputs    []string          `json:"spendOutputs"`
-	SpendData       pldtypes.HexBytes `json:"spendData"`
-	SpendCommitment pldtypes.Bytes32  `json:"spendCommitment"`
+	SpendOutputs    []pldtypes.HexUint256 `json:"spendOutputs"`
+	SpendData       pldtypes.HexBytes     `json:"spendData"`
+	SpendCommitment pldtypes.Bytes32      `json:"spendCommitment"`
 
 	// Preimage for cancel commitment (see _buildUnlockHash with _CANCEL_HASH_DOMAIN).
-	CancelOutputs    []string          `json:"cancelOutputs"`
-	CancelData       pldtypes.HexBytes `json:"cancelData"`
-	CancelCommitment pldtypes.Bytes32  `json:"cancelCommitment"`
+	CancelOutputs    []pldtypes.HexUint256 `json:"cancelOutputs"`
+	CancelData       pldtypes.HexBytes     `json:"cancelData"`
+	CancelCommitment pldtypes.Bytes32      `json:"cancelCommitment"`
 
 	// Opaque copy of IZetoFungible_V1.createLock unlockData from the createLock request.
 	// No omitempty: ZetoLockInfoState AbiStateSchema validation requires this key (bytes may be empty "0x").

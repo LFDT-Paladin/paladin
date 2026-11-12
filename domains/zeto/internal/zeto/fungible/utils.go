@@ -120,6 +120,18 @@ func utxosFromCoins(ctx context.Context, coins []*types.ZetoCoin, desiredSize in
 	return utxos, nil
 }
 
+func coinHashes(ctx context.Context, coins []*types.ZetoCoin) ([]pldtypes.HexUint256, error) {
+	hashes := make([]pldtypes.HexUint256, len(coins))
+	for i, coin := range coins {
+		hash, err := coin.Hash(ctx)
+		if err != nil {
+			return nil, i18n.NewError(ctx, msgs.MsgErrorParseOutputStates, err)
+		}
+		hashes[i] = *hash
+	}
+	return hashes, nil
+}
+
 func utxosFromStates(ctx context.Context, states []*prototk.EndorsableState, desiredSize int, isInputs bool) ([]string, error) {
 	utxos := make([]string, desiredSize)
 	for i := 0; i < desiredSize; i++ {
@@ -486,21 +498,6 @@ func qualifyPartyLookup(lookup, txFrom string) string {
 		return lookup + txFrom[at:]
 	}
 	return lookup
-}
-
-// cancelRecipientsFromLockInfo parses cancelData JSON pinned at createLock.
-func cancelRecipientsFromLockInfo(ctx context.Context, li *types.ZetoLockInfoState) ([]*types.FungibleTransferParamEntry, error) {
-	if len(li.CancelData) == 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingCancelData, li.LockID.HexString0xPrefix())
-	}
-	var parsed []*types.FungibleTransferParamEntry
-	if err := json.Unmarshal(li.CancelData, &parsed); err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid cancelData (recipients JSON) in lock info")
-	}
-	if len(parsed) == 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingCancelData, li.LockID.HexString0xPrefix())
-	}
-	return parsed, nil
 }
 
 // cancelRecipientsForLockInfoJSON returns the single owner return entry for cancelLock (locked collateral total).

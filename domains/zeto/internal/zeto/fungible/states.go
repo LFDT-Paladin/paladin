@@ -54,7 +54,11 @@ func makeNewState(ctx context.Context, coinSchema *prototk.StateSchema, useNulli
 	if err != nil {
 		return nil, err
 	}
-	hashStr := common.HexUint256To32ByteHexString(hash)
+	id, err := hash.Bytes32(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hashStr := id.String()
 	newState := &pb.NewState{
 		Id:               &hashStr,
 		SchemaId:         coinSchema.Id,
@@ -114,7 +118,11 @@ func makeNewInfoState(ctx context.Context, dataSchema *prototk.StateSchema, info
 	if err != nil {
 		return nil, err
 	}
-	hashStr := common.HexUint256To32ByteHexString(hash)
+	id, err := hash.Bytes32(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hashStr := id.String()
 	return &prototk.NewState{
 		Id:               &hashStr,
 		SchemaId:         dataSchema.Id,
@@ -231,7 +239,7 @@ func prepareTransactionInfoStates(ctx context.Context, data pldtypes.HexBytes, d
 }
 
 // loadCoinStatesByIDs loads fungible coin states by Paladin state id (.id), in the same order as stateIDs.
-func loadCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, useNullifiers bool, stateQueryContext string, stateIDs []string, requireLocked bool) (*preparedInputs, []*prototk.StoredState, bool, error) {
+func loadCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, useNullifiers bool, stateQueryContext string, stateIDs []pldtypes.Bytes32, requireLocked bool) (*preparedInputs, []*prototk.StoredState, bool, error) {
 	stored, err := getCoinStatesByIDs(ctx, callbacks, coinSchema, stateQueryContext, stateIDs)
 	if err != nil {
 		return nil, nil, false, err
@@ -239,20 +247,10 @@ func loadCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks
 	if len(stored) != len(stateIDs) {
 		return nil, nil, true, i18n.NewError(ctx, msgs.MsgFailedToQueryStatesById, len(stateIDs), len(stored))
 	}
-	byID := make(map[string]*prototk.StoredState, len(stored))
-	for _, st := range stored {
-		byID[st.Id] = st
-	}
 	coins := make([]*types.ZetoCoin, len(stateIDs))
 	refs := make([]*prototk.StateRef, 0, len(stateIDs))
-	orderedStored := make([]*prototk.StoredState, len(stateIDs))
 	total := big.NewInt(0)
-	for i, id := range stateIDs {
-		st := byID[id]
-		if st == nil {
-			return nil, nil, true, i18n.NewError(ctx, msgs.MsgFailedToQueryStatesById, len(stateIDs), len(stored))
-		}
-		orderedStored[i] = st
+	for i, st := range stored {
 		var coin types.ZetoCoin
 		if err := json.Unmarshal([]byte(st.DataJson), &coin); err != nil {
 			return nil, nil, true, i18n.NewError(ctx, msgs.MsgErrorUnmarshalStateData, err)
@@ -268,18 +266,22 @@ func loadCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks
 		total = total.Add(total, coin.Amount.Int())
 		refs = append(refs, &prototk.StateRef{SchemaId: st.SchemaId, Id: st.Id})
 	}
-	return &preparedInputs{coins: coins, states: refs, total: total}, orderedStored, false, nil
+	return &preparedInputs{coins: coins, states: refs, total: total}, stored, false, nil
 }
 
 // getCoinStatesByIDs loads coin rows by id including unconfirmed InfoStates (e.g. createLock spend-pinned outputs).
-func getCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, stateQueryContext string, stateIDs []string) ([]*prototk.StoredState, error) {
+func getCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, stateQueryContext string, stateIDs []pldtypes.Bytes32) ([]*prototk.StoredState, error) {
 	if len(stateIDs) == 0 {
 		return nil, nil
+	}
+	reqIDs := make([]string, len(stateIDs))
+	for i, id := range stateIDs {
+		reqIDs[i] = id.String()
 	}
 	res, err := callbacks.GetStatesByID(ctx, &prototk.GetStatesByIDRequest{
 		StateQueryContext: stateQueryContext,
 		SchemaId:          coinSchema.Id,
-		StateIds:          stateIDs,
+		StateIds:          reqIDs,
 	})
 	if err != nil {
 		return nil, err
@@ -287,9 +289,13 @@ func getCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks,
 	if res == nil || len(res.States) == 0 {
 		return nil, nil
 	}
-	byID := make(map[string]*prototk.StoredState, len(res.States))
+	byID := make(map[pldtypes.Bytes32]*prototk.StoredState, len(res.States))
 	for _, st := range res.States {
-		byID[st.Id] = st
+		id, err := pldtypes.ParseBytes32Ctx(ctx, st.Id)
+		if err != nil {
+			return nil, err
+		}
+		byID[id] = st
 	}
 	ordered := make([]*prototk.StoredState, 0, len(stateIDs))
 	for _, id := range stateIDs {
