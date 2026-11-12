@@ -110,7 +110,7 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 			},
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error notifying dependents of readiness for TX %s: %s", t.pt.ID, err)
+			return err
 		}
 	}
 	return nil

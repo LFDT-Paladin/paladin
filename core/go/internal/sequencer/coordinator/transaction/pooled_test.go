@@ -265,7 +265,7 @@ func Test_notifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
 	assert.Equal(t, 0, queued)
 }
 
-func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
+func Test_action_NotifyDependentsOfReset_DependentNotInMemory(t *testing.T) {
 	ctx := t.Context()
 	grapher, depTracker := newTestGrapher()
 
@@ -286,7 +286,7 @@ func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, mockDependentID, mainTxn.pt.ID)
 
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
-	require.NoError(t, err)
+	assert.ErrorContains(t, err, "PD012645")
 	assert.Equal(t, 0, queued)
 }
 
