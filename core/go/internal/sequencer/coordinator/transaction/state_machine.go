@@ -84,6 +84,7 @@ const (
 	Event_PreAssembleDependencyTerminated                                                       // the pre-assemble (FIFO ordering) predecessor has reached a terminal state
 	Event_PrepareSucceeded                                                                      // the prepare goroutine built the dispatch
 	Event_PrepareFailed                                                                         // the prepare goroutine exhausted its retries
+	Event_ReadDependencyRemoved                                                                 // another transaction, which reads a state this transaction spends, has been reset or reverted
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -366,7 +367,7 @@ var stateDefinitionsMap = StateDefinitions{
 						{
 							If:      guard_CanRetryErroredSign,
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 						{
 							If: statemachine.GuardNot(guard_CanRetryErroredSign),
@@ -389,7 +390,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{
 						{
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 					},
 				}},
@@ -400,7 +401,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{
 						{
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 					},
 				}},
@@ -424,7 +425,7 @@ var stateDefinitionsMap = StateDefinitions{
 						{
 							If:      guard_CanRetryErroredAssemble,
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 						{
 							If: statemachine.GuardNot(guard_CanRetryErroredAssemble),
@@ -447,7 +448,7 @@ var stateDefinitionsMap = StateDefinitions{
 					),
 					Transitions: []Transition{{
 						To:      State_Pooled,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 					}},
 				}, {
 					// Originator does not recognise this node as the active coordinator; evict.
@@ -476,7 +477,7 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 					Transitions: []Transition{{
 						To:      State_PreAssembly_Blocked,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 					}},
 				}},
 			},
@@ -489,7 +490,7 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 					Transitions: []Transition{{
 						To:      State_PreAssembly_Blocked,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 					}},
 				}},
 			},
@@ -564,7 +565,7 @@ var stateDefinitionsMap = StateDefinitions{
 						{
 							If:      guard_CanRetryErroredSign,
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 						{
 							If: statemachine.GuardNot(guard_CanRetryErroredSign),
@@ -579,7 +580,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{
 						{
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 					},
 				}},
@@ -651,7 +652,6 @@ var stateDefinitionsMap = StateDefinitions{
 							To: State_Reverted,
 							Actions: []ActionRule{
 								{Action: action_NotifyOriginatorOfEndorseRevert},
-								{Action: action_NotifyDependentsOfRevertedConfirmation},
 								{Action: action_FinalizeEndorseRevert},
 							},
 						},
@@ -659,7 +659,7 @@ var stateDefinitionsMap = StateDefinitions{
 							If: guard_EndorseFailureExceedsTolerance,
 							To: State_Pooled,
 							Actions: []ActionRule{
-								{Action: action_NotifyDependentsOfReset},
+								{Action: action_NotifyDependentsOfResetAndForgetLocks},
 								{Action: action_ResetEndorsementRequests},
 							},
 						},
@@ -679,7 +679,7 @@ var stateDefinitionsMap = StateDefinitions{
 						If: guard_EndorseFailureExceedsTolerance,
 						To: State_Pooled,
 						Actions: []ActionRule{
-							{Action: action_NotifyDependentsOfReset},
+							{Action: action_NotifyDependentsOfResetAndForgetLocks},
 							{Action: action_ResetEndorsementRequests},
 						},
 					}},
@@ -696,7 +696,7 @@ var stateDefinitionsMap = StateDefinitions{
 						If: guard_EndorseFailureExceedsTolerance,
 						To: State_Pooled,
 						Actions: []ActionRule{
-							{Action: action_NotifyDependentsOfReset},
+							{Action: action_NotifyDependentsOfResetAndForgetLocks},
 							{Action: action_ResetEndorsementRequests},
 						},
 					}},
@@ -716,7 +716,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{
 						{
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 					},
 				}},
@@ -733,20 +733,8 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Blocked: {
 		Events: map[EventType]EventHandlers{
-			Event_DependencyReady: {
-				Match: statemachine.MatchFirst,
-				Handlers: []EventHandler{{
-					Actions: []ActionRule{
-						{
-							Action: action_UpdateSigningIdentity,
-							If:     statemachine.GuardNot(guard_HasSigner),
-						}},
-					Transitions: []Transition{{
-						To: State_Confirming_Dispatchable,
-						If: statemachine.GuardNot(guard_HasDependenciesNotReady),
-					}},
-				}},
-			},
+			Event_DependencyReady:       dependencyReadyHandler,
+			Event_ReadDependencyRemoved: readDependencyRemovedHandler,
 			// When we see a dependency reset or revert while in Blocked:
 			// - A transaction with a chained dependency will always go to PreAssembly_Blocked as its
 			// chained dependency is now unassembled.
@@ -782,7 +770,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Transitions: []Transition{
 						{
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 					},
 				}},
@@ -821,7 +809,7 @@ var stateDefinitionsMap = StateDefinitions{
 							To: State_Pooled,
 							Actions: []ActionRule{
 								{Action: action_DispatchRequestRejected},
-								{Action: action_NotifyDependentsOfReset},
+								{Action: action_NotifyDependentsOfResetAndForgetLocks},
 							},
 						},
 					},
@@ -871,7 +859,7 @@ var stateDefinitionsMap = StateDefinitions{
 							// TODO: exhausting the prepare retries repools indefinitely - should an eviction
 							// threshold apply here, as it does for assemble errors?
 							To:      State_Pooled,
-							Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+							Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 						},
 					},
 				}},
@@ -956,7 +944,7 @@ var stateDefinitionsMap = StateDefinitions{
 							To: State_PreAssembly_Blocked,
 							Actions: []ActionRule{
 								{Action: action_NotifyOriginatorOfRetryableRevert},
-								{Action: action_NotifyDependentsOfReset},
+								{Action: action_NotifyDependentsOfResetAndForgetLocks},
 							},
 						},
 						{
@@ -964,16 +952,14 @@ var stateDefinitionsMap = StateDefinitions{
 							To: State_Pooled,
 							Actions: []ActionRule{
 								{Action: action_NotifyOriginatorOfRetryableRevert},
-								{Action: action_NotifyDependentsOfReset},
+								{Action: action_NotifyDependentsOfResetAndForgetLocks},
 							},
 						},
 						{
 							If: statemachine.GuardNot(guard_CanRetryRevert),
 							To: State_Reverted,
 							Actions: []ActionRule{
-								{Action: action_RevertTransactionInGrapher},
 								{Action: action_NotifyOriginatorOfNonRetryableRevert},
-								{Action: action_NotifyDependentsOfRevertedConfirmation},
 								{Action: action_FinalizeNonRetryableRevert},
 							},
 						},
@@ -986,10 +972,7 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_IsChainedDependency,
 					Actions:   []ActionRule{{Action: action_MarkChainedDependencyUnassembled}},
 				}, {
-					Actions: []ActionRule{
-						{Action: action_ResetTransactionLocks},
-						{Action: action_NotifyDependentsOfReset},
-					},
+					Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 				}},
 			},
 			// This event will be received if a chained dependency has reverted, we are still waiting for
@@ -1007,27 +990,15 @@ var stateDefinitionsMap = StateDefinitions{
 					Validator: validator_IsChainedDependency,
 					Actions:   []ActionRule{{Action: action_MarkChainedDependencyUnassembled}},
 				}, {
-					Actions: []ActionRule{
-						{Action: action_ResetTransactionLocks},
-						{Action: action_NotifyDependentsOfReset},
-					},
+					Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 				}},
 			},
-			Event_ChainedDependencyFailed: {
-				Match: statemachine.MatchFirst,
-				Handlers: []EventHandler{{
-					Actions: []ActionRule{
-						{Action: action_FinalizeOnChainedDependencyFailure},
-						{Action: action_NotifyOriginatorOfChainedDependencyFailure},
-					},
-					Transitions: []Transition{{To: State_Reverted}},
-				}},
-			},
+			Event_ChainedDependencyFailed: chainedDependencyFailedHandler,
 		},
 	},
 	State_Reverted: {
 		OnTransitionTo: []ActionRule{
-			{Action: action_ResetTransactionLocks},
+			{Action: action_NotifyDependentsOfRevertedConfirmationAndForgetLocks},
 			{Action: action_CascadeChainedDependencyFailure},
 			{Action: action_NotifyPreAssembleDependentOfTermination},
 		},

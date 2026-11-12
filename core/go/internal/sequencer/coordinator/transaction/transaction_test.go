@@ -165,6 +165,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	transaction1.getCoordinatorTransactionState = stateLookup
 	transaction2.getCoordinatorTransactionState = stateLookup
 	transaction3.getCoordinatorTransactionState = stateLookup
+	transaction1.coordinatorTransactionHandleEvent = coordinatorTransactionHandleEvent(txByID)
+	transaction2.coordinatorTransactionHandleEvent = coordinatorTransactionHandleEvent(txByID)
 
 	transaction3Mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 

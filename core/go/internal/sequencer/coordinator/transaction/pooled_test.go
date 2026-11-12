@@ -33,14 +33,6 @@ func removeFromDependencyPrereqOf(ctx context.Context, txn *coordinatorTransacti
 	txn.dependencyTracker.GetPostAssemblyDeps().ClearPrerequisites(ctx, txn.pt.ID)
 }
 
-func Test_action_ResetTransactionLocks(t *testing.T) {
-	ctx := t.Context()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
-
-	err := action_ResetTransactionLocks(ctx, txn, nil)
-	require.NoError(t, err)
-}
-
 func Test_action_InitializeForNewAssembly_Success(t *testing.T) {
 	ctx := t.Context()
 	grapher, depTracker := newTestGrapher()
@@ -180,7 +172,7 @@ func Test_guard_HasDependenciesNotReady_DependencyReadyForDispatch(t *testing.T)
 	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
 }
 
-func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
+func Test_action_NotifyDependentsOfResetAndForgetLocks_WithDependents(t *testing.T) {
 	ctx := t.Context()
 	grapher, depTracker := newTestGrapher()
 
@@ -202,19 +194,19 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, dependentTxn.pt.ID, mainTxn.pt.ID)
 
-	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
+	err := action_NotifyDependentsOfResetAndForgetLocks(ctx, mainTxn, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, State_Pooled, dependentTxn.GetCurrentState())
 }
 
-func Test_action_NotifyDependentsOfReset_InitialTransitionHasNoDependents(t *testing.T) {
+func Test_action_NotifyDependentsOfResetAndForgetLocks_InitialTransitionHasNoDependents(t *testing.T) {
 	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		PreAssembly(&prototk.TransactionPreAssembly{}).
 		Build()
 
-	err := action_NotifyDependentsOfReset(ctx, txn, nil)
+	err := action_NotifyDependentsOfResetAndForgetLocks(ctx, txn, nil)
 	require.NoError(t, err)
 }
 
@@ -265,7 +257,7 @@ func Test_notifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
 	assert.Equal(t, 0, queued)
 }
 
-func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
+func Test_action_NotifyDependentsOfResetAndForgetLocks_DependentNotInMemory(t *testing.T) {
 	ctx := t.Context()
 	grapher, depTracker := newTestGrapher()
 
@@ -285,8 +277,8 @@ func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.
 
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, mockDependentID, mainTxn.pt.ID)
 
-	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
-	require.NoError(t, err)
+	err := action_NotifyDependentsOfResetAndForgetLocks(ctx, mainTxn, nil)
+	assert.ErrorContains(t, err, "PD012645")
 	assert.Equal(t, 0, queued)
 }
 
@@ -379,7 +371,7 @@ func TestDependsOn_SurviveRepool_InitializeForNewAssembly(t *testing.T) {
 	assert.Empty(t, depTracker.GetPostAssemblyDeps().GetPrerequisites(ctx, txn.pt.ID))
 }
 
-func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfReset(t *testing.T) {
+func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfResetAndForgetLocks(t *testing.T) {
 	ctx := t.Context()
 	grapher, depTracker := newTestGrapher()
 
@@ -396,7 +388,7 @@ func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfReset(t *testing.T) {
 
 	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
-	err := action_NotifyDependentsOfReset(ctx, txn, nil)
+	err := action_NotifyDependentsOfResetAndForgetLocks(ctx, txn, nil)
 	require.NoError(t, err)
 
 	assert.Empty(t, grapher.GetDependencies(ctx, txn.pt.ID))
@@ -1152,4 +1144,98 @@ func Test_PreAssembleDependencyFinalized_StaysBlockedWithChainedDeps(t *testing.
 	_, ok := depTracker.GetPreassemblyDeps().GetPrerequisite(ctx, txn.pt.ID)
 	assert.False(t, ok)
 	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
+}
+
+func Test_action_NotifyDependentsOfResetAndForgetLocks_ReadDependentNotRepooled(t *testing.T) {
+	ctx := t.Context()
+	g, depTracker := newTestGrapher()
+	stateID := uuid.NewString()
+
+	spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(g).DependencyTracker(depTracker).
+		Build()
+	reader, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(g).DependencyTracker(depTracker).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			spender.pt.ID: spender,
+		}).
+		Build()
+	spender.getCoordinatorTransactionState = coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+		spender.pt.ID: spender,
+		reader.pt.ID:  reader,
+	})
+
+	g.LockMintsOnReadAndSpend(ctx, []*prototk.EndorsableState{{Id: stateID}}, nil, reader.pt.ID)
+	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: stateID}}, spender.pt.ID)
+	require.True(t, spender.hasDependenciesNotReady(ctx))
+
+	err := action_NotifyDependentsOfResetAndForgetLocks(ctx, reader, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, State_Confirming_Dispatchable, spender.GetCurrentState())
+	assert.Empty(t, depTracker.GetReadDeps().GetPrerequisites(ctx, spender.pt.ID))
+}
+
+func Test_NotifyDependentsActions_ReadDependentHandleEventError(t *testing.T) {
+	for name, action := range map[string]func(context.Context, *coordinatorTransaction, common.Event) error{
+		"reset":              action_NotifyDependentsOfResetAndForgetLocks,
+		"reverted confirmed": action_NotifyDependentsOfRevertedConfirmationAndForgetLocks,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			g, depTracker := newTestGrapher()
+
+			// The spender's transition to Confirming_Dispatchable fails to hash when PostAssembly is nil.
+			spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+				Grapher(g).DependencyTracker(depTracker).
+				Build()
+			spender.pt.PostAssembly = nil
+			reader, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+				Grapher(g).DependencyTracker(depTracker).
+				CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+					spender.pt.ID: spender,
+				}).
+				Build()
+			spender.getCoordinatorTransactionState = coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+				spender.pt.ID: spender,
+			})
+			stateID := uuid.NewString()
+			g.LockMintsOnReadAndSpend(ctx, []*prototk.EndorsableState{{Id: stateID}}, nil, reader.pt.ID)
+			g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: stateID}}, spender.pt.ID)
+
+			err := action(ctx, reader, nil)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "PD012645")
+			assert.Empty(t, depTracker.GetReadDeps().GetPrerequisites(ctx, spender.pt.ID))
+		})
+	}
+}
+
+func Test_action_NotifyDependentsOfRevertedConfirmationAndForgetLocks_UnblocksReadDependent(t *testing.T) {
+	ctx := t.Context()
+	g, depTracker := newTestGrapher()
+	stateID := uuid.NewString()
+
+	spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(g).DependencyTracker(depTracker).
+		Build()
+	reader, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(g).DependencyTracker(depTracker).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			spender.pt.ID: spender,
+		}).
+		Build()
+	spender.getCoordinatorTransactionState = coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+		spender.pt.ID: spender,
+		reader.pt.ID:  reader,
+	})
+
+	g.LockMintsOnReadAndSpend(ctx, []*prototk.EndorsableState{{Id: stateID}}, nil, reader.pt.ID)
+	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: stateID}}, spender.pt.ID)
+	require.True(t, spender.hasDependenciesNotReady(ctx))
+
+	err := action_NotifyDependentsOfRevertedConfirmationAndForgetLocks(ctx, reader, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, State_Confirming_Dispatchable, spender.GetCurrentState())
 }

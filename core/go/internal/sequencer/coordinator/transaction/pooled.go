@@ -46,14 +46,6 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	return nil
 }
 
-func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	log.L(ctx).Debugf("resetting transaction locks for %s", txn.pt.ID.String())
-	// Clear minted-state index immediately when resetting in-memory transaction state to avoid
-	// later assembles binding to stale minters that have already been reset/reverted.
-	txn.grapher.ForgetTransactionAndLocks(ctx, txn.pt.ID)
-	return nil
-}
-
 func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
 	return txn.dependencyTracker.GetPreassemblyDeps().HasPrerequisite(ctx, txn.pt.ID) ||
 		txn.dependencyTracker.GetChainedDeps().HasUnassembledDependencies(ctx, txn.pt.ID)
@@ -101,12 +93,14 @@ func action_MarkChainedDependencyUnassembled(ctx context.Context, txn *coordinat
 	return nil
 }
 
-func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	// We emit a DependencyResetEvent for chained and post assembly dependencies whenever we transition to
-	// State_Pooled or State_PreAssembly_Blocked.
+func action_NotifyDependentsOfResetAndForgetLocks(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	// We emit a DependencyResetEvent for chained and post assembly dependencies, and a ReadDependencyRemovedEvent
+	// for read dependencies, whenever we transition to State_Pooled or State_PreAssembly_Blocked.
 	// For the initial transition from State_Initial and the transition from State_Assembling to State_Pooled
 	// the only dependents we expect are chained dependencies
-	txn.notifyDependentsOfReset(ctx)
+	if err := txn.notifyDependentsOfReset(ctx); err != nil {
+		return err
+	}
 
 	// Once dependents have been notified of reset, remove ourselves from the grapher (and indirectly
 	// clear post-assemble dependencies) so repeated reset events while dispatched are no-ops and stale
@@ -115,7 +109,22 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	return nil
 }
 
-func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
+func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
+	// Remove the read dependency links before notifying, so a spender that re-checks its dependencies is no
+	// longer held by this transaction as a reader.
+	readDependents := t.dependencyTracker.GetReadDeps().GetDependents(ctx, t.pt.ID)
+	t.dependencyTracker.GetReadDeps().Delete(ctx, t.pt.ID)
+	for _, dependentID := range readDependents {
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &ReadDependencyRemovedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentID,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
+		if err != nil {
+			return err
+		}
+	}
 	for _, dependentID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)...) {
 		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencyResetEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -124,9 +133,10 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
 			SourceTransactionID: t.pt.ID,
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error notifying dependents of reset for TX %s: %s", t.pt.ID, err)
+			return err
 		}
 	}
+	return nil
 }
 
 // guard_HasRevertedChainedDependency returns true if any chained dependency is in State_Reverted.

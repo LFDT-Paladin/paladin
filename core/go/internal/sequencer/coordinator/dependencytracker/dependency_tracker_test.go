@@ -29,15 +29,18 @@ func TestNewDependencyTracker_GettersReturnDistinctChains(t *testing.T) {
 	pre := tr.GetPreassemblyDeps()
 	post := tr.GetPostAssemblyDeps()
 	ch := tr.GetChainedDeps()
+	read := tr.GetReadDeps()
 	a, b, c := uuid.New(), uuid.New(), uuid.New()
 	pre.AddPrerequisite(t.Context(), a, b)
 	post.AddPrerequisites(t.Context(), a, b, c)
 	ch.AddPrerequisites(t.Context(), a, b, c)
+	read.AddPrerequisites(t.Context(), a, c)
 	preReq, ok := pre.GetPrerequisite(t.Context(), a)
 	require.True(t, ok)
 	assert.Equal(t, b, preReq)
 	assert.ElementsMatch(t, []uuid.UUID{b, c}, post.GetPrerequisites(t.Context(), a))
 	assert.ElementsMatch(t, []uuid.UUID{b, c}, ch.GetPrerequisites(t.Context(), a))
+	assert.Equal(t, []uuid.UUID{c}, read.GetPrerequisites(t.Context(), a))
 }
 
 func TestAddPrerequisites_PostAssembly_MultiplePrerequisites(t *testing.T) {
@@ -393,12 +396,14 @@ func TestDependencyTracker_Delete_RemovesAcrossAllChains(t *testing.T) {
 	preReq := uuid.New()
 	postReq := uuid.New()
 	chainedReq := uuid.New()
+	readReq := uuid.New()
 	chainedChild := uuid.New()
 	unassembled := uuid.New()
 
 	dt.preAssembly.AddPrerequisite(t.Context(), txID, preReq)
 	dt.postAssembly.AddPrerequisites(t.Context(), txID, postReq)
 	dt.chained.AddPrerequisites(t.Context(), txID, chainedReq)
+	dt.read.AddPrerequisites(t.Context(), txID, readReq)
 	dt.chained.SetChainedChild(t.Context(), txID, chainedChild)
 	dt.chained.AddUnassembledDependencies(t.Context(), txID, unassembled)
 
@@ -410,6 +415,8 @@ func TestDependencyTracker_Delete_RemovesAcrossAllChains(t *testing.T) {
 	assert.Empty(t, dt.postAssembly.GetDependents(t.Context(), postReq))
 	assert.Empty(t, dt.chained.GetPrerequisites(t.Context(), txID))
 	assert.Empty(t, dt.chained.GetDependents(t.Context(), chainedReq))
+	assert.Empty(t, dt.read.GetPrerequisites(t.Context(), txID))
+	assert.Empty(t, dt.read.GetDependents(t.Context(), readReq))
 	gotChild, ok := dt.chained.GetChainedChild(t.Context(), txID)
 	assert.False(t, ok)
 	assert.Equal(t, uuid.Nil, gotChild)

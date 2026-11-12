@@ -6,7 +6,7 @@ The states created and consumed by a transaction are determined when the origina
 
 It is common for multiple Paladin transactions to be related to each other in terms of their state changes. An example would be that TX1 creates a state by minting a new token and TX2 consumes that state by transfering the token to another identity. Paladin tracks transaction state changes through its use of a `grapher` component. If a transaction creates a state that another transaction consumes, it is said to be a `pre-req` of that transaction. The `grapher` component maintains `pre-req` links between transaction based on the output of the assembly phase and makes certain decisions based on the `grapher`.
 
-The coordinator tracks transaction dependencies through three complementary components: the **Grapher** and the **Dependency Tracker**. Together they ensure transactions are assembled and dispatched in a safe order to prevent failure of their base-ledger transactions.
+The coordinator tracks transaction dependencies through two complementary components: the **Grapher** and the **Dependency Tracker**. Together they ensure transactions are assembled and dispatched in a safe order to prevent failure of their base-ledger transactions.
 
 ## Pre-assemble dependencies
 
@@ -133,6 +133,10 @@ stateDiagram-v2
     Tx4 --> SG : mints
     SG --> Tx5 : spent by
 ```
+
+## Read dependencies
+
+A state that a transaction reads must still be unspent when that transaction executes on the base ledger. In the first example, if a later transaction spends State A while Tx 2 is still in flight, it acquires a read dependency on Tx 2 and is not dispatched until Tx 2 is ready for dispatch. Read dependencies only order dispatch: if Tx 2 is reset or reverts, the spending transaction is not re-assembled, it is simply no longer held by Tx 2.
 
 ## Chained transaction dependencies
 

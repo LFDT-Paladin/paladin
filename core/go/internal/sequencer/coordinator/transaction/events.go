@@ -394,6 +394,19 @@ func (*DependencyReadyEvent) TypeString() string {
 	return "Event_DependencyReady"
 }
 
+type ReadDependencyRemovedEvent struct {
+	BaseCoordinatorEvent
+	SourceTransactionID uuid.UUID // The reader that was removed
+}
+
+func (*ReadDependencyRemovedEvent) Type() EventType {
+	return Event_ReadDependencyRemoved
+}
+
+func (*ReadDependencyRemovedEvent) TypeString() string {
+	return "Event_ReadDependencyRemoved"
+}
+
 type RequestTimeoutIntervalEvent struct {
 	BaseCoordinatorEvent
 }
