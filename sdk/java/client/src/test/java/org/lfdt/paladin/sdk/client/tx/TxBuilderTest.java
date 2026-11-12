@@ -874,6 +874,22 @@ class TxBuilderTest {
         });
   }
 
+  @Test
+  void trackWaitsForATransactionSubmittedElsewhere() throws IOException {
+    withNode(
+        node(0, receiptJson(true)),
+        (server, rpc) -> {
+          final SentTransaction tracked =
+              SentTransaction.track(
+                  new PtxClient(rpc), CompletableFuture.completedFuture(UUID.fromString(TX_ID)));
+          assertEquals(UUID.fromString(TX_ID), tracked.id().join());
+          assertTrue(tracked.waitForReceipt().join().success());
+          assertEquals(1, server.requestCount(), "no submission, one receipt lookup");
+          assertEquals(
+              "ptx_getTransactionReceipt", server.requests().get(0).get("method").asText());
+        });
+  }
+
   private static TxBuilder groupDeploy(final HttpRpcClient rpc) {
     return TxBuilder.on(rpc)
         .privacyGroupId("0x1234")
