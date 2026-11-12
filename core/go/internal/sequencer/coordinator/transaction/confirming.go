@@ -194,9 +194,13 @@ func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransa
 	return nil
 }
 
-func action_NotifyDependentsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+func action_NotifyDependentsOfRevertedConfirmationAndForgetLocks(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s", txn.pt.ID.String())
-	return txn.notifyDependentsOfRevertedConfirmation(ctx)
+	if err := txn.notifyDependentsOfRevertedConfirmation(ctx); err != nil {
+		return err
+	}
+	txn.grapher.ForgetTransactionAndLocks(ctx, txn.pt.ID)
+	return nil
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
@@ -275,12 +279,6 @@ func action_FinalizeOnChainedDependencyFailure(ctx context.Context, t *coordinat
 		)
 	}
 	tryFinalize()
-	return nil
-}
-
-func action_RevertTransactionInGrapher(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	log.L(ctx).Debugf("releasing transaction locks for %s (revert/failure path)", t.pt.ID.String())
-	t.grapher.ForgetTransactionAndLocks(ctx, t.pt.ID)
 	return nil
 }
 

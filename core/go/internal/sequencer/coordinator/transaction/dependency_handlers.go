@@ -54,13 +54,13 @@ func dependencyResetToPreAssemblyOrPool() EventHandlers {
 			}},
 			Transitions: []Transition{{
 				To:      State_PreAssembly_Blocked,
-				Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+				Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 			}},
 		}, {
 			Validator: statemachine.ValidatorNot(validator_IsChainedDependency),
 			Transitions: []Transition{{
 				To:      State_Pooled,
-				Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+				Actions: []ActionRule{{Action: action_NotifyDependentsOfResetAndForgetLocks}},
 			}},
 		}},
 	}

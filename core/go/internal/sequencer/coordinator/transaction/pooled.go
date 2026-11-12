@@ -46,14 +46,6 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	return nil
 }
 
-func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	log.L(ctx).Debugf("resetting transaction locks for %s", txn.pt.ID.String())
-	// Clear minted-state index immediately when resetting in-memory transaction state to avoid
-	// later assembles binding to stale minters that have already been reset/reverted.
-	txn.grapher.ForgetTransactionAndLocks(ctx, txn.pt.ID)
-	return nil
-}
-
 func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
 	return txn.dependencyTracker.GetPreassemblyDeps().HasPrerequisite(ctx, txn.pt.ID) ||
 		txn.dependencyTracker.GetChainedDeps().HasUnassembledDependencies(ctx, txn.pt.ID)
@@ -101,7 +93,7 @@ func action_MarkChainedDependencyUnassembled(ctx context.Context, txn *coordinat
 	return nil
 }
 
-func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+func action_NotifyDependentsOfResetAndForgetLocks(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	// We emit a DependencyResetEvent for chained and post assembly dependencies, and a ReadDependencyRemovedEvent
 	// for read dependencies, whenever we transition to State_Pooled or State_PreAssembly_Blocked.
 	// For the initial transition from State_Initial and the transition from State_Assembling to State_Pooled

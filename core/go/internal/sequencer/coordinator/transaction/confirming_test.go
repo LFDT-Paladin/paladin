@@ -21,11 +21,13 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -347,6 +349,67 @@ func Test_ConfirmedRevert_StateDispatched_NonRetryable_TransitionsToReverted(t *
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Reverted, txn.stateMachine.GetCurrentState())
+}
+
+func Test_StateDispatched_RevertNotifiesPostAssemblyAndReadDependents(t *testing.T) {
+	revertReason := pldtypes.MustParseHexBytes("0xdead")
+	for name, revert := range map[string]func(txnID uuid.UUID) common.Event{
+		"chained dependency failed": func(txnID uuid.UUID) common.Event {
+			return &ChainedDependencyFailedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txnID},
+				FailedTxID:           uuid.New(),
+			}
+		},
+		"non-retryable confirmed revert": func(txnID uuid.UUID) common.Event {
+			return &ConfirmedRevertedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txnID},
+				RevertReason:         revertReason,
+				OnChain:              pldtypes.OnChainLocation{Type: pldtypes.OnChainTransaction},
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			g, depTracker := newTestGrapher()
+			mintedStateID := uuid.NewString()
+			readStateID := uuid.NewString()
+
+			dependent, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+				Grapher(g).DependencyTracker(depTracker).
+				Build()
+			spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+				Grapher(g).DependencyTracker(depTracker).
+				Build()
+			txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+				Grapher(g).DependencyTracker(depTracker).
+				CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+					dependent.pt.ID: dependent,
+					spender.pt.ID:   spender,
+				}).
+				Build()
+			lookup := coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+				txn.pt.ID:       txn,
+				dependent.pt.ID: dependent,
+				spender.pt.ID:   spender,
+			})
+			dependent.getCoordinatorTransactionState = lookup
+			spender.getCoordinatorTransactionState = lookup
+			mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(false, "", nil).Maybe()
+			mocks.SyncPoints.EXPECT().QueueTransactionFinalize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+
+			require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{{Id: mintedStateID}}, txn.pt.ID))
+			g.LockMintsOnReadAndSpend(ctx, []*prototk.EndorsableState{{Id: readStateID}}, nil, txn.pt.ID)
+			g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: mintedStateID}}, dependent.pt.ID)
+			g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: readStateID}}, spender.pt.ID)
+
+			err := txn.HandleEvent(ctx, revert(txn.pt.ID))
+			require.NoError(t, err)
+
+			assert.Equal(t, State_Reverted, txn.GetCurrentState())
+			assert.Equal(t, State_Pooled, dependent.GetCurrentState())
+			assert.Equal(t, State_Confirming_Dispatchable, spender.GetCurrentState())
+		})
+	}
 }
 
 func Test_ConfirmedRevert_StateDispatched_RetryableRevert_ExceedsThreshold_TransitionsToReverted(t *testing.T) {
@@ -672,7 +735,7 @@ func Test_action_FinalizeNonRetryableRevert_OnRollbackRetry(t *testing.T) {
 	assert.Equal(t, maxCalls, callCount)
 }
 
-func Test_action_NotifyDependantsOfRevertedConfirmation_SendsRevertedEvent(t *testing.T) {
+func Test_action_NotifyDependentsOfRevertedConfirmationAndForgetLocks_SendsRevertedEvent(t *testing.T) {
 	ctx := t.Context()
 	mockGrapher := graphermocks.NewGrapher(t)
 	depTracker := dependencytracker.NewDependencyTracker()
@@ -693,12 +756,11 @@ func Test_action_NotifyDependantsOfRevertedConfirmation_SendsRevertedEvent(t *te
 	depTracker.GetChainedDeps().AddPrerequisites(ctx, dependentTx.pt.ID, txn.pt.ID)
 
 	// When dependentTx (State_Pooled) receives DependencyConfirmedRevertedEvent it transitions to
-	// State_PreAssembly_Blocked via action_NotifyDependentsOfReset, which calls ForgetTransactionAndLocks for dependentTx.
-	// The main txn's own ForgetTransactionAndLocks is NOT called here — that is action_RevertTransactionInGrapher's
-	// responsibility, which runs before this action in the state machine.
+	// State_PreAssembly_Blocked via action_NotifyDependentsOfResetAndForgetLocks, which calls ForgetTransactionAndLocks for dependentTx.
 	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, dependentTx.pt.ID)
+	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.pt.ID)
 
-	err := action_NotifyDependentsOfRevertedConfirmation(ctx, txn, nil)
+	err := action_NotifyDependentsOfRevertedConfirmationAndForgetLocks(ctx, txn, nil)
 	require.NoError(t, err)
 }
 
@@ -747,30 +809,61 @@ func Test_notifyDependentsOfRevertedConfirmation_QueuesForDelivery(t *testing.T)
 	assert.Equal(t, State_Pooled, dependentTxn.GetCurrentState())
 }
 
-func Test_DependencyReset_Dispatched_StaysDispatched(t *testing.T) {
-	ctx := t.Context()
-	mockGrapher := graphermocks.NewGrapher(t)
-	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.pt.ID).Times(2)
+func Test_StateDispatched_DependencyRemovedNotifiesPostAssemblyAndReadDependents(t *testing.T) {
+	for name, dependencyRemoved := range map[string]func(txnID, sourceID uuid.UUID) common.Event{
+		"dependency reset": func(txnID, sourceID uuid.UUID) common.Event {
+			return &DependencyResetEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txnID},
+				SourceTransactionID:  sourceID,
+			}
+		},
+		"dependency confirmed reverted": func(txnID, sourceID uuid.UUID) common.Event {
+			return &DependencyConfirmedRevertedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txnID},
+				SourceTransactionID:  sourceID,
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			g, depTracker := newTestGrapher()
+			mintedStateID := uuid.NewString()
+			readStateID := uuid.NewString()
 
-	err := txn.HandleEvent(ctx, &DependencyResetEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, State_Dispatched, txn.stateMachine.GetCurrentState())
-}
+			dependent, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+				Grapher(g).DependencyTracker(depTracker).
+				Build()
+			spender, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+				Grapher(g).DependencyTracker(depTracker).
+				Build()
+			txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+				Grapher(g).DependencyTracker(depTracker).
+				CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+					dependent.pt.ID: dependent,
+					spender.pt.ID:   spender,
+				}).
+				Build()
+			lookup := coordinatorTransactionStateLookup(map[uuid.UUID]CoordinatorTransaction{
+				txn.pt.ID:       txn,
+				dependent.pt.ID: dependent,
+				spender.pt.ID:   spender,
+			})
+			dependent.getCoordinatorTransactionState = lookup
+			spender.getCoordinatorTransactionState = lookup
 
-func Test_DependencyConfirmedReverted_Dispatched_StaysDispatched(t *testing.T) {
-	ctx := t.Context()
-	mockGrapher := graphermocks.NewGrapher(t)
-	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetTransactionAndLocks(mock.Anything, txn.pt.ID).Times(2)
+			require.NoError(t, g.AddMinter(ctx, []*prototk.EndorsableState{{Id: mintedStateID}}, txn.pt.ID))
+			g.LockMintsOnReadAndSpend(ctx, []*prototk.EndorsableState{{Id: readStateID}}, nil, txn.pt.ID)
+			g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: mintedStateID}}, dependent.pt.ID)
+			g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: readStateID}}, spender.pt.ID)
 
-	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, State_Dispatched, txn.stateMachine.GetCurrentState())
+			err := txn.HandleEvent(ctx, dependencyRemoved(txn.pt.ID, uuid.New()))
+			require.NoError(t, err)
+
+			assert.Equal(t, State_Dispatched, txn.GetCurrentState())
+			assert.Equal(t, State_Pooled, dependent.GetCurrentState())
+			assert.Equal(t, State_Confirming_Dispatchable, spender.GetCurrentState())
+		})
+	}
 }
 
 func Test_DependencyReset_PreDispatchStates_TransitionsToPooled(t *testing.T) {
