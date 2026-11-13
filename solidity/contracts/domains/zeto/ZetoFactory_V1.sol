@@ -24,9 +24,9 @@ import {IPaladinContractRegistry_V0} from "../interfaces/IPaladinContractRegistr
 ///     they expose no `initialize` / `upgradeToAndCall`. See TestZetoFactoryLegacyDeploySelectors.
 ///
 /// The `data` argument is forwarded verbatim on `PaladinRegisterSmartContract_V0`. The Paladin Zeto domain plugin
-/// encodes it as `ZetoDomainConfigID_V1 || abi.encode(v1 tuple)`, which carries the pool's variant; pools deployed by
-/// earlier releases carry legacy ABI-only bytes, read as variant V0 — see `domains/zeto/pkg/types/domain_config_codec.go`
-/// in the Paladin repo. No Solidity change is required to carry the variant.
+/// encodes it as `0x0002 || uint16 variant || abi.encode(tokenName, circuits)`: a config generation, the pool's variant
+/// and the legacy payload. Pools deployed by earlier releases carry the headerless legacy bytes, read as variant V0 —
+/// see `domains/zeto/pkg/types/domain_config_codec.go` in the Paladin repo. No Solidity change is required to carry the variant.
 ///
 /// `initialize()` and the `_disableInitializers()` constructor are inherited from `ZetoTokenFactoryUpgradeable`; do not
 /// re-declare them here. An override that wraps the base `initializer` in a second `initializer` modifier only passes
