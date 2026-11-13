@@ -615,10 +615,10 @@ func TestUnlockAssemble_Reverts(t *testing.T) {
 	}
 }
 
-func testUnlockPrepareTx(tokenName string, variant pldtypes.HexUint64) *types.ParsedTransaction {
+func testUnlockPrepareTx(tokenName string, variant types.ZetoVariant) *types.ParsedTransaction {
 	return &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "spender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: tokenName, ZetoVariant: variant},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: tokenName, Variant: variant},
 	}
 }
 
@@ -651,7 +651,7 @@ type abiJSONFields struct {
 }
 
 func TestUnlockPrepare_V1EncodesOperationArgs(t *testing.T) {
-	v1 := pldtypes.HexUint64(types.ZetoFungibleABI_V1)
+	v1 := types.ZetoVariant_V1
 	for _, tc := range testUnlockOps {
 		t.Run(tc.name, func(t *testing.T) {
 			li := testUnlockLockInfo(t)
@@ -689,7 +689,7 @@ func TestUnlockPrepare_V0DiscreteProofParams(t *testing.T) {
 	req := testUnlockPrepareReq(t, nil)
 	req.InputStates = []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}}
 	req.OutputStates = []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(false)}}
-	res, err := h.prepare(t.Context(), testUnlockPrepareTx(constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V0)), req, spendLockOperation, testUnlockLockID)
+	res, err := h.prepare(t.Context(), testUnlockPrepareTx(constants.TOKEN_ANON, types.ZetoVariant_V0), req, spendLockOperation, testUnlockLockID)
 	require.NoError(t, err)
 	var params map[string]any
 	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
@@ -704,7 +704,7 @@ func TestUnlockPrepare_V0NullifierPublicInputs(t *testing.T) {
 	h := newTestUnlockCommon(t, testUnlockLockInfo(t), testUnlockCoins())
 	req := testUnlockPrepareReq(t, map[string]string{"nullifiers": "0x09,0x0a", "root": "0x0b"})
 	req.InputStates = []*prototk.EndorsableState{{StateDataJson: testCoinStateJSON(true)}}
-	res, err := h.prepare(t.Context(), testUnlockPrepareTx(constants.TOKEN_ANON_NULLIFIER, pldtypes.HexUint64(types.ZetoFungibleABI_V0)), req, spendLockOperation, testUnlockLockID)
+	res, err := h.prepare(t.Context(), testUnlockPrepareTx(constants.TOKEN_ANON_NULLIFIER, types.ZetoVariant_V0), req, spendLockOperation, testUnlockLockID)
 	require.NoError(t, err)
 	var params map[string]any
 	require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
@@ -771,7 +771,7 @@ func TestUnlockPrepare_Errors(t *testing.T) {
 			if tc.req != nil {
 				tc.req(req)
 			}
-			_, err := h.prepare(t.Context(), testUnlockPrepareTx(constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1)), req, spendLockOperation, testUnlockLockID)
+			_, err := h.prepare(t.Context(), testUnlockPrepareTx(constants.TOKEN_ANON, types.ZetoVariant_V1), req, spendLockOperation, testUnlockLockID)
 			require.ErrorContains(t, err, tc.errContent)
 		})
 	}

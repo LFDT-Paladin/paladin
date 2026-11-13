@@ -149,7 +149,7 @@ func TestCreateLockInitAndEndorse(t *testing.T) {
 }
 
 func TestCreateLockPrepare_EncodesCreateArgs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32))
 	info := types.ZetoLockInfoState{
 		LockID:           lockID,
@@ -175,7 +175,7 @@ func TestCreateLockPrepare_EncodesCreateArgs(t *testing.T) {
 		Transaction: &prototk.TransactionSpecification{From: "sender@node"},
 		DomainConfig: &types.DomainInstanceConfig{
 			TokenName:   "Zeto_AnonNullifier",
-			ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1),
+			Variant: types.ZetoVariant_V1,
 		},
 		Params: &types.CreateLockParams{From: "sender@node", UnlockData: []byte{0x01}},
 	}
@@ -204,7 +204,7 @@ func TestCreateLockPrepare_EncodesCreateArgs(t *testing.T) {
 }
 
 func TestCreateLockPrepare_BadOutputCoinJSON(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	h := NewCreateLockHandler("zeto", nil, &prototk.StateSchema{Id: "coin"}, nil, nil, &prototk.StateSchema{Id: "lock_info"})
 	proofReq := corepb.ProvingResponse{Proof: &corepb.SnarkProof{
 		A: []string{"0x01", "0x02"},
@@ -215,7 +215,7 @@ func TestCreateLockPrepare_BadOutputCoinJSON(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", Variant: types.ZetoVariant_V1},
 		Params:       &types.CreateLockParams{From: "sender@node", UnlockData: []byte{0x01}},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -231,7 +231,7 @@ func TestCreateLockPrepare_BadOutputCoinJSON(t *testing.T) {
 }
 
 func TestCreateLockPrepare_InvalidTxID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32))
 	info := types.ZetoLockInfoState{LockID: lockID, SpendCommitment: pldtypes.RandBytes32(), CancelCommitment: pldtypes.RandBytes32()}
 	infoJSON, err := json.Marshal(&info)
@@ -246,7 +246,7 @@ func TestCreateLockPrepare_InvalidTxID(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_Anon", Variant: types.ZetoVariant_V1},
 		Params:       &types.CreateLockParams{From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{
@@ -265,7 +265,7 @@ func TestCreateLockPrepare_InvalidTxID(t *testing.T) {
 }
 
 func TestCreateLockPrepare_MissingLockInfoOutput(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	h := NewCreateLockHandler("zeto", nil, &prototk.StateSchema{Id: "coin"}, nil, nil, &prototk.StateSchema{Id: "lock_info"})
 	proofReq := corepb.ProvingResponse{
 		Proof: &corepb.SnarkProof{
@@ -278,7 +278,7 @@ func TestCreateLockPrepare_MissingLockInfoOutput(t *testing.T) {
 	require.NoError(t, err)
 	tx := &types.ParsedTransaction{
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node"},
-		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", ZetoVariant: pldtypes.HexUint64(types.ZetoFungibleABI_V1)},
+		DomainConfig: &types.DomainInstanceConfig{TokenName: "Zeto_AnonNullifier", Variant: types.ZetoVariant_V1},
 		Params:       &types.CreateLockParams{From: "sender@node"},
 	}
 	req := &prototk.PrepareTransactionRequest{

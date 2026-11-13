@@ -39,20 +39,15 @@ import (
 )
 
 func TestFungibleZetoSuite(t *testing.T) {
-	for _, root := range helpers.ZetoV0ZKArtifactRootsForTestRun() {
-		t.Run(root, func(t *testing.T) {
-			if !helpers.ZetoZKArtifactsRootPresent(root) {
-				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
-			}
-			helper := &fungibleTestSuiteHelper{
-				zetoDomainTestSuite: zetoDomainTestSuite{
-					zkpArtifactRoot: root,
-					contractsFile:   "./zeto/config-for-deploy-fungible.yaml",
-				},
-			}
-			suite.Run(t, helper)
-		})
+	if !helpers.ZetoZKArtifactsPresent(types.ZetoVariant_V0) {
+		t.Skip("ZKP artifacts missing for V0 (extract with Gradle :domains:zeto:extractZetoZkpVariants)")
 	}
+	suite.Run(t, &fungibleTestSuiteHelper{
+		zetoDomainTestSuite: zetoDomainTestSuite{
+			variant:       types.ZetoVariant_V0,
+			contractsFile: "./zeto/config-for-deploy-fungible.yaml",
+		},
+	})
 }
 
 type fungibleTestSuiteHelper struct {
@@ -101,11 +96,7 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Info("*************************************")
 	s.setupContractsAbi(t, ctx, tokenName)
 
-	zkpRoot := s.zkpArtifactRoot
-	if zkpRoot == "" {
-		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
-	}
-	zeto := helpers.DeployZetoFungible(ctx, t, s.rpc, s.domainName, controllerName, tokenName, zkpRoot)
+	zeto := helpers.DeployZetoFungible(ctx, t, s.rpc, s.domainName, controllerName, tokenName, s.variant)
 	zetoAddress := zeto.Address
 	log.L(ctx).Infof("Zeto instance deployed to %s", zetoAddress.String())
 

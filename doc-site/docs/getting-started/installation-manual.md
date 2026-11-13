@@ -166,66 +166,91 @@ spec:
   allowSigning: true
   configJSON: |
     {
-      "domainContracts": {
-        "implementations": [
-          {
-            "name": "Zeto_Anon",
-            "circuits": {
-              "deposit": {
-                "name": "deposit"
-              },
-              "withdraw": {
-                "name": "withdraw"
-              },
-              "transfer": {
-                "name": "anon"
-              },
-              "transferLocked": {
-                "name": "anon"
+      "variants": {
+        "V1": {
+          "implementations": [
+            {
+              "name": "Zeto_Anon",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw"
+                },
+                "transfer": {
+                  "name": "anon"
+                },
+                "transferLocked": {
+                  "name": "anon"
+                }
+              }
+            },
+            {
+              "name": "Zeto_AnonEnc",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw"
+                },
+                "transfer": {
+                  "name": "anon_enc",
+                  "usesEncryption": true
+                },
+                "transferLocked": {
+                  "name": "anon_enc",
+                  "usesEncryption": true
+                }
+              }
+            },
+            {
+              "name": "Zeto_AnonNullifier",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw_nullifier",
+                  "usesNullifiers": true
+                },
+                "transfer": {
+                  "name": "anon_nullifier_transfer",
+                  "usesNullifiers": true
+                },
+                "transferLocked": {
+                  "name": "anon_nullifier_transferLocked",
+                  "usesNullifiers": true
+                }
+              }
+            },
+            {
+              "name": "Zeto_AnonNullifierKyc",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw_nullifier",
+                  "usesNullifiers": true
+                },
+                "transfer": {
+                  "name": "anon_nullifier_kyc_transfer",
+                  "usesNullifiers": true,
+                  "usesKyc": true
+                },
+                "transferLocked": {
+                  "name": "anon_nullifier_kyc_transferLocked",
+                  "usesNullifiers": true,
+                  "usesKyc": true
+                }
               }
             }
-          },
-          {
-            "name": "Zeto_AnonEnc",
-            "circuits": {
-              "deposit": {
-                "name": "deposit"
-              },
-              "withdraw": {
-                "name": "withdraw"
-              },
-              "transfer": {
-                "name": "anon_enc",
-                "usesEncryption": true
-              },
-              "transferLocked": {
-                "name": "anon_enc",
-                "usesEncryption": true
-              }
-            }
-          },
-          {
-            "name": "Zeto_AnonNullifier",
-            "circuits": {
-              "deposit": {
-                "name": "deposit"
-              },
-              "withdraw": {
-                "name": "withdraw_nullifier",
-                "usesNullifiers": true
-              },
-              "transfer": {
-                "name": "anon_nullifier_transfer",
-                "usesNullifiers": true
-              },
-              "transferLocked": {
-                "name": "anon_nullifier_transferLocked",
-                "usesNullifiers": true
-              }
-            }
-          }
-        ]
+          ]
+        }
       },
+      "defaultVariant": "V1",
       "snarkProver": {
         "circuitsDir": "/app/domains/zeto/zkp",
         "provingKeysDir": "/app/domains/zeto/zkp"

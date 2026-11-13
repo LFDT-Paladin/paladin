@@ -17,10 +17,10 @@ package types
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
@@ -28,99 +28,131 @@ import (
 	"github.com/hyperledger-firefly/signer/pkg/ethtypes"
 )
 
-// DomainConfigSchema values describe how on-chain registration bytes were encoded (see domain_config_codec.go).
-const (
-	DomainConfigSchemaV0 = "v0"
-	DomainConfigSchemaV1 = "v1"
-)
-
 // DomainFactoryConfig is the configuration for a Zeto domain
 // to provision new domain instances based on a factory contract
 // and avalable implementation contracts
+//
+// Implementations are given either per variant in Variants, or in DomainContracts, which is read as the single variant
+// V0 with its proving artifacts directly under the snarkProver directories rather than in a V0/ subdirectory.
 type DomainFactoryConfig struct {
-	DomainContracts DomainConfigContracts           `json:"domainContracts"`
+	DomainContracts *DomainConfigContracts          `json:"domainContracts,omitempty"`
+	Variants        map[string]*VariantConfig       `json:"variants,omitempty"`
+	DefaultVariant  string                          `json:"defaultVariant,omitempty"`
 	SnarkProver     zetosignerapi.SnarkProverConfig `json:"snarkProver"`
-	// ReleaseGeneration selects the upstream zeto-contracts generation this domain deploys against; see versions.go.
-	// The wire/JSON name stays "factoryVersion": the axis was introduced under that name and configs carry it.
-	ReleaseGeneration ZetoReleaseGeneration `json:"factoryVersion,omitempty"`
 }
 
 type DomainConfigContracts struct {
 	Implementations []*DomainContract `yaml:"implementations"`
 }
 
+type VariantConfig struct {
+	Implementations []*DomainContract `json:"implementations"`
+}
+
 type DomainContract struct {
-	Name     string                  `yaml:"name"`
-	Circuits *zetosignerapi.Circuits `yaml:"circuits"`
-	// BundleID, when set, identifies this implementation for v1 on-chain CircuitBundleId (Phase A multi-version).
-	BundleID string `yaml:"bundleId,omitempty" json:"bundleId,omitempty"`
-	// ForZetoVariant, when set, restricts this row to deploys that declare that zetoVariant (nil = wildcard).
-	ForZetoVariant *uint64 `yaml:"forZetoVariant,omitempty" json:"forZetoVariant,omitempty"`
+	Name string `yaml:"name"`
+	// RegisteredName is the name the implementation is registered under on the factory. It defaults to Name, and only
+	// needs setting when one factory holds the same token type at more than one variant.
+	RegisteredName string                  `yaml:"registeredName,omitempty" json:"registeredName,omitempty"`
+	Circuits       *zetosignerapi.Circuits `yaml:"circuits"`
 }
 
-func (d *DomainFactoryConfig) GetCircuits(ctx context.Context, tokenName string) (*zetosignerapi.Circuits, error) {
-	for _, contract := range d.DomainContracts.Implementations {
-		if contract.Name == tokenName {
-			return contract.Circuits, nil
-		}
-	}
-	return nil, i18n.NewError(ctx, msgs.MsgContractNotFound, tokenName)
+// DomainVariants is the validated form of DomainFactoryConfig's implementations, whichever format they were given in.
+type DomainVariants struct {
+	Implementations map[ZetoVariant][]*DomainContract
+	// DefaultVariant is nil when several variants are configured and none is the default
+	DefaultVariant *ZetoVariant
+	// ArtifactsPerVariant is false for the DomainContracts format, whose artifacts sit directly under the snarkProver
+	// directories.
+	ArtifactsPerVariant bool
 }
 
-// GetCircuitsForDeploy resolves circuits for PrepareDeploy using optional v1 selectors.
-// When circuitBundleId is non-empty, the implementation with matching BundleID is used.
-// Otherwise implementations are filtered by token Name and optional ForZetoVariant (nil matches any variant).
-// If no variant-specific row matches, GetCircuits(tokenName) legacy behavior is used.
-func (d *DomainFactoryConfig) GetCircuitsForDeploy(ctx context.Context, tokenName string, zetoVariant uint64, circuitBundleId string) (*zetosignerapi.Circuits, error) {
-	if circuitBundleId != "" {
-		var match *DomainContract
-		for _, impl := range d.DomainContracts.Implementations {
-			if impl.BundleID != circuitBundleId {
-				continue
-			}
-			if match != nil {
-				return nil, i18n.NewError(ctx, msgs.MsgDuplicateZetoCircuitBundleId, circuitBundleId)
-			}
-			match = impl
+func (d *DomainFactoryConfig) ResolveVariants(ctx context.Context) (*DomainVariants, error) {
+	if d.Variants == nil {
+		var impls []*DomainContract
+		if d.DomainContracts != nil {
+			impls = d.DomainContracts.Implementations
 		}
-		if match == nil {
-			return nil, i18n.NewError(ctx, msgs.MsgContractNotFound, circuitBundleId)
-		}
-		return match.Circuits, nil
+		v0 := ZetoVariant_V0
+		return newDomainVariants(ctx, map[ZetoVariant][]*DomainContract{ZetoVariant_V0: impls}, &v0, false)
 	}
-
-	var matches []*DomainContract
-	for _, impl := range d.DomainContracts.Implementations {
-		if impl.Name != tokenName {
-			continue
-		}
-		if impl.ForZetoVariant != nil && *impl.ForZetoVariant != zetoVariant {
-			continue
-		}
-		matches = append(matches, impl)
+	if d.DomainContracts != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgZetoConfigFormatConflict)
 	}
-	switch len(matches) {
-	case 1:
-		return matches[0].Circuits, nil
-	case 0:
-		for _, impl := range d.DomainContracts.Implementations {
-			if impl.Name == tokenName && impl.ForZetoVariant != nil {
-				return nil, i18n.NewError(ctx, msgs.MsgContractNotFound, fmt.Sprintf("%s@%d", tokenName, zetoVariant))
-			}
+	impls := make(map[ZetoVariant][]*DomainContract, len(d.Variants))
+	for key, vc := range d.Variants {
+		v, err := ParseZetoVariantKey(ctx, key)
+		if err != nil {
+			return nil, err
 		}
-		return d.GetCircuits(ctx, tokenName)
-	default:
-		return nil, i18n.NewError(ctx, msgs.MsgAmbiguousZetoCircuitImplementation, tokenName)
+		var contracts []*DomainContract
+		if vc != nil {
+			contracts = vc.Implementations
+		}
+		impls[v] = contracts
 	}
+	var defaultVariant *ZetoVariant
+	switch {
+	case d.DefaultVariant != "":
+		v, err := ParseZetoVariantKey(ctx, d.DefaultVariant)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := impls[v]; !ok {
+			return nil, i18n.NewError(ctx, msgs.MsgZetoVariantNotConfigured, v)
+		}
+		defaultVariant = &v
+	case len(impls) == 1:
+		for v := range impls {
+			defaultVariant = &v
+		}
+	}
+	return newDomainVariants(ctx, impls, defaultVariant, true)
 }
 
-func (d *DomainFactoryConfig) GetCircuit(ctx context.Context, tokenName, method string) (*zetosignerapi.Circuit, error) {
-	for _, contract := range d.DomainContracts.Implementations {
-		if contract.Name == tokenName {
-			return (*contract.Circuits)[method], nil
+func newDomainVariants(ctx context.Context, impls map[ZetoVariant][]*DomainContract, defaultVariant *ZetoVariant, artifactsPerVariant bool) (*DomainVariants, error) {
+	registeredNames := map[string]bool{}
+	for v, contracts := range impls {
+		names := map[string]bool{}
+		for _, c := range contracts {
+			if names[c.Name] {
+				return nil, i18n.NewError(ctx, msgs.MsgDuplicateZetoImplementation, c.Name, v)
+			}
+			names[c.Name] = true
+			// TODO: accept non-fungible implementations at V1 once the non-fungible handlers build 0.5.x calldata
+			if v != ZetoVariant_V0 && (c.Name == constants.TOKEN_NF_ANON || c.Name == constants.TOKEN_NF_ANON_NULLIFIER) {
+				return nil, i18n.NewError(ctx, msgs.MsgZetoNonFungibleVariantUnsupported, c.Name)
+			}
+			if c.RegisteredName == "" {
+				c.RegisteredName = c.Name
+			}
+			if registeredNames[c.RegisteredName] {
+				return nil, i18n.NewError(ctx, msgs.MsgDuplicateZetoRegisteredName, c.RegisteredName)
+			}
+			registeredNames[c.RegisteredName] = true
+			if c.Circuits != nil {
+				c.Circuits.Init()
+			}
 		}
 	}
-	return nil, i18n.NewError(ctx, msgs.MsgContractNotFound, tokenName)
+	return &DomainVariants{
+		Implementations:     impls,
+		DefaultVariant:      defaultVariant,
+		ArtifactsPerVariant: artifactsPerVariant,
+	}, nil
+}
+
+func (dv *DomainVariants) GetImplementation(ctx context.Context, variant ZetoVariant, tokenName string) (*DomainContract, error) {
+	contracts, ok := dv.Implementations[variant]
+	if !ok {
+		return nil, i18n.NewError(ctx, msgs.MsgZetoVariantNotConfigured, variant)
+	}
+	for _, c := range contracts {
+		if c.Name == tokenName {
+			return c, nil
+		}
+	}
+	return nil, i18n.NewError(ctx, msgs.MsgZetoImplementationNotFound, tokenName, variant)
 }
 
 // DomainInstanceConfig is the domain instance config, which are
@@ -131,16 +163,9 @@ func (d *DomainFactoryConfig) GetCircuit(ctx context.Context, tokenName, method 
 type DomainInstanceConfig struct {
 	TokenName string                  `json:"tokenName"`
 	Circuits  *zetosignerapi.Circuits `json:"circuits"`
-	// ConfigSchema is "v0" (legacy ABI-only bytes) or "v1" (prefixed encoding); set when decoding on-chain config.
-	ConfigSchema string `json:"configSchema,omitempty"`
-	// ZetoVariant is ZetoFungibleABIVersion (Paladin IZetoFungible_V*.json axis); see versions.go. Kept as the raw
-	// persisted numeric type at the wire boundary; convert with FungibleABIVersion() before dispatching on it.
-	ZetoVariant pldtypes.HexUint64 `json:"zetoVariant,omitempty"`
-	// ReleaseGeneration is the upstream zeto-contracts generation recorded at deploy; see versions.go. It selects the
-	// target-core event ABIs, the factory generation, and the proving-artifact tree. Wire name stays "factoryVersion".
-	ReleaseGeneration ZetoReleaseGeneration `json:"factoryVersion,omitempty"`
-	// CircuitBundleId references DomainContract.BundleID when circuits are resolved by opaque id.
-	CircuitBundleId string `json:"circuitBundleId,omitempty"`
+	// Variant is the pool's ZetoVariant, recorded at deploy; see versions.go. It selects the private ABI, the target-core
+	// event ABIs and the proving-artifact tree.
+	Variant ZetoVariant `json:"variant"`
 }
 
 // zetoDomainCircuitsComponents is shared by legacy and v1 domain instance config ABI tuples.
@@ -165,15 +190,14 @@ var DomainInstanceConfigABI = &abi.ParameterArray{
 	},
 }
 
-// ZetoDomainConfigID_V1 prefixes versioned on-chain domain instance configuration bytes (Phase A).
+// ZetoDomainConfigID_V1 prefixes versioned on-chain domain instance configuration bytes. Config without it is
+// DomainInstanceConfigABI, and the pool is variant V0.
 var ZetoDomainConfigID_V1 = pldtypes.MustParseHexBytes("0x00020001")
 
 // DomainInstanceConfigV1ABI encodes the payload after ZetoDomainConfigID_V1.
 var DomainInstanceConfigV1ABI = &abi.ParameterArray{
 	{Name: "tokenName", Type: "string"},
-	{Name: "zetoVariant", Type: "uint256"},
-	{Name: "factoryVersion", Type: "uint256"},
-	{Name: "circuitBundleId", Type: "string"},
+	{Name: "variant", Type: "uint256"},
 	{Name: "circuits", Type: "tuple", Components: zetoDomainCircuitsComponents},
 }
 

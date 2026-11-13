@@ -44,5 +44,5 @@ func NewZetoOnlyDomainRouter() signerapi.InMemorySignerFactory[*zetosignerapi.Sn
 type zetoSignerFactory struct{}
 
 func (zsf *zetoSignerFactory) NewSigner(ctx context.Context, conf *zetosignerapi.SnarkProverConfig) (signerapi.InMemorySigner, error) {
-	return zetosigner.NewSnarkProver(conf)
+	return zetosigner.NewSnarkProver(conf, false)
 }

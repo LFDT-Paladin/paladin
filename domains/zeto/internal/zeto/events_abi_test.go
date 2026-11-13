@@ -16,7 +16,7 @@ import (
 )
 
 func TestZetoEventABISet_IncludesCoreAndLockableEvents(t *testing.T) {
-	for _, v := range []types.ZetoReleaseGeneration{types.ZetoRelease_V0, types.ZetoRelease_V1} {
+	for _, v := range types.SupportedZetoVariants {
 		events := zetoEventABISet(v)
 		require.NotEmpty(t, events)
 		names := make(map[string]struct{})
@@ -25,7 +25,7 @@ func TestZetoEventABISet_IncludesCoreAndLockableEvents(t *testing.T) {
 			names[e.Name] = struct{}{}
 		}
 		assert.Contains(t, names, "UTXOTransfer")
-		if v == types.ZetoRelease_V1 {
+		if v == types.ZetoVariant_V1 {
 			assert.Contains(t, names, "ZetoLockCreated")
 		}
 	}
@@ -53,7 +53,7 @@ func TestDedupEvents(t *testing.T) {
 	require.Len(t, deduped, 2)
 }
 
-func TestZetoEventABISet_PanicsOnUnsupportedGeneration(t *testing.T) {
+func TestZetoEventABISet_PanicsOnUnsupportedVariant(t *testing.T) {
 	assert.Panics(t, func() {
 		_ = zetoEventABISet(99)
 	})

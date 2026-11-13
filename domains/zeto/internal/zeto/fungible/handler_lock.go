@@ -167,7 +167,7 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorDecodeContractAddress, err)
 	}
-	allOutputCoins := lockTransitionOutputCoinsForProof(tx.DomainConfig.ZetoVariant, outputCoins, lockedOutputCoins)
+	allOutputCoins := lockTransitionOutputCoinsForProof(tx.DomainConfig.Variant, outputCoins, lockedOutputCoins)
 	circuit := (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER]
 	// Nullifier transfer witness has no lockDelegate (same as zeto_anon_nullifier createLock prepareProof).
 	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputStates.coins, allOutputCoins, circuit, tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, false)

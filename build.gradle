@@ -234,7 +234,7 @@ task copyUIFiles(type: Copy) {
 task copyZetoZKPFiles(type: Copy) {
     def zetoZkpDir = file("${buildDir}/domains/zeto/zkp")
 
-    // Every release tree this task reads is produced by that generation's extract task. Declared lazily via a closure
+    // Every release tree this task reads is produced by that release's extract task. Declared lazily via a closure
     // because the root script is configured before the :domains:zeto ext block exists; without it Gradle reports an
     // undeclared dependency on the producer as soon as both tasks are in the same build.
     dependsOn {
@@ -299,11 +299,12 @@ task copyZetoZKPFiles(type: Copy) {
         'withdraw_nullifier_batch_js/withdraw_nullifier_batch.wasm',
     ]
 
-    // Every release generation is shipped, each under its own V<n>/ directory, because circuit names are NOT unique
+    // Every Zeto variant is shipped, each under its own V<n>/ directory, because circuit names are NOT unique
     // across upstream releases — the KYC family kept its names while the proving keys changed, so a flat layout would
-    // silently serve one generation's proving key to the other generation's pool. The prover reads
-    // <circuitsDir>/V<n>/... for the pool's generation (ZetoReleaseGeneration.ArtifactDirName()), so a node holding
-    // every V<n> directory can serve pools of every generation.
+    // silently serve one variant's proving key to the other variant's pool. A Zeto domain whose config lists
+    // implementations under `variants` reads <circuitsDir>/V<n>/... for each pool's variant, so a node holding every V<n>
+    // directory can serve pools of every variant; one that lists them under `domainContracts` reads flat, from the V0
+    // directory.
     //
     // Versions resolve lazily: the root script is configured before the :domains:zeto ext block exists.
     from {
@@ -312,7 +313,7 @@ task copyZetoZKPFiles(type: Copy) {
         }
     }
 
-    // A single lazy `from` keeps that laziness, so the generation prefix is applied per file on the way out by
+    // A single lazy `from` keeps that laziness, so the variant prefix is applied per file on the way out by
     // matching each source path back to the release tree it came from.
     eachFile { details ->
         def variant = project(':domains:zeto').ext.zetoVersions.find { v ->
@@ -321,7 +322,7 @@ task copyZetoZKPFiles(type: Copy) {
         if (variant == null) {
             throw new GradleException("cannot map ${details.file} back to a zetoVersions release tree")
         }
-        def segments = [project(':domains:zeto').ext.zetoGenerationDirName(variant.id)] + (details.relativePath.segments as List)
+        def segments = [project(':domains:zeto').ext.zetoVariantDirName(variant.id)] + (details.relativePath.segments as List)
         details.relativePath = new RelativePath(true, segments as String[])
     }
     includeEmptyDirs = false
@@ -331,7 +332,7 @@ task copyZetoZKPFiles(type: Copy) {
     outputs.upToDateWhen { false }
 
     doLast {
-        println "Copied zetoZkp files for all generations to ${zetoZkpDir}"
+        println "Copied zetoZkp files for all variants to ${zetoZkpDir}"
     }
 }
 

@@ -93,7 +93,7 @@ func TestCancelLockAssemble_UsesCancelOperation(t *testing.T) {
 
 func TestCancelLockPrepare_UsesCancelOperation(t *testing.T) {
 	h := &cancelLockHandler{unlockCommon: *newTestUnlockCommon(t, testUnlockLockInfo(t), testUnlockCoins())}
-	tx := testUnlockPrepareTx(constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1))
+	tx := testUnlockPrepareTx(constants.TOKEN_ANON, types.ZetoVariant_V1)
 	tx.Params = &types.CancelLockParams{LockId: testUnlockLockID, From: "spender@node"}
 	res, err := h.Prepare(t.Context(), tx, testUnlockPrepareReq(t, nil))
 	require.NoError(t, err)

@@ -38,26 +38,19 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// TestFungibleZetoV1Suite mirrors zeto_fungible_test.go for the fungible V1 axis (factoryVersion 1, IZetoFungible_V1,
-// createLock instead of legacy lock). Locking runs for every fungible token implementation. The v0.2.2 suite keeps
+// TestFungibleZetoV1Suite mirrors zeto_fungible_test.go at variant V1 (IZetoFungible_V1, createLock instead of legacy
+// lock), on a domain configured with variants. Locking runs for every fungible token implementation. The V0 suite keeps
 // transferLocked/delegateLock coverage on TOKEN_ANON only; V1 pools do not expose those legacy entrypoints on-chain.
-//
-// Subtest label "v0.5.1" matches TestFungibleZetoSuite: t.Run(zkpArtifactRoot) where root is domains/zeto/zkp/<tag>
-// (see helpers.ZetoZKArtifactRootV051 and ZetoFungibleV1ZKArtifactRootsForTestRun in helpers/zeto_zkp_versions.go).
 func TestFungibleZetoV1Suite(t *testing.T) {
-	for _, root := range helpers.ZetoFungibleV1ZKArtifactRootsForTestRun() {
-		t.Run(root, func(t *testing.T) {
-			if !helpers.ZetoZKArtifactsRootPresent(root) {
-				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
-			}
-			suite.Run(t, &fungibleV1TestSuiteHelper{
-				zetoDomainTestSuite: zetoDomainTestSuite{
-					zkpArtifactRoot: root,
-					contractsFile:   "./zeto/config-for-deploy-fungible-v1.yaml",
-				},
-			})
-		})
+	if !helpers.ZetoZKArtifactsPresent(types.ZetoVariant_V1) {
+		t.Skip("ZKP artifacts missing for V1 (extract with Gradle :domains:zeto:extractZetoZkpVariants)")
 	}
+	suite.Run(t, &fungibleV1TestSuiteHelper{
+		zetoDomainTestSuite: zetoDomainTestSuite{
+			variant:       types.ZetoVariant_V1,
+			contractsFile: "./zeto/config-for-deploy-fungible-v1.yaml",
+		},
+	})
 }
 
 type fungibleV1TestSuiteHelper struct {
@@ -98,16 +91,12 @@ func (s *fungibleV1TestSuiteHelper) Test_ZetoV1_AnonNullifierKycBatch() {
 
 func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, useBatch bool, isNullifiersToken bool, isKycToken ...bool) {
 	ctx := context.Background()
-	zkpRoot := s.zkpArtifactRoot
-	if zkpRoot == "" {
-		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
-	}
 	log.L(ctx).Info("*************************************")
-	log.L(ctx).Infof("fungible V1 (zkp %s) — deploying an instance of the %s token", zkpRoot, tokenName)
+	log.L(ctx).Infof("Deploying an instance of the %s token at variant %s", tokenName, s.variant)
 	log.L(ctx).Info("*************************************")
 	s.setupContractsAbi(t, ctx, tokenName)
 
-	zeto := helpers.DeployZetoFungibleV1(ctx, t, s.rpc, s.domainName, controllerName, tokenName, zkpRoot)
+	zeto := helpers.DeployZetoFungible(ctx, t, s.rpc, s.domainName, controllerName, tokenName, s.variant)
 	zetoAddress := zeto.Address
 	log.L(ctx).Infof("Zeto instance deployed to %s", zetoAddress.String())
 

@@ -23,119 +23,63 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
-
-type domainInstanceConfigV1Wire struct {
-	TokenName       string                  `json:"tokenName"`
-	ZetoVariant     pldtypes.HexUint64      `json:"zetoVariant"`
-	FactoryVersion  pldtypes.HexUint64      `json:"factoryVersion"`
-	CircuitBundleId string                  `json:"circuitBundleId"`
-	Circuits        *zetosignerapi.Circuits `json:"circuits"`
-}
 
 // DecodeDomainInstanceConfig decodes Paladin Zeto registration/config bytes.
 // When the payload starts with ZetoDomainConfigID_V1, the remainder is ABI-decoded as DomainInstanceConfigV1ABI.
 // Otherwise the full slice is decoded as legacy DomainInstanceConfigABI (tokenName + circuits only).
 func DecodeDomainInstanceConfig(ctx context.Context, domainConfig []byte) (*DomainInstanceConfig, error) {
-	if len(domainConfig) >= len(ZetoDomainConfigID_V1) {
-		prefix := domainConfig[0:len(ZetoDomainConfigID_V1)]
-		if bytes.Equal(prefix, ZetoDomainConfigID_V1) {
-			return decodeDomainInstanceConfigV1(ctx, domainConfig[len(ZetoDomainConfigID_V1):])
-		}
-	}
-	return decodeDomainInstanceConfigV0(ctx, domainConfig)
-}
-
-func decodeDomainInstanceConfigV0(ctx context.Context, domainConfig []byte) (*DomainInstanceConfig, error) {
-	configValues, err := DomainInstanceConfigABI.DecodeABIDataCtx(ctx, domainConfig, 0)
-	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgZetoLegacyDomainConfigDecode, ZetoDomainConfigID_V1.String(), err.Error())
-	}
-	configJSON, err := pldtypes.StandardABISerializer().SerializeJSON(configValues)
-	if err != nil {
-		return nil, err
-	}
 	var cfg DomainInstanceConfig
-	if err = json.Unmarshal(configJSON, &cfg); err != nil {
-		return nil, err
+	if bytes.HasPrefix(domainConfig, ZetoDomainConfigID_V1) {
+		if err := decodeABIConfig(ctx, DomainInstanceConfigV1ABI, domainConfig[len(ZetoDomainConfigID_V1):], &cfg); err != nil {
+			return nil, i18n.NewError(ctx, msgs.MsgErrorAbiDecodeDomainInstanceConfig, err)
+		}
+	} else {
+		if err := decodeABIConfig(ctx, DomainInstanceConfigABI, domainConfig, &cfg); err != nil {
+			return nil, i18n.NewError(ctx, msgs.MsgZetoLegacyDomainConfigDecode, ZetoDomainConfigID_V1.String(), err.Error())
+		}
+		// Legacy configs predate the variant, so they are V0 by definition.
+		cfg.Variant = ZetoVariant_V0
 	}
-	cfg.ConfigSchema = DomainConfigSchemaV0
-	// Legacy configs predate the release-generation axis, so they are V0 by definition.
-	cfg.ReleaseGeneration = ZetoRelease_V0
-	cfg.stampCircuitGeneration()
+	cfg.stampCircuitVariant()
 	return &cfg, nil
 }
 
-func decodeDomainInstanceConfigV1(ctx context.Context, payload []byte) (*DomainInstanceConfig, error) {
-	configValues, err := DomainInstanceConfigV1ABI.DecodeABIDataCtx(ctx, payload, 0)
+// stampCircuitVariant propagates the pool's variant onto its circuits, so the prover resolves .wasm and .zkey from that
+// variant's artifact tree.
+func (c *DomainInstanceConfig) stampCircuitVariant() {
+	if c.Circuits != nil {
+		c.Circuits.StampVariant(uint64(c.Variant))
+	}
+}
+
+func decodeABIConfig(ctx context.Context, configABI *abi.ParameterArray, data []byte, cfg *DomainInstanceConfig) error {
+	configValues, err := configABI.DecodeABIDataCtx(ctx, data, 0)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorAbiDecodeDomainInstanceConfig, err)
+		return err
 	}
 	configJSON, err := pldtypes.StandardABISerializer().SerializeJSON(configValues)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var wire domainInstanceConfigV1Wire
-	if err = json.Unmarshal(configJSON, &wire); err != nil {
-		return nil, err
-	}
-	cfg := &DomainInstanceConfig{
-		ConfigSchema:      DomainConfigSchemaV1,
-		TokenName:         wire.TokenName,
-		Circuits:          wire.Circuits,
-		ZetoVariant:       wire.ZetoVariant,
-		ReleaseGeneration: ZetoReleaseGeneration(wire.FactoryVersion),
-		CircuitBundleId:   wire.CircuitBundleId,
-	}
-	cfg.stampCircuitGeneration()
-	return cfg, nil
+	return json.Unmarshal(configJSON, cfg)
 }
 
-// stampCircuitGeneration propagates the pool's release generation onto its circuits, so the prover resolves .wasm and
-// .zkey from that generation's artifact tree rather than whichever tree happens to be mounted flat.
-func (c *DomainInstanceConfig) stampCircuitGeneration() {
-	if c.Circuits != nil {
-		c.Circuits.StampGeneration(uint64(c.ReleaseGeneration))
-	}
-}
-
-// EncodeDomainInstanceConfigV0 encodes legacy registration bytes (no prefix).
-func EncodeDomainInstanceConfigV0(ctx context.Context, cfg *DomainInstanceConfig) (pldtypes.HexBytes, error) {
-	partial := struct {
-		TokenName string                  `json:"tokenName"`
-		Circuits  *zetosignerapi.Circuits `json:"circuits"`
-	}{
-		TokenName: cfg.TokenName,
-		Circuits:  cfg.Circuits,
-	}
-	configJSON, err := json.Marshal(partial)
+// EncodeDomainInstanceConfig writes a V0 pool in the unprefixed encoding, so nodes that predate the variant can still
+// read it; any other variant is written as ZetoDomainConfigID_V1 || abi.encode(DomainInstanceConfigV1ABI).
+func EncodeDomainInstanceConfig(ctx context.Context, cfg *DomainInstanceConfig) (pldtypes.HexBytes, error) {
+	configJSON, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return DomainInstanceConfigABI.EncodeABIDataJSONCtx(ctx, configJSON)
-}
-
-// EncodeDomainInstanceConfigV1 encodes ZetoDomainConfigID_V1 || abi.encode(DomainInstanceConfigV1ABI).
-func EncodeDomainInstanceConfigV1(ctx context.Context, cfg *DomainInstanceConfig) (pldtypes.HexBytes, error) {
-	wire := domainInstanceConfigV1Wire{
-		TokenName:       cfg.TokenName,
-		ZetoVariant:     cfg.ZetoVariant,
-		FactoryVersion:  pldtypes.HexUint64(cfg.ReleaseGeneration),
-		CircuitBundleId: cfg.CircuitBundleId,
-		Circuits:        cfg.Circuits,
-	}
-	configJSON, err := json.Marshal(wire)
-	if err != nil {
-		return nil, err
+	if cfg.Variant == ZetoVariant_V0 {
+		return DomainInstanceConfigABI.EncodeABIDataJSONCtx(ctx, configJSON)
 	}
 	encodedBody, err := DomainInstanceConfigV1ABI.EncodeABIDataJSONCtx(ctx, configJSON)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, len(ZetoDomainConfigID_V1)+len(encodedBody))
-	out = append(out, ZetoDomainConfigID_V1...)
-	out = append(out, encodedBody...)
-	return out, nil
+	return append(bytes.Clone(ZetoDomainConfigID_V1), encodedBody...), nil
 }

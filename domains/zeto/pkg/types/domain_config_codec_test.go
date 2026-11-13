@@ -17,11 +17,10 @@
 package types
 
 import (
-	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,132 +36,71 @@ func testCircuits(t *testing.T) *zetosignerapi.Circuits {
 	return &c
 }
 
-func TestEncodeDecodeDomainInstanceConfigV0(t *testing.T) {
-	ctx := context.Background()
-	cfg := &DomainInstanceConfig{
-		TokenName: "anon",
+// The prover selects its artifact tree from the circuit's variant, so decoding must stamp the pool's variant onto every
+// circuit. Without this a V1 pool would silently prove against V0 artifacts.
+func TestEncodeDecodeDomainInstanceConfig(t *testing.T) {
+	ctx := t.Context()
+	encoded, err := EncodeDomainInstanceConfig(ctx, &DomainInstanceConfig{
+		TokenName: "anon_nullifier",
 		Circuits:  testCircuits(t),
-	}
-	encoded, err := EncodeDomainInstanceConfigV0(ctx, cfg)
+		Variant:   ZetoVariant_V1,
+	})
 	require.NoError(t, err)
-
-	decoded, err := DecodeDomainInstanceConfig(ctx, encoded)
-	require.NoError(t, err)
-	assert.Equal(t, DomainConfigSchemaV0, decoded.ConfigSchema)
-	assert.Equal(t, "anon", decoded.TokenName)
-	assert.Equal(t, pldtypes.HexUint64(0), decoded.ZetoVariant)
-	require.NotNil(t, decoded.Circuits)
-	assert.Equal(t, "d", (*decoded.Circuits)["deposit"].Name)
-}
-
-func TestEncodeDecodeDomainInstanceConfigV1(t *testing.T) {
-	ctx := context.Background()
-	cfg := &DomainInstanceConfig{
-		TokenName:         "anon_nullifier",
-		Circuits:          testCircuits(t),
-		ZetoVariant:       7,
-		ReleaseGeneration: 1,
-		CircuitBundleId:   "bundle-a",
-	}
-	encoded, err := EncodeDomainInstanceConfigV1(ctx, cfg)
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(encoded), len(ZetoDomainConfigID_V1))
 	assert.Equal(t, []byte(ZetoDomainConfigID_V1), []byte(encoded[:len(ZetoDomainConfigID_V1)]))
 
 	decoded, err := DecodeDomainInstanceConfig(ctx, encoded)
 	require.NoError(t, err)
-	assert.Equal(t, DomainConfigSchemaV1, decoded.ConfigSchema)
 	assert.Equal(t, "anon_nullifier", decoded.TokenName)
-	assert.Equal(t, pldtypes.HexUint64(7), decoded.ZetoVariant)
-	assert.Equal(t, ZetoRelease_V1, decoded.ReleaseGeneration)
-	assert.Equal(t, "bundle-a", decoded.CircuitBundleId)
+	assert.Equal(t, ZetoVariant_V1, decoded.Variant)
 	require.NotNil(t, decoded.Circuits)
 	assert.Equal(t, "tr", (*decoded.Circuits)["transfer"].Name)
-}
-
-func TestGetCircuitsForDeploy_BundleID(t *testing.T) {
-	ctx := context.Background()
-	d := &DomainFactoryConfig{
-		DomainContracts: DomainConfigContracts{
-			Implementations: []*DomainContract{
-				{Name: "anon", BundleID: "b1", Circuits: testCircuits(t)},
-				{Name: "other", BundleID: "b2", Circuits: testCircuits(t)},
-			},
-		},
-	}
-	got, err := d.GetCircuitsForDeploy(ctx, "ignored", 0, "b2")
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, "tr", (*got)["transfer"].Name)
-}
-
-func TestGetCircuitsForDeploy_VariantFilter(t *testing.T) {
-	ctx := context.Background()
-	v1 := uint64(1)
-	d := &DomainFactoryConfig{
-		DomainContracts: DomainConfigContracts{
-			Implementations: []*DomainContract{
-				{Name: "anon", ForZetoVariant: &v1, Circuits: testCircuits(t)},
-			},
-		},
-	}
-	got, err := d.GetCircuitsForDeploy(ctx, "anon", 1, "")
-	require.NoError(t, err)
-	require.NotNil(t, got)
-
-	_, err = d.GetCircuitsForDeploy(ctx, "anon", 99, "")
-	require.Error(t, err)
-}
-
-func TestGetCircuitsForDeploy_DuplicateBundleID(t *testing.T) {
-	ctx := context.Background()
-	d := &DomainFactoryConfig{
-		DomainContracts: DomainConfigContracts{
-			Implementations: []*DomainContract{
-				{Name: "a", BundleID: "dup", Circuits: testCircuits(t)},
-				{Name: "b", BundleID: "dup", Circuits: testCircuits(t)},
-			},
-		},
-	}
-	_, err := d.GetCircuitsForDeploy(ctx, "", 0, "dup")
-	require.Error(t, err)
-}
-
-// The prover selects its artifact tree from the circuit's generation, so decoding must stamp the pool's generation
-// onto every circuit. Without this a V1 pool would silently prove against V0 artifacts.
-func TestDecodeStampsCircuitGeneration(t *testing.T) {
-	ctx := context.Background()
-	cfg := &DomainInstanceConfig{
-		TokenName:         "anon_nullifier",
-		Circuits:          testCircuits(t),
-		ReleaseGeneration: ZetoRelease_V1,
-	}
-	encoded, err := EncodeDomainInstanceConfigV1(ctx, cfg)
-	require.NoError(t, err)
-
-	decoded, err := DecodeDomainInstanceConfig(ctx, encoded)
-	require.NoError(t, err)
-	assert.Equal(t, ZetoRelease_V1, decoded.ReleaseGeneration)
-	require.NotNil(t, decoded.Circuits)
 	for name, circuit := range *decoded.Circuits {
-		assert.Equal(t, uint64(ZetoRelease_V1), circuit.Generation, "circuit %s not stamped", name)
+		assert.Equal(t, uint64(ZetoVariant_V1), circuit.Variant, "circuit %s", name)
 	}
 }
 
-// Legacy (v0-schema) registration bytes predate the axis, so they decode as generation V0 and their circuits are
-// stamped accordingly rather than left at an ambiguous zero-with-no-meaning.
-func TestDecodeLegacyConfigStampsGenerationV0(t *testing.T) {
-	ctx := context.Background()
-	cfg := &DomainInstanceConfig{TokenName: "anon", Circuits: testCircuits(t)}
-	encoded, err := EncodeDomainInstanceConfigV0(ctx, cfg)
+// Legacy (unprefixed) registration bytes predate the variant, so they decode as V0 and their circuits are stamped
+// accordingly rather than left at an ambiguous zero-with-no-meaning.
+func TestDecodeUnprefixedDomainInstanceConfigIsV0(t *testing.T) {
+	ctx := t.Context()
+	configJSON, err := json.Marshal(&DomainInstanceConfig{TokenName: "anon", Circuits: testCircuits(t)})
+	require.NoError(t, err)
+	encoded, err := DomainInstanceConfigABI.EncodeABIDataJSONCtx(ctx, configJSON)
 	require.NoError(t, err)
 
 	decoded, err := DecodeDomainInstanceConfig(ctx, encoded)
 	require.NoError(t, err)
-	assert.Equal(t, DomainConfigSchemaV0, decoded.ConfigSchema)
-	assert.Equal(t, ZetoRelease_V0, decoded.ReleaseGeneration)
+	assert.Equal(t, "anon", decoded.TokenName)
+	assert.Equal(t, ZetoVariant_V0, decoded.Variant)
 	require.NotNil(t, decoded.Circuits)
+	assert.Equal(t, "d", (*decoded.Circuits)["deposit"].Name)
 	for _, circuit := range *decoded.Circuits {
-		assert.Equal(t, uint64(ZetoRelease_V0), circuit.Generation)
+		assert.Equal(t, uint64(ZetoVariant_V0), circuit.Variant)
 	}
+}
+
+// A V0 pool must be byte-identical to the unprefixed encoding, so nodes that predate the variant can still read it.
+func TestEncodeV0DomainInstanceConfigIsUnprefixed(t *testing.T) {
+	ctx := t.Context()
+	cfg := &DomainInstanceConfig{TokenName: "anon", Circuits: testCircuits(t), Variant: ZetoVariant_V0}
+	encoded, err := EncodeDomainInstanceConfig(ctx, cfg)
+	require.NoError(t, err)
+
+	configJSON, err := json.Marshal(&DomainInstanceConfig{TokenName: "anon", Circuits: testCircuits(t)})
+	require.NoError(t, err)
+	expected, err := DomainInstanceConfigABI.EncodeABIDataJSONCtx(ctx, configJSON)
+	require.NoError(t, err)
+	assert.Equal(t, []byte(expected), []byte(encoded))
+
+	decoded, err := DecodeDomainInstanceConfig(ctx, encoded)
+	require.NoError(t, err)
+	assert.Equal(t, ZetoVariant_V0, decoded.Variant)
+}
+
+func TestDecodeDomainInstanceConfigFail(t *testing.T) {
+	ctx := t.Context()
+	_, err := DecodeDomainInstanceConfig(ctx, []byte{0x01, 0x02})
+	assert.Regexp(t, "PD210148", err)
+	_, err = DecodeDomainInstanceConfig(ctx, append([]byte(ZetoDomainConfigID_V1), 0x01))
+	assert.Regexp(t, "PD210018", err)
 }

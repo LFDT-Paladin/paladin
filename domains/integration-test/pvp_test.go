@@ -46,15 +46,10 @@ var (
 )
 
 func TestPvPSuite(t *testing.T) {
-	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
-		root := root
-		t.Run(root, func(t *testing.T) {
-			if !helpers.ZetoZKArtifactsRootPresent(root) {
-				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
-			}
-			suite.Run(t, &pvpTestSuite{zkpArtifactRoot: root})
-		})
+	if !helpers.ZetoZKArtifactsPresent(zetotypes.ZetoVariant_V1) {
+		t.Skip("ZKP artifacts missing for V1 (extract with Gradle :domains:zeto:extractZetoZkpVariants)")
 	}
+	suite.Run(t, &pvpTestSuite{})
 }
 
 type pvpTestSuite struct {
@@ -66,7 +61,6 @@ type pvpTestSuite struct {
 	atomFactoryAddress string
 	zetoContracts      *helpers.ZetoDomainContracts
 	zetoConfig         *zetotypes.DomainFactoryConfig
-	zkpArtifactRoot    string
 }
 
 func (s *pvpTestSuite) SetupSuite() {
@@ -105,13 +99,10 @@ func (s *pvpTestSuite) SetupSuite() {
 	s.atomFactoryAddress = contracts["atom"]
 
 	log.L(ctx).Infof("Deploying Zeto dependencies")
-	zkpRoot := s.zkpArtifactRoot
-	if zkpRoot == "" {
-		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
-	}
-	log.L(ctx).Infof("Zeto ZKP artifact root = %s", zkpRoot)
-	s.zetoContracts = helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, "./zeto/config-for-deploy.yaml", notary, zkpRoot)
-	s.zetoConfig = helpers.PrepareZetoConfig(s.T(), s.zetoContracts, helpers.ZetoZKArtifactsDir(zkpRoot))
+	s.zetoContracts = helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, "./zeto/config-for-deploy.yaml", notary, zetotypes.ZetoVariant_V1)
+	s.zetoConfig = helpers.PrepareZetoVariantConfig(s.T(), zetotypes.ZetoVariant_V1, map[zetotypes.ZetoVariant]*helpers.ZetoDomainContracts{
+		zetotypes.ZetoVariant_V1: s.zetoContracts,
+	})
 }
 
 func decodeTransactionResult(t *testing.T, resultInput map[string]any) *testbed.TransactionResult {
@@ -353,9 +344,7 @@ func (s *pvpTestSuite) TestNotoForZeto() {
 
 	log.L(ctx).Infof("Deploying Noto and Zeto")
 	noto := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, "", notary, nil)
-	// V1 axis: the pool runs against v0.5.1 contracts (ZetoZKArtifactRootDefault), whose packed-proof calldata and
-	// lock-output ordering only match the V1 handlers.
-	zeto := helpers.DeployZetoFungibleV1(ctx, t, rpc, s.zetoDomainName, notary, tokenName, s.zkpArtifactRoot)
+	zeto := helpers.DeployZetoFungible(ctx, t, rpc, s.zetoDomainName, notary, tokenName, zetotypes.ZetoVariant_V1)
 	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
 	log.L(ctx).Infof("Zeto deployed to %s", zeto.Address)
 

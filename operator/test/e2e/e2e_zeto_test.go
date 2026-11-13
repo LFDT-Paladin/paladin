@@ -44,10 +44,10 @@ import (
 //go:embed abis/zeto/Zeto_Anon.json
 var zetoAnonBuildJSON []byte
 
-// Pools here are deployed on the V1 transaction API against zeto-contracts v0.5.1 implementations, so this is the
-// generation carrying createLock/spendLock (V0's lock/transferLocked no longer exist). See ZetoFungibleABIVersion
-// and ZetoReleaseGeneration in domains/zeto/pkg/types/versions.go.
-var zetoFungibleABI = zetotypes.ZetoFungibleABIForVersion(zetotypes.ZetoFungibleABI_V1)
+// Pools here are deployed at the domain's default variant, V1, against zeto-contracts v0.5.1 implementations, so this is
+// the variant carrying createLock/spendLock (V0's lock/transferLocked no longer exist). See ZetoVariant in
+// domains/zeto/pkg/types/versions.go.
+var zetoFungibleABI = zetotypes.ZetoFungibleABIForVariant(zetotypes.ZetoVariant_V1)
 
 // zetoLockInfoStateResult mirrors zetotypes.ZetoCoinState for the lock-info schema, which is where createLock
 // persists the lock id this suite needs for delegateLock / spendLock.
@@ -75,14 +75,9 @@ const isNullifier = false
 // const tokenType = "Zeto_AnonNullifier"
 // const isNullifier = true
 
-// The V1 axis is opted into at deploy: domainConfigSchema "v1" selects the prefixed on-chain config encoding, and
-// zetoVariant / factoryVersion record the Paladin API generation and the upstream release generation respectively.
 var zetoConstructorABI = &abi.Entry{
 	Type: abi.Constructor, Inputs: abi.ParameterArray{
 		{Name: "tokenName", Type: "string"},
-		{Name: "domainConfigSchema", Type: "string"},
-		{Name: "zetoVariant", Type: "uint256"},
-		{Name: "factoryVersion", Type: "uint256"},
 	},
 }
 
@@ -148,10 +143,7 @@ var _ = Describe(fmt.Sprintf("zeto - %s", tokenType), Ordered, func() {
 				Constructor().
 				From(operator).
 				Inputs(&zetotypes.InitializerParams{
-					TokenName:          tokenType,
-					DomainConfigSchema: zetotypes.DomainConfigSchemaV1,
-					ZetoVariant:        zetotypes.ZetoFungibleABI_V1,
-					ReleaseGeneration:  zetotypes.ZetoRelease_V1,
+					TokenName: tokenType,
 				}).
 				Send().
 				Wait(5 * time.Second)

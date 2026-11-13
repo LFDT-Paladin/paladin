@@ -232,7 +232,7 @@ func (h *withdrawHandler) Prepare(ctx context.Context, tx *types.ParsedTransacti
 	}
 	var params map[string]any
 	var withdrawFunction *abi.Entry
-	if types.UseZetoOnchainPackedProofCalldata(types.ZetoFungibleABIVersion(tx.DomainConfig.ZetoVariant)) {
+	if types.UseZetoOnchainPackedProofCalldata(tx.DomainConfig.Variant) {
 		withdrawFunction = withdrawOnchainPackedABI
 		proofBytes, err := common.EncodeZetoOnchainWithdrawProofBytes(ctx, tx.DomainConfig.TokenName, proofRes.Proof, proofRes.PublicInputs)
 		if err != nil {

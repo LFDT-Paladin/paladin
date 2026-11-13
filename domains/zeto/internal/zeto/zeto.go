@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
-	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -30,10 +29,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/fungible"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/nonfungible"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer"
 	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
@@ -52,13 +51,12 @@ import (
 
 var _ plugintk.DomainAPI = &Zeto{}
 
-// A single Paladin factory wrapper serves every supported factoryVersion. solidity/contracts/domains/zeto/ZetoFactory_V0.sol
-// is built against zeto-contracts 0.5.1, whose factory is selector- and behaviour-identical to 0.2.2's, so the same ABI
-// encodes valid calls against factories deployed from either generation — including legacy non-upgradeable deployments.
-// factoryVersion itself is still validated and recorded (see types.ZetoReleaseGeneration): it is persisted on chain
-// in DomainInstanceConfig and selects the target token generation, not the wrapper ABI.
+// A single Paladin factory wrapper ABI serves every factory. solidity/contracts/domains/zeto/ZetoFactory_V1.sol is
+// built against zeto-contracts 0.5.1, whose factory is selector- and behaviour-identical to 0.2.2's, so the same ABI
+// encodes valid calls against factories deployed from either release, including non-upgradeable ZetoFactory_V0
+// deployments.
 //
-//go:embed factoryabis/ZetoFactory_V0.json
+//go:embed factoryabis/ZetoFactory_V1.json
 var zetoFactoryArtifact []byte
 
 var zetoFactoryBuild = solutils.MustLoadBuild(zetoFactoryArtifact)
@@ -80,7 +78,7 @@ type Zeto struct {
 	Callbacks plugintk.DomainCallbacks
 
 	name                 string
-	config               *types.DomainFactoryConfig
+	variants             *types.DomainVariants
 	chainID              int64
 	coinSchema           *prototk.StateSchema
 	nftSchema            *prototk.StateSchema
@@ -192,12 +190,13 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 		return nil, i18n.NewError(ctx, msgs.MsgErrorParseDomainConfig, err)
 	}
 
-	for _, contract := range config.DomainContracts.Implementations {
-		contract.Circuits.Init()
+	variants, err := config.ResolveVariants(ctx)
+	if err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorParseDomainConfig, err)
 	}
 
 	z.name = req.Name
-	z.config = &config
+	z.variants = variants
 	z.chainID = req.ChainId
 
 	schemas, err := types.GetStateSchemas()
@@ -211,13 +210,13 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 		return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalZetoEventAbis, err)
 	}
 
-	z.registerEventSignatures(zetoEventABISet(types.ZetoRelease_V0), &z.events)
-	z.registerEventSignatures(zetoEventABISet(types.ZetoRelease_V1), &z.eventsV1)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoVariant_V0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoVariant_V1), &z.eventsV1)
 
 	var signingAlgos map[string]int32
 	if config.SnarkProver.CircuitsDir != "" {
 		// Only build the prover and enable the algorithms for signing if circuits configured
-		z.snarkProver, err = zetosigner.NewSnarkProver(&config.SnarkProver)
+		z.snarkProver, err = signer.NewSnarkProver(&config.SnarkProver, variants.ArtifactsPerVariant)
 		if err != nil {
 			return nil, err
 		}
@@ -271,59 +270,39 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepDeployParams, err)
 	}
-	useV1 := strings.EqualFold(initParams.DomainConfigSchema, types.DomainConfigSchemaV1)
-	if !useV1 && (initParams.CircuitBundleId != "" || initParams.ZetoVariant != 0) {
-		return nil, i18n.NewError(ctx, msgs.MsgZetoV1SchemaRequired)
-	}
-
-	// The release generation may come from the domain config or the deploy params; they must agree when both are set.
-	generation := z.config.ReleaseGeneration
-	if initParams.ReleaseGeneration != 0 {
-		if z.config.ReleaseGeneration != 0 && initParams.ReleaseGeneration != z.config.ReleaseGeneration {
-			return nil, i18n.NewError(ctx, msgs.MsgZetoReleaseGenerationConflict, initParams.ReleaseGeneration, z.config.ReleaseGeneration)
-		}
-		generation = initParams.ReleaseGeneration
-	}
-	if err := types.ValidateZetoReleaseGeneration(ctx, generation); err != nil {
-		return nil, err
-	}
-	// One consolidated ZetoFactory_V0 ABI serves every generation; the generation is recorded on chain because it
-	// selects the target-core event ABIs and the proving-artifact tree for this pool.
 	factoryABI := zetoFactoryBuild.ABI
 	deployFn, err := pickZetoFactoryDeploy7Arg(factoryABI)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepDeployParams, err.Error())
 	}
 
-	circuits, err := z.config.GetCircuitsForDeploy(ctx, initParams.TokenName, initParams.ZetoVariant.Uint64(), initParams.CircuitBundleId)
+	variant := initParams.Variant
+	if variant == nil {
+		variant = z.variants.DefaultVariant
+	}
+	if variant == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgZetoVariantRequired)
+	}
+	implementation, err := z.variants.GetImplementation(ctx, *variant, initParams.TokenName)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFindCircuitId, err)
 	}
 
-	config := &types.DomainInstanceConfig{
-		Circuits:          circuits,
-		TokenName:         initParams.TokenName,
-		ZetoVariant:       pldtypes.HexUint64(initParams.ZetoVariant),
-		ReleaseGeneration: generation,
-		CircuitBundleId:   initParams.CircuitBundleId,
-	}
-
-	var encoded pldtypes.HexBytes
-	if useV1 {
-		config.ConfigSchema = types.DomainConfigSchemaV1
-		encoded, err = types.EncodeDomainInstanceConfigV1(ctx, config)
-	} else {
-		config.ConfigSchema = types.DomainConfigSchemaV0
-		encoded, err = types.EncodeDomainInstanceConfigV0(ctx, config)
-	}
+	// The variant is recorded on chain because every node uses it to choose the pool's handlers, event ABIs and proving
+	// artifacts.
+	encoded, err := types.EncodeDomainInstanceConfig(ctx, &types.DomainInstanceConfig{
+		TokenName: initParams.TokenName,
+		Circuits:  implementation.Circuits,
+		Variant:   *variant,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	deployParams := &types.DeployParams{
 		TransactionID: req.Transaction.TransactionId,
-		Data:          pldtypes.HexBytes(encoded),
-		TokenName:     initParams.TokenName,
+		Data:          encoded,
+		TokenName:     implementation.RegisteredName,
 		Name:          initParams.TokenName,
 		Symbol:        initParams.TokenName,
 		InitialOwner:  req.ResolvedVerifiers[0].Verifier, // TODO: allow the initial owner to be specified by the deploy request
@@ -352,6 +331,9 @@ func (z *Zeto) InitContract(ctx context.Context, req *prototk.InitContractReques
 	ctx = log.WithComponent(ctx, "zeto")
 	var zetoContractConfigJSON []byte
 	domainConfig, err := z.decodeDomainConfig(ctx, req.ContractConfig)
+	if err == nil {
+		err = types.ValidateZetoVariant(ctx, domainConfig.Variant)
+	}
 	if err == nil {
 		zetoContractConfigJSON, err = json.Marshal(domainConfig)
 	}
@@ -402,8 +384,8 @@ func (z *Zeto) PrepareTransaction(ctx context.Context, req *prototk.PrepareTrans
 	return handler.Prepare(ctx, tx, req)
 }
 
-func (z *Zeto) GetHandler(method, tokenName string, zetoVariant pldtypes.HexUint64) types.DomainHandler {
-	fungibleV0 := types.FungibleABIVersion(zetoVariant) == types.ZetoFungibleABI_V0
+func (z *Zeto) GetHandler(method, tokenName string, variant types.ZetoVariant) types.DomainHandler {
+	isV0 := variant == types.ZetoVariant_V0
 	if common.IsNonFungibleToken(tokenName) {
 		switch method {
 		case types.METHOD_MINT:
@@ -420,27 +402,27 @@ func (z *Zeto) GetHandler(method, tokenName string, zetoVariant pldtypes.HexUint
 	case types.METHOD_TRANSFER:
 		return fungible.NewTransferHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema)
 	case types.METHOD_TRANSFER_LOCKED:
-		if !fungibleV0 {
+		if !isV0 {
 			return nil
 		}
 		return fungible.NewTransferLockedHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema)
 	case types.METHOD_LOCK:
-		if !fungibleV0 {
+		if !isV0 {
 			return nil
 		}
 		return fungible.NewLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema)
 	case types.METHOD_CREATE_LOCK:
-		if fungibleV0 {
+		if isV0 {
 			return nil
 		}
 		return fungible.NewCreateLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.lockInfoSchema)
 	case types.METHOD_SPEND_LOCK:
-		if fungibleV0 {
+		if isV0 {
 			return nil
 		}
 		return fungible.NewSpendLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema, z.lockInfoSchema)
 	case types.METHOD_CANCEL_LOCK:
-		if fungibleV0 {
+		if isV0 {
 			return nil
 		}
 		return fungible.NewCancelLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema, z.lockInfoSchema)
@@ -486,7 +468,7 @@ func (z *Zeto) validateDeployAndGetLogContext(ctx context.Context, txSpec *proto
 func validateTransactionCommon[T any](
 	ctx context.Context,
 	tx *prototk.TransactionSpecification,
-	getHandler func(method, tokenName string, zetoVariant pldtypes.HexUint64) T,
+	getHandler func(method, tokenName string, variant types.ZetoVariant) T,
 ) (*types.ParsedTransaction, T, error) {
 	var functionABI abi.Entry
 	err := json.Unmarshal([]byte(tx.FunctionAbiJson), &functionABI)
@@ -506,10 +488,10 @@ func validateTransactionCommon[T any](
 	if common.IsNonFungibleToken(domainConfig.TokenName) {
 		fnEntry = types.ZetoNonFungibleABI_V0.Functions()[functionABI.Name]
 	} else {
-		fnEntry = types.ZetoFungibleFunctionForVariant(domainConfig.ZetoVariant, functionABI.Name)
+		fnEntry = types.ZetoFungibleFunctionForVariant(domainConfig.Variant, functionABI.Name)
 	}
 
-	handler := getHandler(functionABI.Name, domainConfig.TokenName, domainConfig.ZetoVariant)
+	handler := getHandler(functionABI.Name, domainConfig.TokenName, domainConfig.Variant)
 	handlerValue := reflect.ValueOf(handler)
 	if fnEntry == nil || handlerValue.IsNil() {
 		var zero T
@@ -552,11 +534,18 @@ func validateTransactionCommon[T any](
 }
 
 func (z *Zeto) validateTransaction(ctx context.Context, tx *prototk.TransactionSpecification) (*types.ParsedTransaction, types.DomainHandler, error) {
-	return validateTransactionCommon(
+	parsed, handler, err := validateTransactionCommon(
 		ctx,
 		tx,
 		z.GetHandler,
 	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, ok := z.variants.Implementations[parsed.DomainConfig.Variant]; !ok {
+		return nil, nil, i18n.NewError(ctx, msgs.MsgZetoVariantNotConfigured, parsed.DomainConfig.Variant)
+	}
+	return parsed, handler, nil
 }
 
 func (z *Zeto) validateTransactionAndGetLogContext(ctx context.Context, txSpec *prototk.TransactionSpecification) (context.Context, *types.ParsedTransaction, types.DomainHandler, error) {
@@ -587,7 +576,7 @@ func (z *Zeto) validateCall(ctx context.Context, call *prototk.TransactionSpecif
 	return validateTransactionCommon(
 		ctx,
 		call,
-		func(m, tn string, _ pldtypes.HexUint64) types.DomainCallHandler {
+		func(m, tn string, _ types.ZetoVariant) types.DomainCallHandler {
 			return z.GetCallHandler(m, tn)
 		},
 	)

@@ -102,7 +102,7 @@ func TestSpendLockAssemble_UsesSpendOperation(t *testing.T) {
 
 func TestSpendLockPrepare_UsesSpendOperation(t *testing.T) {
 	h := &spendLockHandler{unlockCommon: *newTestUnlockCommon(t, testUnlockLockInfo(t), testUnlockCoins())}
-	tx := testUnlockPrepareTx(constants.TOKEN_ANON, pldtypes.HexUint64(types.ZetoFungibleABI_V1))
+	tx := testUnlockPrepareTx(constants.TOKEN_ANON, types.ZetoVariant_V1)
 	tx.Params = &types.SpendLockParams{LockId: testUnlockLockID, From: "spender@node"}
 	res, err := h.Prepare(t.Context(), tx, testUnlockPrepareReq(t, nil))
 	require.NoError(t, err)

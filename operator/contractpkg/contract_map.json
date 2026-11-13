@@ -127,7 +127,7 @@
         }
     },
     "zeto_factory": {
-        "filename": "test/e2e/abis/zeto/ZetoFactory_V0.json"
+        "filename": "test/e2e/abis/zeto/ZetoFactory_V1.json"
     },
     "zeto_factory_proxy": {
         "filename": "test/e2e/abis/ERC1967Proxy.json",

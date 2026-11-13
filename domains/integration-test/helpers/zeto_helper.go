@@ -23,7 +23,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
@@ -64,17 +63,6 @@ type ZetoHelper struct {
 	implABI abi.ABI
 }
 
-// ZetoVersionDefault is the zkp tree used when a caller names none (see ZetoZKArtifactRootDefault).
-const ZetoVersionDefault = ZetoZKArtifactRootDefault
-
-// ZetoZKArtifactsDir returns the circuits/proving-keys root for integration tests (cwd = domains/integration-test).
-func ZetoZKArtifactsDir(version string) string {
-	if version == "" || strings.EqualFold(strings.TrimSpace(version), "latest") {
-		version = ZetoZKArtifactRootDefault
-	}
-	return filepath.Join("..", "zeto", "zkp", version)
-}
-
 // =============================================================================
 //
 //	Fungible
@@ -84,12 +72,19 @@ type ZetoHelperFungible struct {
 	ZetoHelper
 }
 
-func DeployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName, zkpArtifactRoot string) *ZetoHelperFungible {
-	zkpRoot := strings.TrimSpace(zkpArtifactRoot)
-	if zkpRoot == "" {
-		zkpRoot = EffectiveZetoZKArtifactRoot()
-	}
-	abiPath := ResolveZetoImplementationAbiPath(filepath.Join(".", "helpers", "abis", tokenName+".json"), zkpRoot)
+// DeployZetoFungible deploys at the domain's default variant, which must be variant. The variant also selects the
+// implementation ABI, so it resolves under helpers/abis/zkp/<zkpRoot>/.
+func DeployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName string, variant types.ZetoVariant) *ZetoHelperFungible {
+	return deployZetoFungible(ctx, t, rpc, domainName, controllerName, tokenName, variant, nil)
+}
+
+// DeployZetoFungibleAtVariant names the variant in the deploy.
+func DeployZetoFungibleAtVariant(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName string, variant types.ZetoVariant) *ZetoHelperFungible {
+	return deployZetoFungible(ctx, t, rpc, domainName, controllerName, tokenName, variant, &variant)
+}
+
+func deployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName string, variant types.ZetoVariant, deployVariant *types.ZetoVariant) *ZetoHelperFungible {
+	abiPath := ResolveZetoImplementationAbiPath(filepath.Join(".", "helpers", "abis", tokenName+".json"), variant)
 	raw, err := os.ReadFile(abiPath)
 	require.NoError(t, err)
 	// ABI only — MustLoadBuild would require Poseidon (and other) library addresses from linkReferences.
@@ -100,42 +95,8 @@ func DeployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client,
 		TokenName: tokenName,
 		Name:      "Test Zeto",
 		Symbol:    "ZETO",
+		Variant:   deployVariant,
 	})
-	if rpcerr != nil {
-		assert.NoError(t, rpcerr)
-	}
-	return &ZetoHelperFungible{
-		ZetoHelper: ZetoHelper{
-			t:       t,
-			rpc:     rpc,
-			Address: &addr,
-			implABI: implABI,
-		},
-	}
-}
-
-// DeployZetoFungibleV1 deploys a fungible V1 pool (factoryVersion 1 + on-chain domain config schema v1 + IZetoFungible_V1 handler axis).
-// zkpArtifactRoot should be helpers.ZetoZKArtifactRootV051 (e.g. "v0.5.1") so implementation ABIs resolve under helpers/abis/zkp/<root>/.
-func DeployZetoFungibleV1(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName, zkpArtifactRoot string) *ZetoHelperFungible {
-	zkpRoot := strings.TrimSpace(zkpArtifactRoot)
-	if zkpRoot == "" {
-		zkpRoot = EffectiveZetoZKArtifactRoot()
-	}
-	abiPath := ResolveZetoImplementationAbiPath(filepath.Join(".", "helpers", "abis", tokenName+".json"), zkpRoot)
-	raw, err := os.ReadFile(abiPath)
-	require.NoError(t, err)
-	implABI := solutils.MustParseBuildABI(raw)
-
-	var addr pldtypes.EthAddress
-	init := &types.InitializerParams{
-		TokenName:          tokenName,
-		Name:               "Test Zeto",
-		Symbol:             "ZETO",
-		DomainConfigSchema: types.DomainConfigSchemaV1,
-		ZetoVariant:        types.ZetoFungibleABI_V1,
-		ReleaseGeneration:  types.ZetoRelease_V1,
-	}
-	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, controllerName, init)
 	if rpcerr != nil {
 		assert.NoError(t, rpcerr)
 	}
@@ -312,7 +273,7 @@ func ComputeZetoFungibleV1LockID(pool *pldtypes.EthAddress, publicCreateLockMsgS
 // from is the Paladin identity that signs the private leg; to is the spend recipient pinned in lock info (Recipients[].To).
 // unlockData is application-specific opaque bytes stored on lock info and passed through to on-chain outer data.
 func (z *ZetoHelperFungible) CreateLock(ctx context.Context, from, to string, amount int, unlockData pldtypes.HexBytes) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V1).Functions()[types.METHOD_CREATE_LOCK]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V1, types.METHOD_CREATE_LOCK)
 	emptyData := pldtypes.HexBytes{}
 	if unlockData == nil {
 		unlockData = emptyData
@@ -368,7 +329,7 @@ func (z *ZetoHelperFungible) PrepareCancelLock(ctx context.Context, tb testbed.T
 }
 
 func (z *ZetoHelperFungible) cancelLockDomainTransaction(ctx context.Context, req *CancelLockRequest) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V1).Functions()[types.METHOD_CANCEL_LOCK]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V1, types.METHOD_CANCEL_LOCK)
 	emptyData := pldtypes.HexBytes{}
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.CancelLockParams{
 		LockId: req.LockId,
@@ -387,7 +348,7 @@ func (z *ZetoHelperFungible) SpendLockTransaction(ctx context.Context, req *Spen
 }
 
 func (z *ZetoHelperFungible) spendLockDomainTransaction(ctx context.Context, req *SpendLockRequest) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V1).Functions()[types.METHOD_SPEND_LOCK]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V1, types.METHOD_SPEND_LOCK)
 	emptyData := pldtypes.HexBytes{}
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.SpendLockParams{
 		LockId: req.LockId,
@@ -430,7 +391,7 @@ func (z *ZetoHelperFungible) Mint(ctx context.Context, to string, amounts []uint
 			Amount: pldtypes.Uint64ToUint256(amount),
 		}
 	}
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["mint"]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V0, "mint")
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.FungibleMintParams{
 		Mints: entries,
 	}))
@@ -444,21 +405,21 @@ func (z *ZetoHelperFungible) Transfer(ctx context.Context, to []string, amounts 
 			Amount: pldtypes.Uint64ToUint256(amount),
 		}
 	}
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["transfer"]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V0, "transfer")
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.FungibleTransferParams{
 		Transfers: entries,
 	}))
 }
 
 func (z *ZetoHelperFungible) BalanceOf(ctx context.Context, account string) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["balanceOf"]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V0, "balanceOf")
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.FungibleBalanceOfParam{
 		Account: account,
 	}))
 }
 
 func (z *ZetoHelper) TransferLocked(ctx context.Context, lockedUtxo *pldtypes.HexUint256, delegate, to string, amount uint64) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["transferLocked"]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V0, "transferLocked")
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.FungibleTransferLockedParams{
 		LockedInputs: []*pldtypes.HexUint256{lockedUtxo},
 		Delegate:     delegate,
@@ -500,7 +461,7 @@ func (z *ZetoHelper) SendSpendLock(ctx context.Context, tb testbed.Testbed, send
 }
 
 func (z *ZetoHelper) Lock(ctx context.Context, delegate *pldtypes.EthAddress, amount int) *DomainTransactionHelper {
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["lock"]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V0, "lock")
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.LockParams{
 		Delegate: delegate,
 		Amount:   pldtypes.Uint64ToUint256(uint64(amount)),
@@ -593,7 +554,7 @@ func (z *ZetoHelper) Deposit(ctx context.Context, amount int64) *DomainTransacti
 	params := &types.DepositParams{
 		Amount: pldtypes.Int64ToInt256(amount),
 	}
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["deposit"]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V0, "deposit")
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &params))
 }
 
@@ -601,7 +562,7 @@ func (z *ZetoHelper) Withdraw(ctx context.Context, amount int64) *DomainTransact
 	params := &types.WithdrawParams{
 		Amount: pldtypes.Int64ToInt256(amount),
 	}
-	fn := types.ZetoFungibleABIForVersion(types.ZetoFungibleABI_V0).Functions()["withdraw"]
+	fn := types.ZetoFungibleFunctionForVariant(types.ZetoVariant_V0, "withdraw")
 	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &params))
 }
 

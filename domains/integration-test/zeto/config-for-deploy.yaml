@@ -1,9 +1,9 @@
-# Upstream ABI+bytecode under helpers/abis/zkp/v0.5.1/; factory at helpers/abis/. ZKP root v0.5.1
-# (helpers.ZetoZKArtifactRootDefault). Used by pvp_test.go, which deploys its pool on the V1 axis to match.
+# Upstream ABI+bytecode under helpers/abis/zkp/v0.5.1/; factory at helpers/abis/. ZKP root v0.5.1.
+# Used by pvp_test.go, which deploys its pool at variant V1 to match.
 contracts:
   factory:
     abiAndBytecode:
-      path: ./helpers/abis/ZetoFactory_V0.json
+      path: ./helpers/abis/ZetoFactory_V1.json
   # the Zeto factory is a CloneFactory, which needs implementation
   # contracts to be set
   implementations:
