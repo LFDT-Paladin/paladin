@@ -168,7 +168,7 @@ type DomainInstanceConfig struct {
 	Variant ZetoVariant `json:"variant"`
 }
 
-// zetoDomainCircuitsComponents is shared by legacy and v1 domain instance config ABI tuples.
+// zetoDomainCircuitsComponents is the circuits tuple of DomainInstanceConfigABI.
 var zetoDomainCircuitsComponents = []*abi.Parameter{
 	{Type: "tuple", Name: "deposit", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
 	{Type: "tuple", Name: "withdraw", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
@@ -176,8 +176,8 @@ var zetoDomainCircuitsComponents = []*abi.Parameter{
 	{Type: "tuple", Name: "transferLocked", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
 }
 
-// DomainInstanceConfigABI is the ABI for the DomainInstanceConfig,
-// used to encode and decode the on-chain data for the domain config
+// DomainInstanceConfigABI is the ABI of the on-chain domain config payload: the whole of a legacy config, and the
+// bytes after the header of a generation 2 config. The variant is carried in the header, not here.
 var DomainInstanceConfigABI = &abi.ParameterArray{
 	{
 		Type: "string",
@@ -190,16 +190,30 @@ var DomainInstanceConfigABI = &abi.ParameterArray{
 	},
 }
 
-// ZetoDomainConfigID_V1 prefixes versioned on-chain domain instance configuration bytes. Config without it is
-// DomainInstanceConfigABI, and the pool is variant V0.
-var ZetoDomainConfigID_V1 = pldtypes.MustParseHexBytes("0x00020001")
-
-// DomainInstanceConfigV1ABI encodes the payload after ZetoDomainConfigID_V1.
-var DomainInstanceConfigV1ABI = &abi.ParameterArray{
-	{Name: "tokenName", Type: "string"},
-	{Name: "variant", Type: "uint256"},
-	{Name: "circuits", Type: "tuple", Components: zetoDomainCircuitsComponents},
-}
+// On-chain domain instance config is tagged with a 4-byte header, split into two uint16 halves:
+//
+//	bytes 0-1: the config generation, which fixes how the bytes after the header are parsed
+//	bytes 2-3: the pool's ZetoVariant
+//
+// Generation 2 (ZetoDomainConfigGen2) is written for every new pool, V0 included:
+//
+//	0x0002 || uint16 variant || abi.encode(DomainInstanceConfigABI)
+//
+// Config written before generations existed has no header at all, and is DomainInstanceConfigABI from the first byte
+// with the pool at variant V0. That legacy encoding always starts with the 32-byte ABI offset of tokenName, so its first
+// four bytes are always zero, while every generation header is non-zero; the two cannot be confused.
+//
+// Every future generation must keep the variant in bytes 2-3, so a node can read a pool's variant from the header alone.
+// This differs from Noto, whose 4-byte config ID is an opaque layout selector matched exactly and which carries the
+// variant inside the ABI payload.
+const (
+	// ZetoDomainConfigGen2 is the current config generation: the variant in the header, then DomainInstanceConfigABI.
+	ZetoDomainConfigGen2 uint16 = 0x0002
+	// ZetoDomainConfigHeaderLen is the length of the generation + variant header.
+	ZetoDomainConfigHeaderLen = 4
+	// ZetoDomainConfigMaxVariant is the largest variant the header can carry.
+	ZetoDomainConfigMaxVariant = ZetoVariant(0xFFFF)
+)
 
 // marks the version of the Zeto transaction data schema
 var ZetoTransactionDataID_V0 = ethtypes.MustNewHexBytes0xPrefix("0x00010000")

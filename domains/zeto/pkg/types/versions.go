@@ -52,6 +52,9 @@ import (
 //	V1         | v0.5.x (v0.5.1) | PascalCase interface files; single packed `bytes proof` calldata;
 //	           |                 | _doLockTransition builds lockedOutputs || change outputs
 //
+// A pool's variant is recorded on chain in bytes 2-3 of its domain config header (see ZetoDomainConfigGen2), so it must
+// not exceed ZetoDomainConfigMaxVariant (0xFFFF).
+//
 // When adding a variant, add the constant, extend SupportedZetoVariants, add its row above, and add the matching
 // zetoVersions entry in domains/zeto/build.gradle.
 
