@@ -1,13 +1,11 @@
 import PaladinClient, {
   PenteFactory,
 } from "@lfdecentralizedtrust/paladin-sdk";
-import { checkDeploy } from "paladin-example-common";
+import { checkDeploy, nodeConnections } from "paladin-example-common";
 import storageJson from "./abis/Storage.json";
 import { PrivateStorage } from "./helpers/storage";
 import * as fs from 'fs';
 import * as path from 'path';
-import { nodeConnections } from "../../common/src/config";
-
 const logger = console;
 
 interface ContractData {

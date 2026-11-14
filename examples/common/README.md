@@ -54,7 +54,7 @@ Configuration is defined in JSON files with the following structure:
 By default, examples load configuration from `examples/common/config.json`:
 
 ```typescript
-import { nodeConnections } from "../../common/src/config";
+import { nodeConnections } from "paladin-example-common";
 
 // Initialize Paladin clients
 const clients = nodeConnections.map(node => new PaladinClient(node.clientOptions));
