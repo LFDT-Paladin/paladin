@@ -2,7 +2,7 @@ import PaladinClient from "@lfdecentralizedtrust/paladin-sdk";
 import helloWorldJson from "./abis/HelloWorld.json";
 import * as fs from 'fs';
 import * as path from 'path';
-import { nodeConnections } from "../../common/src/config";
+import { nodeConnections } from "paladin-example-common";
 
 const logger = console;
 
