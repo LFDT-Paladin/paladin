@@ -34,16 +34,35 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id, n.dataSchemaV2.Id})
 	var variant pldtypes.HexUint64
 	if len(infoStates) > 0 {
-		// For prepareUnlock we have two data states - one for the unlockData, and one for the prepareUnlock data.
-		// So we take the last one in the list
+		// We have at least one data state (the manifest has already been removed).
+		// A transaction that prepares a lock spend and cancel has two:
+		// 1. the unlock data
+		// 2. the transaction's own receipt data
+		// So we take the last one, and the variant from it.
 		info, err := n.unmarshalInfo(infoStates[len(infoStates)-1].StateDataJson)
 		if err != nil {
 			return nil, err
 		}
-		receipt.Data = info.Data
 		variant = info.Variant
 
-		// Extract requester information from TransactionData info state
+		// Whether that last data state is the receipt data depends on what we have:
+		// 1. V0 - there is no manifest, and every party receives every data state, so it is the receipt data.
+		// 2. V1+, and we have every state the manifest lists for us. So we know the last data state is the receipt data.
+		// 3. V1+, and the manifest shows we're missing some states (or the whole manifest was missing). Don't use it
+		// Note: Case (3) is only possible if we're asked for a receipt before waiting for all states to arrive.
+		haveRequiredStates := true
+		if req.UnavailableStates && variant != types.NotoVariantV0 {
+			if haveRequiredStates, err = n.hasRequiredStates(ctx, req); err != nil {
+				return nil, err // failed to decode the manifest, or to look up our keys
+			}
+		}
+		if haveRequiredStates {
+			receipt.Data = info.Data
+		} else {
+			log.L(ctx).Debugf("Omitting data from receipt for transaction %s as states it requires are unavailable", req.TransactionId)
+		}
+
+		// The sender is the same in every data state, as they are all built from this transaction
 		if info.From != nil {
 			receipt.Sender = info.From
 		}
@@ -99,6 +118,30 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	return &prototk.BuildReceiptResponse{
 		ReceiptJson: string(receiptJSON),
 	}, nil
+}
+
+// hasRequiredStates returns true if the manifest is available, along with every state it lists for this node
+func (n *Noto) hasRequiredStates(ctx context.Context, req *prototk.BuildReceiptRequest) (bool, error) {
+	manifestState := n.findManifest(req.InfoStates)
+	if manifestState == nil {
+		return false, nil
+	}
+	requiredStateIDs, err := n.requiredStateIDs(ctx, manifestState)
+	if err != nil {
+		return false, err
+	}
+	available := make(map[string]bool)
+	for _, states := range [][]*prototk.EndorsableState{req.InputStates, req.ReadStates, req.OutputStates, req.InfoStates} {
+		for _, s := range states {
+			available[s.Id] = true
+		}
+	}
+	for _, requiredStateID := range requiredStateIDs {
+		if !available[requiredStateID] {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (n *Noto) receiptStates(ctx context.Context, states []*prototk.EndorsableState) ([]*types.ReceiptState, error) {

@@ -479,6 +479,14 @@ func TestPrepareUnlock(t *testing.T) {
 	require.Equal(t, lockInfo.LockID, receipt.LockInfo.LockID)
 	require.Equal(t, "spendLock", receipt.LockInfo.UnlockFunction)
 	require.NotNil(t, receipt.LockInfo.UnlockParams)
+
+	// With every info state in the order the transaction reported it, the receipt carries the
+	// transaction's own data and not the unlock data
+	receipt = testGetDomainReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId: tx.TransactionId,
+		InfoStates:    newStateToEndorsableState(assembleRes.AssembledTransaction.InfoStates),
+	})
+	assert.Equal(t, "0x1234", receipt.Data.String())
 }
 
 func TestPrepareUnlock_V0(t *testing.T) {

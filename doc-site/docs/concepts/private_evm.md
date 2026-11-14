@@ -25,7 +25,7 @@ Creating lots of individual and isolated ledgers/blockchains for all those diffe
 
 The biggest challenge with creating all those separate chains, is that you lose the ability to transact across them atomically. Complex escrow-based transactions (3rd party or time lock based) are required to transact across them, because fully atomic transactions cannot be performed.
 
-> Note that the Paladin project does not assume that there will be "one chain to rule them all". A diversity of permissioned and public blockchains is an absolute reality, for scale, risk, jurisdictional integrity and many other reasons. The EVM ecosystems is inherently a multi-chain ecosystem. However, the ability to atomically transact between parties within a _within a single chain_ is still necessary in practice for truly atomic transactions. This means some amount of sub-ledger privacy is always going to be necessary regardless of the number of chains that exist for Web3 to deliver the settlement finality it promises.
+> Note that the Paladin project does not assume that there will be "one chain to rule them all". A diversity of permissioned and public blockchains is an absolute reality, for scale, risk, jurisdictional integrity and many other reasons. The EVM ecosystems is inherently a multi-chain ecosystem. However, the ability to atomically transact between parties _within a single chain_ is still necessary in practice for truly atomic transactions. This means some amount of sub-ledger privacy is always going to be necessary regardless of the number of chains that exist for Web3 to deliver the settlement finality it promises.
 
 ## Privacy groups
 

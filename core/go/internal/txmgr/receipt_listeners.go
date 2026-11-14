@@ -898,12 +898,12 @@ func (l *receiptListener) processPage(page []*transactionReceipt) (*receiptDeliv
 
 }
 
-func (l *receiptListener) processStaleGaps() error {
+func (l *receiptListener) processStaleGaps() (gapClosed bool, err error) {
 	if l.spec.Options.IncompleteStateReceiptBehavior.V() != pldapi.IncompleteStateReceiptBehaviorBlockContract {
 		// Gaps are a one-per-source construct in the DB, which are thus only applicable to blocking listeners
 		// that expect every transaction to complete in the exact order.
 		// A separate DB construct is used for listeners that allow late completion.
-		return nil
+		return false, nil
 	}
 
 	// We process stale gaps one at a time, as the outcome is to:
@@ -925,16 +925,18 @@ func (l *receiptListener) processStaleGaps() error {
 			return true, q.Find(&gaps).Error
 		})
 		if err != nil {
-			return err
+			return gapClosed, err
 		}
 		if len(gaps) == 0 {
-			return nil
+			return gapClosed, nil
 		}
 		pageEnd = gaps[len(gaps)-1].Source
 		for _, gap := range gaps {
-			if err := l.processStaleGap(gap); err != nil {
-				return err
+			closed, err := l.processStaleGap(gap)
+			if err != nil {
+				return gapClosed, err
 			}
+			gapClosed = gapClosed || closed
 		}
 	}
 
@@ -1024,25 +1026,26 @@ func (l *receiptListener) processStaleIncompletes() error {
 
 }
 
-func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
+// processStaleGap returns true if the gap was closed (gap record deleted from DB)
+func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) (closed bool, err error) {
 
 	for {
 		// Read a page of events from the gap
 		page, err := l.readReceiptPageFromGap(gap)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		// Deliver the events
 		batch, err := l.processPage(page)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		// We find a gap still, then we write that and stop
 		if len(batch.Gaps) > 0 {
 			log.L(l.ctx).Infof("Gap for contract %s remains old=%d/%s new=%d/%s", gap.Source, gap.Sequence, gap.Transaction, batch.Gaps[0].Sequence, batch.Gaps[0].Transaction)
-			return l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
+			return false, l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 				return true, l.tm.p.DB(l.ctx).
 					Clauses(clause.OnConflict{
 						Columns: []clause.Column{
@@ -1061,13 +1064,14 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 
 		if len(page) < l.tm.receiptsReadPageSize {
 			// We are done at this point - delete the gap
-			return l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
+			err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 				return true, l.tm.p.DB(l.ctx).
 					Where("listener = ?", gap.Listener).
 					Where("source = ?", gap.Source).
 					Delete(&persistedReceiptGap{}).
 					Error
 			})
+			return err == nil, err
 		}
 
 		// We need to move the stale gap forwards, to the next record after this page.
@@ -1086,7 +1090,7 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 				}).
 				Error
 		}); err != nil {
-			return err
+			return false, err
 		}
 	}
 
@@ -1115,7 +1119,7 @@ func (l *receiptListener) runListener() {
 			newStates = false
 
 			// Process up all stale gaps before we process the head
-			err := l.processStaleGaps()
+			gapClosed, err := l.processStaleGaps()
 			if err == nil {
 				// Process all stale incompletes befre we process the head
 				err = l.processStaleIncompletes()
@@ -1123,6 +1127,13 @@ func (l *receiptListener) runListener() {
 			if err != nil {
 				log.L(l.ctx).Warnf("listener stopping (processing stale gaps): %s", err) // cancelled context
 				return
+			}
+
+			// Closing a gap can unblock receipts that were inserted after the checkpoint while the gap
+			// was open (the head query skipped them, and the gap replay stops at the checkpoint).
+			// Re-read the head so they are delivered now, rather than when the next receipt arrives.
+			if gapClosed {
+				newReceipts = true
 			}
 		}
 
