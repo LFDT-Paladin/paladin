@@ -126,11 +126,19 @@ func mapStatesToAPI(persisted []*persistedState) []*pldapi.State {
 	return states
 }
 
+// Label rows denormalize the identity and availability columns of the state they belong to,
+// so available-state queries with a label predicate can be served from the label table alone.
+// The state manager keeps them in lockstep with the states row on every write path.
 type persistedStateLabel struct {
-	DomainName string            `gorm:"primaryKey"`
-	State      pldtypes.HexBytes `gorm:"primaryKey"`
-	Label      string
-	Value      string
+	DomainName      string            `gorm:"primaryKey"`
+	State           pldtypes.HexBytes `gorm:"primaryKey"`
+	Label           string
+	Value           string
+	Schema          pldtypes.Bytes32
+	ContractAddress *pldtypes.EthAddress
+	Created         pldtypes.Timestamp
+	Confirmed       bool
+	Spent           bool
 }
 
 func (persistedStateLabel) TableName() string {
@@ -138,10 +146,15 @@ func (persistedStateLabel) TableName() string {
 }
 
 type persistedStateInt64Label struct {
-	DomainName string            `gorm:"primaryKey"`
-	State      pldtypes.HexBytes `gorm:"primaryKey"`
-	Label      string
-	Value      int64
+	DomainName      string            `gorm:"primaryKey"`
+	State           pldtypes.HexBytes `gorm:"primaryKey"`
+	Label           string
+	Value           int64
+	Schema          pldtypes.Bytes32
+	ContractAddress *pldtypes.EthAddress
+	Created         pldtypes.Timestamp
+	Confirmed       bool
+	Spent           bool
 }
 
 func (persistedStateInt64Label) TableName() string {
