@@ -222,6 +222,11 @@ func TestPreparedTransactionRealDB(t *testing.T) {
 
 }
 
+func TestReferencedStateMapsNilToNil(t *testing.T) {
+	var rs *referencedState
+	assert.Nil(t, rs.mapToAPI())
+}
+
 func stateIDs(states []*pldapi.StateBase) []pldtypes.HexBytes {
 	stateIDs := make([]pldtypes.HexBytes, len(states))
 	for i, s := range states {

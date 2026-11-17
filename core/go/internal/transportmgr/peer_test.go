@@ -43,13 +43,13 @@ import (
 )
 
 func mockGetStateRetryThenOk(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-	mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false).
+	mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false).
 		Return(nil, fmt.Errorf("pop")).Once()
 	mockGetStateOk(mc, conf)
 }
 
 func mockGetStateOk(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-	mGS := mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false)
+	mGS := mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false)
 	mGS.Run(func(args mock.Arguments) {
 		id := (args[4].([]pldtypes.HexBytes))[0]
 		mGS.Return([]*pldapi.State{
@@ -274,7 +274,7 @@ func TestSendBadReliableMessageMarkedFailRealDB(t *testing.T) {
 		mockGoodTransport,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			// missing state
-			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false).
+			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false).
 				Return(nil, nil).Once()
 		},
 	)

@@ -967,6 +967,46 @@ func TestFindNullifiersSpendingExclusion(t *testing.T) {
 	assert.Len(t, found, 2)
 }
 
+// TestFindNullifierBackedStatesReportsSpend checks a nullifier-backed state comes back carrying its
+// confirm record and its nullifier, with the spend that was recorded against the nullifier.
+func TestFindNullifierBackedStatesReportsSpend(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schema1, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema1.Schema})
+	require.NoError(t, err)
+
+	contractAddress, _ := newTestDomainContext(t, ctx, ss, "domain1", false)
+	resolve := newTestStateResolver(t, ctx, ss, "domain1", *contractAddress, false)
+
+	states, err := resolve(
+		genWidget(t, schema1.ID(), fmt.Sprintf(`{"amount": 11, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
+	)
+	require.NoError(t, err)
+	nullifierID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	writeStateBatch(t, ctx, ss, states, &pldapi.StateNullifier{DomainName: "domain1", State: states[0].ID, ID: nullifierID})
+
+	confirmTX, spendTX := uuid.New(), uuid.New()
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{{DomainName: "domain1", State: nullifierID, Transaction: spendTX}}, nil,
+		[]*pldapi.StateConfirmRecord{{DomainName: "domain1", State: states[0].ID, Transaction: confirmTX}}, nil)
+	require.NoError(t, err)
+
+	_, found, err := ss.findNullifierBackedStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schema1.ID(),
+		query.NewQueryBuilder().Query(), pldapi.StateStatusSpent, nil)
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	assert.Equal(t, states[0].ID, found[0].ID)
+	require.NotNil(t, found[0].Confirmed)
+	assert.Equal(t, confirmTX, found[0].Confirmed.Transaction)
+	require.NotNil(t, found[0].Nullifier)
+	assert.Equal(t, nullifierID, found[0].Nullifier.ID)
+	require.NotNil(t, found[0].Nullifier.Spent)
+	assert.Equal(t, spendTX, found[0].Nullifier.Spent.Transaction)
+}
+
 // TestQueriedStateEvalQueryError proves a query that cannot be evaluated against the schema's
 // label set fails the validation of view-returned states.
 func TestQueriedStateEvalQueryError(t *testing.T) {

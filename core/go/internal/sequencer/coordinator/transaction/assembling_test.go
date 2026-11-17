@@ -238,9 +238,10 @@ func Test_applyPostAssembly_RecordsOutputStateVisibility(t *testing.T) {
 	mocks.EngineIntegration.EXPECT().ResolveStatesForTransaction(mock.Anything, txn.pt).
 		Run(func(_ context.Context, tx *components.PrivateTransaction) {
 			tx.PostAssembly.OutputStates = []*prototk.EndorsableState{{Id: stateID}}
-			tx.PostAssembly.OutputStatesWithLabels = []*components.StateWithLabels{{State: &pldapi.State{
-				Labels: []*pldapi.StateLabel{{Label: "owner", Value: "0xfeed"}},
-			}}}
+			tx.PostAssembly.OutputStatesWithLabels = []*components.StateWithLabels{{
+				State:  &pldapi.State{},
+				Labels: []*components.StateLabel{{Label: "owner", Value: "0xfeed"}},
+			}}
 		}).Return(nil)
 
 	var gotStates []*prototk.EndorsableState
