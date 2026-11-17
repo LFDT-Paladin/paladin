@@ -221,6 +221,9 @@ func TestHandleEventBatch(t *testing.T) {
 	stateRead := pldtypes.RandHex(32)
 	stateConfirmed := pldtypes.RandHex(32)
 	stateInfo := pldtypes.RandHex(32)
+	stateInfo2 := pldtypes.RandHex(32)
+	otherTxID := uuid.New()
+	otherTxInfo := pldtypes.RandHex(32)
 	fakeHash1 := pldtypes.RandHex(32)
 	fakeSchema := pldtypes.RandBytes32()
 	eventTx2Hash := pldtypes.RandHex(32)
@@ -253,14 +256,16 @@ func TestHandleEventBatch(t *testing.T) {
 
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
 		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, []*pldapi.StateSpendRecord{
-			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateSpent), Transaction: txID}, // the SpentStates StateUpdate
+			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateSpent), Transaction: txID, Index: 0}, // the SpentStates StateUpdate
 		}, []*pldapi.StateReadRecord{
-			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateRead), Transaction: txID}, // the ReadStates StateUpdate
+			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateRead), Transaction: txID, Index: 0}, // the ReadStates StateUpdate
 		}, []*pldapi.StateConfirmRecord{
-			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateConfirmed), Transaction: txID}, // the ConfirmedStates StateUpdate
-			{DomainName: "test1", State: pldtypes.MustParseHexBytes(fakeHash1), Transaction: txID},      // the implicit confirm from the NewConfirmedState
+			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateConfirmed), Transaction: txID, Index: 0}, // the ConfirmedStates StateUpdate
+			{DomainName: "test1", State: pldtypes.MustParseHexBytes(fakeHash1), Transaction: txID, Index: 1},      // the implicit confirm from the NewConfirmedState, following the explicit confirms
 		}, []*pldapi.StateInfoRecord{
-			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateInfo), Transaction: txID}, // the InfoStates StateUpdate
+			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateInfo), Transaction: txID, Index: 0}, // the InfoStates StateUpdates, indexed per transaction
+			{DomainName: "test1", State: pldtypes.MustParseHexBytes(otherTxInfo), Transaction: otherTxID, Index: 0},
+			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateInfo2), Transaction: txID, Index: 1},
 		}).Return(nil, nil)
 
 		mc.stateStore.On("WritePreVerifiedStates", mock.Anything, mock.Anything, "test1", []*components.StateUpsertOutsideContext{
@@ -354,6 +359,14 @@ func TestHandleEventBatch(t *testing.T) {
 			InfoStates: []*prototk.StateUpdate{
 				{
 					Id:            stateInfo,
+					TransactionId: txIDBytes32.String(),
+				},
+				{
+					Id:            otherTxInfo,
+					TransactionId: pldtypes.Bytes32UUIDFirst16(otherTxID).String(),
+				},
+				{
+					Id:            stateInfo2,
 					TransactionId: txIDBytes32.String(),
 				},
 			},
