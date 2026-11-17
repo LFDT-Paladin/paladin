@@ -209,6 +209,8 @@ func TestStateLockingQuery(t *testing.T) {
 
 	all := query.NewQueryBuilder().Query()
 
+	checkLabelRowsMatchStates(t, ctx, ss) // labels agree with states as written
+
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4)
 	checkQuery(all, pldapi.StateStatusConfirmed)
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 0, 1, 2, 3, 4)
@@ -226,6 +228,8 @@ func TestStateLockingQuery(t *testing.T) {
 		}
 	}
 
+	checkLabelRowsMatchStates(t, ctx, ss) // confirms mirrored onto the label rows
+
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4)    // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 0, 1, 2, 4) // added all but 3
 	checkQuery(all, pldapi.StateStatusUnconfirmed, 3)        // added 3
@@ -238,6 +242,8 @@ func TestStateLockingQuery(t *testing.T) {
 			{DomainName: "domain1", State: widgets[0].ID, Transaction: uuid.New()},
 		}, []*pldapi.StateReadRecord{}, []*pldapi.StateConfirmRecord{}, []*pldapi.StateInfoRecord{})
 	require.NoError(t, err)
+
+	checkLabelRowsMatchStates(t, ctx, ss) // spend mirrored onto the label rows
 
 	checkQuery(all, pldapi.StateStatusAll, 0, 1, 2, 3, 4) // unchanged
 	checkQuery(all, pldapi.StateStatusConfirmed, 1, 2, 4) // removed 0
@@ -393,4 +399,18 @@ func TestAvailabilityFlagsReconcileOnLateArrival(t *testing.T) {
 	avail := findAvailable()
 	require.Len(t, avail, 1)
 	assert.Equal(t, confirmID, avail[0].ID)
+
+	// The late arrival must have reconciled the flags onto the label rows too, not just states.
+	checkLabelRowsMatchStates(t, ctx, ss)
+	var spentLabels []*persistedStateLabel
+	err = ss.p.NOTX().DB(ctx).Table("state_labels").
+		Where("domain_name = ?", "domain1").
+		Where("state = ?", spentID).
+		Find(&spentLabels).Error
+	require.NoError(t, err)
+	require.NotEmpty(t, spentLabels)
+	for _, l := range spentLabels {
+		assert.True(t, l.Confirmed)
+		assert.True(t, l.Spent)
+	}
 }
