@@ -122,6 +122,12 @@ type DomainQueryContext interface {
 	// including states pending in memory.
 	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, ids []string) (Schema, []*pldapi.State, error)
 
+	// ReturnedAvailableState returns the state with this ID and schema if one of this context's
+	// available-state queries returned it, or nil. The context's remote view and spend exclusions
+	// are fixed for its life, so such a state is available under exactly the conditions any later
+	// query on the context would apply.
+	ReturnedAvailableState(id pldtypes.HexBytes, schemaID pldtypes.Bytes32) *pldapi.State
+
 	// ContractAddress returns the contract address this context was opened for.
 	ContractAddress() pldtypes.EthAddress
 }
