@@ -647,6 +647,30 @@ func TestForgetConfirmedLocks_DoesNotRemoveTransactionOwnedLocks(t *testing.T) {
 	assert.Len(t, data.GetLocks(), 1)
 }
 
+func TestForgetConfirmedLocks_ReplacedReadLockFollowsLatestReader(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	firstReader := uuid.New()
+	secondReader := uuid.New()
+	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("79", 32))
+
+	g.LockMintsOnReadAndSpend(ctx, endorsable(s), endorsable(), firstReader)
+	g.ForgetTransaction(ctx, firstReader, 100)
+	g.LockMintsOnReadAndSpend(ctx, endorsable(s), endorsable(), secondReader)
+
+	// The first reader's lock is due, but the state's read lock now belongs to the in-flight second reader.
+	g.ForgetConfirmedLocks(ctx, 105)
+	lock := g.readLocksByStateID[s.String()]
+	require.NotNil(t, lock)
+	assert.Equal(t, secondReader.String(), lock.GetTransaction())
+
+	g.ForgetTransaction(ctx, secondReader, 102)
+	g.ForgetConfirmedLocks(ctx, 106)
+	assert.Contains(t, g.readLocksByStateID, s.String(), "the second reader's lock is not due until 107")
+	g.ForgetConfirmedLocks(ctx, 107)
+	assert.NotContains(t, g.readLocksByStateID, s.String())
+}
+
 func TestImportStatesAndLocks_AddsTxFreeLocks(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapher(t)
@@ -1052,16 +1076,81 @@ func TestSnapshotView_UnparseableSpendLockKeySkipped(t *testing.T) {
 
 	seedLabelledState(g, stateID, "test-node")
 	g.LockMintsOnCreate(ctx, endorsable(stateID), minterID)
-	g.LockMintsOnReadAndSpend(ctx, nil, endorsable(stateID), consumerID)
-
 	// Lock keys are always locally-resolved hex state IDs, so an unparseable key cannot occur in
 	// practice — but if one ever did, it must be skipped rather than corrupting the spent set.
-	g.spendLocksByStateID["not-hex"] = &prototk.SnapshotStateLock{Type: prototk.SnapshotStateLock_SPEND}
+	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: stateID.String()}, {Id: "not-hex"}}, consumerID)
 
 	states, spentStateIDs := g.SnapshotView(ctx, "test-node")
 	assert.Empty(t, states)
 	require.Len(t, spentStateIDs, 1, "the unparseable key must be skipped, the valid one kept")
 	assert.Equal(t, stateID, spentStateIDs[0])
+}
+
+func TestSnapshotView_ReleasedSpendLockRestoresCandidate(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	minterID := uuid.New()
+	consumerID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5c", 32))
+
+	seedLabelledState(g, stateID, "test-node")
+	g.LockMintsOnCreate(ctx, endorsable(stateID), minterID)
+	g.LockMintsOnReadAndSpend(ctx, nil, endorsable(stateID), consumerID)
+	states, _ := g.SnapshotView(ctx, "test-node")
+	require.Empty(t, states)
+
+	// The consumer is unwound (revert, repool, eviction) while the minter still holds its create
+	// lock, so the state is selectable again and no longer spent.
+	g.ForgetTransactionAndLocks(ctx, consumerID)
+	states, spentStateIDs := g.SnapshotView(ctx, "test-node")
+	require.Len(t, states, 1)
+	assert.Equal(t, stateID.String(), states[0].GetState().GetId())
+	assert.Empty(t, spentStateIDs)
+}
+
+func TestSnapshotView_ExpiredLocksLeaveView(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	minterID := uuid.New()
+	consumerID := uuid.New()
+	unspent := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5d", 32))
+	spent := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5e", 32))
+
+	seedLabelledState(g, unspent, "test-node")
+	g.LockMintsOnCreate(ctx, endorsable(unspent), minterID)
+	g.LockMintsOnReadAndSpend(ctx, nil, endorsable(spent), consumerID)
+	g.ForgetTransaction(ctx, minterID, 100)
+	g.ForgetTransaction(ctx, consumerID, 100)
+
+	states, spentStateIDs := g.SnapshotView(ctx, "test-node")
+	require.Len(t, states, 1, "a confirmed create lock within tolerance keeps the state selectable")
+	require.Equal(t, []pldtypes.HexBytes{spent}, spentStateIDs, "a confirmed spend lock within tolerance keeps the state excluded")
+
+	g.ForgetConfirmedLocks(ctx, 100+g.blockHeightTolerance)
+	states, spentStateIDs = g.SnapshotView(ctx, "test-node")
+	assert.Empty(t, states)
+	assert.Empty(t, spentStateIDs)
+}
+
+func TestSnapshotView_ImportedLocks(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	unspent := pldtypes.MustParseHexBytes("0x" + strings.Repeat("5f", 32))
+	spent := pldtypes.MustParseHexBytes("0x" + strings.Repeat("60", 32))
+	confirmedAt := uint64(100)
+
+	seedLabelledState(g, unspent, "test-node")
+	seedLabelledState(g, spent, "test-node")
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{Locks: []*prototk.SnapshotStateLock{
+		{StateId: unspent.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAt},
+		{StateId: spent.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAt},
+		{StateId: spent.String(), Type: prototk.SnapshotStateLock_SPEND, ConfirmedAtBlock: &confirmedAt},
+	}})
+
+	states, spentStateIDs := g.SnapshotView(ctx, "test-node")
+	require.Len(t, states, 1)
+	assert.Equal(t, unspent.String(), states[0].GetState().GetId())
+	assert.Equal(t, []pldtypes.HexBytes{spent}, spentStateIDs)
 }
 
 func TestUnlabelledStateNeverAdvertised(t *testing.T) {

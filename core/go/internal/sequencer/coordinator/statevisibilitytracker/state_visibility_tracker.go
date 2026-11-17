@@ -47,14 +47,12 @@ type StateVisibilityStore interface {
 	// unnecessary type conversions and high allocations which drive garbage collection.
 	RecordAssemblyOutput(ctx context.Context, states []*prototk.EndorsableState, labels []*prototk.StateLabels, distributionLists [][]string)
 
-	// GetForNode returns all states that node is explicitly listed in AllowedNodes for. States with
-	// nil or empty AllowedNodes are always excluded.
+	// GetForNode returns all labelled states that node is explicitly listed in AllowedNodes for. States
+	// with nil or empty AllowedNodes are always excluded.
 	GetForNode(node string) []*prototk.SnapshotState
 
-	// RangeForNode calls fn for every state visible to node, under the same node/label filter as
-	// GetForNode, without allocating an intermediate slice.
-	// fn must not call back into the store as the read lock is held for the duration.
-	RangeForNode(node string, fn func(*prototk.SnapshotState))
+	// GetByIDForNode returns the state with this ID if GetForNode would include it, or nil.
+	GetByIDForNode(stateID string, node string) *prototk.SnapshotState
 
 	// ImportIfAbsent records state only if no entry already exists for stateID.
 	// Existing entries always take precedence — a coordinator's own knowledge must never be
@@ -118,14 +116,14 @@ func (s *store) GetForNode(node string) []*prototk.SnapshotState {
 	return result
 }
 
-func (s *store) RangeForNode(node string, fn func(*prototk.SnapshotState)) {
+func (s *store) GetByIDForNode(stateID string, node string) *prototk.SnapshotState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, snapshot := range s.statesByID {
-		if snapshot.GetLabels() != nil && nodeInAllowedList(snapshot.GetAllowedNodes(), node) {
-			fn(snapshot)
-		}
+	snapshot := s.statesByID[stateID]
+	if snapshot.GetLabels() != nil && nodeInAllowedList(snapshot.GetAllowedNodes(), node) {
+		return snapshot
 	}
+	return nil
 }
 
 func (s *store) ImportIfAbsent(stateID string, state *prototk.SnapshotState) bool {
