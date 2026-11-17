@@ -73,8 +73,8 @@ type StateManager interface {
 	// Write a batch of nullifiers that correspond to states just received
 	WriteNullifiersForReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, nullifiers []*pldapi.StateNullifier) error
 
-	// GetState returns state by ID, with optional labels
-	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound, withLabels bool) ([]*pldapi.State, error)
+	// GetState returns state by ID
+	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound bool) ([]*pldapi.State, error)
 
 	// Get all states created, read or spent by a confirmed transaction
 	GetTransactionStates(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (*pldapi.TransactionStates, error)
@@ -136,7 +136,19 @@ type StateUpsertOutsideContext struct {
 // StateWithLabels is a newly prepared state that has not yet been persisted
 type StateWithLabels struct {
 	*pldapi.State
+	Labels      []*StateLabel
+	Int64Labels []*StateInt64Label
 	LabelValues filters.ValueSet
+}
+
+type StateLabel struct {
+	Label string
+	Value string
+}
+
+type StateInt64Label struct {
+	Label string
+	Value int64
 }
 
 func (s *StateWithLabels) ValueSet() filters.ValueSet {

@@ -63,6 +63,10 @@ func schemaCacheKey(domainName string, id pldtypes.Bytes32) string {
 }
 
 func (ss *stateManager) persistSchemas(ctx context.Context, dbTX persistence.DBTX, schemas []*pldapi.Schema) error {
+	persisted := make([]*persistedSchema, len(schemas))
+	for i, s := range schemas {
+		persisted[i] = newPersistedSchema(s)
+	}
 	return dbTX.DB(ctx).
 		Table("schemas").
 		Clauses(clause.OnConflict{
@@ -72,7 +76,7 @@ func (ss *stateManager) persistSchemas(ctx context.Context, dbTX persistence.DBT
 			},
 			DoNothing: true, // immutable
 		}).
-		Create(schemas).
+		Create(persisted).
 		Error
 }
 
@@ -93,7 +97,7 @@ func (ss *stateManager) getSchemaByID(ctx context.Context, dbTX persistence.DBTX
 		return s, nil
 	}
 
-	var results []*pldapi.Schema
+	var results []*persistedSchema
 	err := dbTX.DB(ctx).
 		Table("schemas").
 		Where("domain_name = ?", domainName).
@@ -108,7 +112,7 @@ func (ss *stateManager) getSchemaByID(ctx context.Context, dbTX persistence.DBTX
 		return s, err
 	}
 
-	s, err = ss.restoreSchema(ctx, results[0])
+	s, err = ss.restoreSchema(ctx, results[0].mapToAPI())
 	if err != nil {
 		return nil, err
 	}

@@ -91,7 +91,7 @@ func TestGetStateMissing(t *testing.T) {
 	db.ExpectQuery("SELECT").WillReturnRows(db.NewRows([]string{}))
 
 	stateID := pldtypes.Bytes32Keccak(([]byte)("state1")).Bytes()
-	_, err := ss.GetStatesByID(ctx, ss.p.NOTX(), "domain1", nil, []pldtypes.HexBytes{stateID}, true, false)
+	_, err := ss.GetStatesByID(ctx, ss.p.NOTX(), "domain1", nil, []pldtypes.HexBytes{stateID}, true)
 	assert.Regexp(t, "PD010112", err)
 }
 
@@ -430,16 +430,13 @@ func TestValidateStatesCacheMissAndHit(t *testing.T) {
 	_, ok := peekCache(ss, cacheKey)
 	assert.False(t, ok, "ValidateStates must not seed the cache")
 
-	// Seed the cache through the labels path, then re-validate: served from the cache, with the
-	// label rows nil-ed off the returned copy.
+	// Seed the cache through the labels path, then re-validate: served from the cache.
 	_, err = ss.ValidateStatesWithLabels(ctx, ss.p.NOTX(), domain, contractAddress, es)
 	require.NoError(t, err)
 	out2, err := ss.ValidateStates(ctx, ss.p.NOTX(), domain, contractAddress, es)
 	require.NoError(t, err)
 	require.Len(t, out2, 1)
 	assert.Equal(t, s.ID, out2[0].ID)
-	assert.Nil(t, out2[0].Labels)
-	assert.Nil(t, out2[0].Int64Labels)
 	hits, misses = cacheCounts(ss)
 	assert.Equal(t, 1, hits, "the second ValidateStates must be served from the cache")
 	assert.Equal(t, 2, misses)
