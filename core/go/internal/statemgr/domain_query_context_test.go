@@ -509,6 +509,37 @@ func TestFindAvailableStatesWithRemoteView(t *testing.T) {
 	assert.Equal(t, 2, misses)
 }
 
+// TestReturnedAvailableState proves the context resolves exactly the states its available-state
+// queries returned, under their own schema, and nothing it served any other way.
+func TestReturnedAvailableState(t *testing.T) {
+	ctx, ss, _, schema1, contractAddress, done := coinTestSetup(t)
+	defer done()
+
+	s1 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 10)
+	s2 := makeFakeCoin(t, ctx, schema1, contractAddress, false, 20)
+	sByID := makeFakeCoin(t, ctx, schema1, contractAddress, false, 30)
+
+	_, dqc := newTestRemoteViewContext(t, ctx, ss, contractAddress, s1, s2, sByID)
+
+	_, states, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(),
+		query.NewQueryBuilder().LessThan("amount", 25).Query())
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+
+	_, byID, err := dqc.GetStatesByID(ctx, ss.p.NOTX(), schema1.ID(), []string{sByID.ID.String()})
+	require.NoError(t, err)
+	require.Len(t, byID, 1)
+
+	for _, s := range []*components.StateWithLabels{s1, s2} {
+		returned := dqc.ReturnedAvailableState(s.ID, schema1.ID())
+		require.NotNil(t, returned)
+		assert.JSONEq(t, string(s.Data), string(returned.Data))
+	}
+	assert.Nil(t, dqc.ReturnedAvailableState(s1.ID, pldtypes.RandBytes32()), "wrong schema")
+	assert.Nil(t, dqc.ReturnedAvailableState(sByID.ID, schema1.ID()), "served by GetStatesByID, not as available")
+	assert.Nil(t, dqc.ReturnedAvailableState(pldtypes.RandBytes(32), schema1.ID()), "never served")
+}
+
 // TestFindAvailableStatesQueryEvaluatedOnCoordinator proves the label filter, sort and limit are
 // applied to the coordinator's candidates.
 func TestFindAvailableStatesQueryEvaluatedOnCoordinator(t *testing.T) {
@@ -916,7 +947,7 @@ func TestFindNullifiersSpendingExclusion(t *testing.T) {
 	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema1.Schema})
 	require.NoError(t, err)
 
-	contractAddress, _ := newTestDomainContext(t, ctx, ss, "domain1", false)
+	contractAddress, dqc := newTestDomainContext(t, ctx, ss, "domain1", false)
 
 	resolve := newTestStateResolver(t, ctx, ss, "domain1", *contractAddress, false)
 
@@ -965,6 +996,13 @@ func TestFindNullifiersSpendingExclusion(t *testing.T) {
 		query.NewQueryBuilder().Query(), "", nil)
 	require.NoError(t, err)
 	assert.Len(t, found, 2)
+
+	// States a context returns as nullifier-backed available are resolvable from it
+	_, found, err = dqc.FindAvailableNullifierBackedStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
+	require.NoError(t, err)
+	require.Len(t, found, 2)
+	assert.NotNil(t, dqc.ReturnedAvailableState(states1[0].ID, schema1.ID()))
+	assert.NotNil(t, dqc.ReturnedAvailableState(states1[1].ID, schema1.ID()))
 }
 
 // TestFindNullifierBackedStatesReportsSpend checks a nullifier-backed state comes back carrying its

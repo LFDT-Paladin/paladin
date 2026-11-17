@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -70,6 +71,10 @@ type domainQueryContext struct {
 	contractAddress    pldtypes.EthAddress
 	id                 uuid.UUID // correlates this context's log lines
 	remoteStateView    components.RemoteStateView
+
+	// A domain may issue queries on one context concurrently.
+	returnedAvailableLock sync.Mutex
+	returnedAvailable     map[string]*pldapi.State
 }
 
 func (ss *stateManager) NewDomainQueryContext(ctx context.Context, domain components.Domain, contractAddress pldtypes.EthAddress) components.DomainQueryContext {
@@ -352,6 +357,7 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 	if err != nil {
 		return nil, nil, err
 	}
+	dqc.recordReturnedAvailable(states)
 
 	if log.IsTraceEnabled() {
 		for _, s := range states {
@@ -400,8 +406,33 @@ func (dqc *domainQueryContext) FindAvailableNullifierBackedStates(ctx context.Co
 	log.L(ctx).Debugf("FindAvailableNullifierBackedStates query=%s", q)
 
 	spentStateIDs := dqc.getRemoteSpentStateIDs(ctx)
-	return dqc.ss.findNullifierBackedStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
+	schema, states, err := dqc.ss.findNullifierBackedStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
 		pldapi.StateStatusConfirmed, spentStateIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	dqc.recordReturnedAvailable(states)
+	return schema, states, nil
+}
+
+func (dqc *domainQueryContext) recordReturnedAvailable(states []*pldapi.State) {
+	dqc.returnedAvailableLock.Lock()
+	defer dqc.returnedAvailableLock.Unlock()
+	if dqc.returnedAvailable == nil {
+		dqc.returnedAvailable = make(map[string]*pldapi.State, len(states))
+	}
+	for _, s := range states {
+		dqc.returnedAvailable[s.ID.String()] = s
+	}
+}
+
+func (dqc *domainQueryContext) ReturnedAvailableState(id pldtypes.HexBytes, schemaID pldtypes.Bytes32) *pldapi.State {
+	dqc.returnedAvailableLock.Lock()
+	defer dqc.returnedAvailableLock.Unlock()
+	if s := dqc.returnedAvailable[id.String()]; s != nil && s.Schema == schemaID {
+		return s
+	}
+	return nil
 }
 
 // GetStatesByID retrieves states by ID regardless of confirmation/spend status,
