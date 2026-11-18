@@ -71,8 +71,11 @@ public final class PentePrivacyGroup {
   PentePrivacyGroup(
       final PaladinClient paladin, final PrivacyGroup group, final EthAddress address) {
     this.paladin = Objects.requireNonNull(paladin, "paladin");
-    this.group = Objects.requireNonNull(group, "group");
-    this.address = address;
+    this.address = Objects.requireNonNull(address, "address");
+    this.group =
+        Objects.requireNonNull(group, "group").contractAddress() == null
+            ? group.withContractAddress(address)
+            : group;
   }
 
   private static EthAddress requireAddress(final PrivacyGroup group) {

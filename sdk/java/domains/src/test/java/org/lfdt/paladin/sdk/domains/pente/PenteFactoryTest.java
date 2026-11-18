@@ -124,6 +124,7 @@ class PenteFactoryTest {
         factory.newPrivacyGroup(PentePrivacyGroupParams.of("alice")).waitForDeploy().join();
 
     assertEquals(EthAddress.fromString(CONTRACT), group.address());
+    assertEquals(EthAddress.fromString(CONTRACT), group.group().contractAddress());
     assertEquals(HexBytes.fromString(GROUP_ID), group.id());
     assertEquals("pente", group.domain());
     assertEquals(List.of("alice", "bob"), group.members());
@@ -141,6 +142,7 @@ class PenteFactoryTest {
             .join();
 
     assertEquals(EthAddress.fromString(CONTRACT), group.address());
+    assertEquals(EthAddress.fromString(CONTRACT), group.group().contractAddress());
   }
 
   @Test

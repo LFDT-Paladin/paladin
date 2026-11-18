@@ -126,6 +126,15 @@ class PentePrivacyGroupTest {
   }
 
   @Test
+  void populatesContractAddressWhenSuppliedSeparately() {
+    final PaladinClient paladin = PaladinClient.wrap(rpc);
+    final EthAddress addr = EthAddress.fromString(GROUP_ADDRESS);
+    final PentePrivacyGroup ppg = new PentePrivacyGroup(paladin, privacyGroup(false), addr);
+    assertEquals(addr, ppg.address());
+    assertEquals(addr, ppg.group().contractAddress());
+  }
+
+  @Test
   void deploysThroughTheGroup() {
     final PentePrivateDeployment deployment =
         group.deploy(

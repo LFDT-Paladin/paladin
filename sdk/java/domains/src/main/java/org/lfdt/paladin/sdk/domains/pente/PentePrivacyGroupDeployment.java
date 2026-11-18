@@ -109,6 +109,6 @@ public final class PentePrivacyGroupDeployment {
               + " failed: "
               + receipt.failureMessage());
     }
-    return new PentePrivacyGroup(paladin, created, receipt.contractAddress());
+    return new PentePrivacyGroup(paladin, created.withContractAddress(receipt.contractAddress()));
   }
 }

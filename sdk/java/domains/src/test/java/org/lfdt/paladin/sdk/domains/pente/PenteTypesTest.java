@@ -44,6 +44,9 @@ class PenteTypesTest {
     assertThrows(
         NullPointerException.class,
         () -> new PentePrivacyGroupParams(null, null, null, null, null, null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new PentePrivacyGroupParams(null, List.of(), null, null, null, null));
   }
 
   @Test

@@ -54,6 +54,10 @@ public record PentePrivacyGroupParams(
    */
   public PentePrivacyGroupParams {
     members = List.copyOf(Objects.requireNonNull(members, "members"));
+
+    if (members.isEmpty()) {
+      throw new IllegalArgumentException("members must not be empty");
+    }
     properties = properties == null ? Map.of() : Map.copyOf(properties);
   }
 
