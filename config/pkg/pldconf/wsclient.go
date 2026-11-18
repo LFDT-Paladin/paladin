@@ -21,23 +21,25 @@ import (
 )
 
 type WSClientConfig struct {
-	HTTPClientConfig       `json:",inline"`
-	InitialConnectAttempts *int        `json:"initialConnectAttempts"`
-	ConnectionTimeout      *string     `json:"connectionTimeout"`
-	ConnectRetry           RetryConfig `json:"connectRetry"`
-	ReadBufferSize         *string     `json:"readBufferSize"`
-	WriteBufferSize        *string     `json:"writeBufferSize"`
-	HeartbeatInterval      *string     `json:"heartbeatInterval"`
-	WSRequestTimeout       *string     `json:"wsRequestTimeout"`
+	HTTPClientConfig            `json:",inline"`
+	InitialConnectAttempts      *int        `json:"initialConnectAttempts"`
+	ConnectionTimeout           *string     `json:"connectionTimeout"`
+	ConnectRetry                RetryConfig `json:"connectRetry"`
+	ReadBufferSize              *string     `json:"readBufferSize"`
+	WriteBufferSize             *string     `json:"writeBufferSize"`
+	HeartbeatInterval           *string     `json:"heartbeatInterval"`
+	WSRequestTimeout            *string     `json:"wsRequestTimeout"`
+	SubscriptionDeliveryTimeout *string     `json:"subscriptionDeliveryTimeout"`
 }
 
 var DefaultWSConfig = WSClientConfig{
-	HTTPClientConfig:       DefaultHTTPConfig,
-	ReadBufferSize:         confutil.P("16Kb"),
-	WriteBufferSize:        confutil.P("16Kb"),
-	InitialConnectAttempts: confutil.P(0),
-	ConnectionTimeout:      confutil.P("30s"),
-	HeartbeatInterval:      confutil.P("15s"),
-	ConnectRetry:           GenericRetryDefaults.RetryConfig,
-	WSRequestTimeout:       confutil.P("2m"),
+	HTTPClientConfig:            DefaultHTTPConfig,
+	ReadBufferSize:              confutil.P("16Kb"),
+	WriteBufferSize:             confutil.P("16Kb"),
+	InitialConnectAttempts:      confutil.P(0),
+	ConnectionTimeout:           confutil.P("30s"),
+	HeartbeatInterval:           confutil.P("15s"),
+	ConnectRetry:                GenericRetryDefaults.RetryConfig,
+	WSRequestTimeout:            confutil.P("2m"),
+	SubscriptionDeliveryTimeout: confutil.P("10s"),
 }

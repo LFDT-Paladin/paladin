@@ -97,14 +97,15 @@ var (
 	MsgTLSInvalidTLSDnMismatch      = pde("PD020406", "Certificate subject does not meet requirements")
 
 	// RPCClient PD0205XX
-	MsgRPCClientInvalidWebSocketURL      = pde("PD020500", "Invalid WebSocket URL: %s")
-	MsgRPCClientInvalidHTTPURL           = pde("PD020501", "Invalid HTTP URL: %s")
-	MsgRPCClientRequestFailed            = pde("PD020502", "Backend RPC request failed: %s")
-	MsgRPCClientWebSocketReconnected     = pde("PD020503", "WebSocket reconnected during JSON/RPC call")
-	MsgRPCClientResultParseFailed        = pde("PD020504", "Failed to parse result (expected=%T): %s")
-	MsgRPCClientInvalidParam             = pde("PD020505", "Invalid parameter at position %d for method %s: %s")
-	MsgRPCClientSubscribeResponseInvalid = pde("PD020506", "Subscription response invalid")
-	MsgRPCClientRequestTimeout           = pde("PD020507", "RPC request timed out waiting for response")
+	MsgRPCClientInvalidWebSocketURL         = pde("PD020500", "Invalid WebSocket URL: %s")
+	MsgRPCClientInvalidHTTPURL              = pde("PD020501", "Invalid HTTP URL: %s")
+	MsgRPCClientRequestFailed               = pde("PD020502", "Backend RPC request failed: %s")
+	MsgRPCClientWebSocketReconnected        = pde("PD020503", "WebSocket reconnected during JSON/RPC call")
+	MsgRPCClientResultParseFailed           = pde("PD020504", "Failed to parse result (expected=%T): %s")
+	MsgRPCClientInvalidParam                = pde("PD020505", "Invalid parameter at position %d for method %s: %s")
+	MsgRPCClientSubscribeResponseInvalid    = pde("PD020506", "Subscription response invalid")
+	MsgRPCClientRequestTimeout              = pde("PD020507", "RPC request timed out waiting for response")
+	MsgRPCClientSubscriptionDeliveryTimeout = pde("PD020508", "Subscription %s failed: consumer did not read a notification within %s")
 
 	// HTTPServer PD0108XX
 	MsgHTTPServerStartFailed        = pde("PD020600", "Failed to start server on '%s'")

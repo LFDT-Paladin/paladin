@@ -152,6 +152,7 @@ func TestWSRPCSubscribe(t *testing.T) {
 	res, ok := <-s.Notifications()
 	assert.Nil(t, res)
 	assert.False(t, ok)
+	assert.Nil(t, s.Err())
 }
 
 func TestWSRPCSubscribeError(t *testing.T) {
@@ -257,6 +258,49 @@ func TestWSRPCSubscribeCancelledBeforeConfirm(t *testing.T) {
 	assert.Empty(t, rc.configuredSubs)
 	assert.Empty(t, rc.pendingSubsByReqID)
 	assert.Empty(t, rc.activeSubsBySubID)
+}
+
+func TestWSRPCSubscriptionDeliveryTimeout(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	// Long enough that the heartbeat does not reconnect while the reader is blocked on delivery
+	rc.wsConf.HeartbeatInterval = confutil.P("10s")
+	rc.subscriptionDeliveryTimeout = 10 * time.Millisecond
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+
+	// Nothing reads this notification
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x9ce59a13059e417087c02d3236a0b1cc"}}`
+
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_unsubscribe","params":["0x9ce59a13059e417087c02d3236a0b1cc"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":true}`
+
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+	assert.Regexp(t, "PD020508", s.Err())
+	assert.Empty(t, rc.configuredSubs)
+	assert.Empty(t, rc.activeSubsBySubID)
+
+	// The subscription is already gone from the server, so this sends nothing
+	assert.Nil(t, s.Unsubscribe(t.Context()))
+	assert.Regexp(t, "PD020508", s.Err())
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000003","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000003","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	assert.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
 }
 
 func TestWSRPCUnsubscribeError(t *testing.T) {
@@ -408,6 +452,21 @@ func TestHandleSubscriptionNotificationClosed(t *testing.T) {
 	rc.activeSubsBySubID["12345"] = &sub{
 		ctx: ctx, // closed
 	}
+	rc.handleSubscriptionNotification(ctx, &RPCResponse{
+		Params: pldtypes.RawJSON(`{"subscription":"12345"}`),
+	})
+}
+
+func TestHandleSubscriptionNotificationAfterNotificationsClosed(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	s := &sub{rc: rc, notifications: make(chan RPCSubscriptionNotification)}
+	s.ctx, s.cancelCtx = context.WithCancel(t.Context())
+	s.cancelCtx()
+	s.closeNotifications()
+	rc.activeSubsBySubID["12345"] = s
+
 	rc.handleSubscriptionNotification(ctx, &RPCResponse{
 		Params: pldtypes.RawJSON(`{"subscription":"12345"}`),
 	})

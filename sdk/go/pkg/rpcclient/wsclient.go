@@ -44,13 +44,14 @@ func NewWSClient(ctx context.Context, conf *pldconf.WSClientConfig) (WSClient, e
 
 func WrapWSConfig(conf *pldconf.WSClientConfig) WSClient {
 	return &wsRPCClient{
-		wsConf:              *conf,
-		requestTimeout:      confutil.DurationMin(conf.WSRequestTimeout, 1*time.Second, *pldconf.DefaultWSConfig.WSRequestTimeout),
-		calls:               make(map[string]chan *RPCResponse),
-		configuredSubs:      make(map[uuid.UUID]*sub),
-		pendingSubsByReqID:  make(map[string]*sub),
-		activeSubsBySubID:   make(map[string]*sub),
-		notificationMethods: make(map[string]bool),
+		wsConf:                      *conf,
+		requestTimeout:              confutil.DurationMin(conf.WSRequestTimeout, 1*time.Second, *pldconf.DefaultWSConfig.WSRequestTimeout),
+		subscriptionDeliveryTimeout: confutil.DurationMin(conf.SubscriptionDeliveryTimeout, 0, *pldconf.DefaultWSConfig.SubscriptionDeliveryTimeout),
+		calls:                       make(map[string]chan *RPCResponse),
+		configuredSubs:              make(map[uuid.UUID]*sub),
+		pendingSubsByReqID:          make(map[string]*sub),
+		activeSubsBySubID:           make(map[string]*sub),
+		notificationMethods:         make(map[string]bool),
 	}
 }
 
@@ -63,6 +64,7 @@ type Subscription interface {
 	LocalID() uuid.UUID // does not change through reconnects
 	Notifications() chan RPCSubscriptionNotification
 	Unsubscribe(ctx context.Context) ErrorRPC
+	Err() ErrorRPC // set if the client fails the subscription and closes Notifications() itself
 }
 
 type RPCSubscriptionNotification interface {
@@ -98,17 +100,18 @@ func (n *rpcSubscriptionNotification) GetResult() pldtypes.RawJSON {
 }
 
 type wsRPCClient struct {
-	mux                 sync.Mutex
-	wsConf              pldconf.WSClientConfig
-	requestTimeout      time.Duration
-	client              wsclient.WSClient
-	requestCounter      int64
-	connected           chan struct{}
-	calls               map[string]chan *RPCResponse
-	configuredSubs      map[uuid.UUID]*sub
-	pendingSubsByReqID  map[string]*sub
-	activeSubsBySubID   map[string]*sub
-	notificationMethods map[string]bool
+	mux                         sync.Mutex
+	wsConf                      pldconf.WSClientConfig
+	requestTimeout              time.Duration
+	subscriptionDeliveryTimeout time.Duration
+	client                      wsclient.WSClient
+	requestCounter              int64
+	connected                   chan struct{}
+	calls                       map[string]chan *RPCResponse
+	configuredSubs              map[uuid.UUID]*sub
+	pendingSubsByReqID          map[string]*sub
+	activeSubsBySubID           map[string]*sub
+	notificationMethods         map[string]bool
 }
 
 type sub struct {
@@ -122,6 +125,9 @@ type sub struct {
 	currentSubID   string
 	newSubResponse chan ErrorRPC
 	notifications  chan RPCSubscriptionNotification
+	err            ErrorRPC
+	deliverMux     sync.Mutex
+	closed         bool
 }
 
 func (rc *wsRPCClient) Connect(ctx context.Context) (err error) {
@@ -255,7 +261,9 @@ func (rc *wsRPCClient) removeSubscription(s *sub) string {
 		delete(rc.pendingSubsByReqID, s.pendingReqID)
 	}
 	s.cancelCtx() // we unblock the receiver if it was previously trying to dispatch to this subscription, before invoking unsubscribe
-	return s.currentSubID
+	currentSubID := s.currentSubID
+	s.currentSubID = "" // cleared so that removing an already-removed subscription does not unsubscribe on the server again
+	return currentSubID
 }
 
 func (rc *wsRPCClient) addConfiguredSub(ctx context.Context, conf SubscriptionConfig, params []interface{}) (*sub, chan ErrorRPC) {
@@ -365,8 +373,28 @@ func (s *sub) Unsubscribe(ctx context.Context) ErrorRPC {
 		}
 	}
 	log.L(ctx).Infof("Unsubscribed %s (subid=%s,result=%t)", s.localID, currentSubID, resultBool)
-	close(s.notifications)
+	s.closeNotifications()
 	return nil
+}
+
+func (s *sub) Err() ErrorRPC {
+	s.rc.mux.Lock()
+	defer s.rc.mux.Unlock()
+	return s.err
+}
+
+// The subscription context must already be cancelled, so that any delivery in progress gives up the lock
+func (s *sub) closeNotifications() {
+	s.deliverMux.Lock()
+	defer s.deliverMux.Unlock()
+	s.closeNotificationsLocked()
+}
+
+func (s *sub) closeNotificationsLocked() {
+	if !s.closed {
+		s.closed = true
+		close(s.notifications)
+	}
 }
 
 func (rc *wsRPCClient) UnsubscribeAll(ctx context.Context) (lastErr ErrorRPC) {
@@ -472,18 +500,55 @@ func (rc *wsRPCClient) handleSubscriptionNotification(ctx context.Context, rpcRe
 	}
 
 	// This is a notification that should match an active subscription
-	log.L(ctx).Debugf("RPC[%s] <-- Notification for subscription %s (serverId=%s)", rpcRes.ID.StringValue(), s.localID, s.currentSubID)
+	log.L(ctx).Debugf("RPC[%s] <-- Notification for subscription %s (serverId=%s)", rpcRes.ID.StringValue(), s.localID, subParams.Subscription)
+	// Held across the send so the channel cannot be closed while a send to it is pending
+	s.deliverMux.Lock()
+	defer s.deliverMux.Unlock()
+	if s.closed {
+		log.L(ctx).Warnf("RPC[%s] <-- Received subscription event after unsubscribe/close %s (serverId=%s)", rpcRes.ID.StringValue(), s.localID, subParams.Subscription)
+		return
+	}
+	var deliveryTimeout <-chan time.Time
+	if rc.subscriptionDeliveryTimeout > 0 {
+		timer := time.NewTimer(rc.subscriptionDeliveryTimeout)
+		defer timer.Stop()
+		deliveryTimeout = timer.C
+	}
 	select {
 	case s.notifications <- &rpcSubscriptionNotification{
 		sub:          s,
 		wsc:          rc,
-		CurrentSubID: s.currentSubID,
+		CurrentSubID: subParams.Subscription,
 		Result:       subParams.Result,
 	}:
 	case <-s.ctx.Done():
 		// The subscription has been unsubscribed, or we're closing
-		log.L(ctx).Warnf("RPC[%s] <-- Received subscription event after unsubscribe/close %s (serverId=%s)", rpcRes.ID.StringValue(), s.localID, s.currentSubID)
+		log.L(ctx).Warnf("RPC[%s] <-- Received subscription event after unsubscribe/close %s (serverId=%s)", rpcRes.ID.StringValue(), s.localID, subParams.Subscription)
+	case <-deliveryTimeout:
+		rc.failSubscriptionLocked(ctx, s, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientSubscriptionDeliveryTimeout, s.localID, rc.subscriptionDeliveryTimeout))
 	}
+}
+
+// Runs on the receive loop, so must not wait for any RPC response
+func (rc *wsRPCClient) failSubscriptionLocked(ctx context.Context, s *sub, rpcErr ErrorRPC) {
+	log.L(ctx).Errorf("%s", rpcErr)
+	currentSubID := rc.removeSubscription(s)
+	rc.mux.Lock()
+	s.err = rpcErr
+	rc.mux.Unlock()
+	s.closeNotificationsLocked()
+	if currentSubID != "" {
+		go rc.unsubscribeFailedSub(ctx, s, currentSubID)
+	}
+}
+
+func (rc *wsRPCClient) unsubscribeFailedSub(ctx context.Context, s *sub, currentSubID string) {
+	var resultBool bool
+	if rpcErr := rc.CallRPC(ctx, &resultBool, s.UnsubscribeMethod, currentSubID); rpcErr != nil {
+		log.L(ctx).Warnf("Failed to unsubscribe failed subscription %s (subid=%s): %s", s.localID, currentSubID, rpcErr)
+		return
+	}
+	log.L(ctx).Infof("Unsubscribed failed subscription %s (subid=%s,result=%t)", s.localID, currentSubID, resultBool)
 }
 
 func (rc *wsRPCClient) handleSubscriptionConfirm(ctx context.Context, inflightSub *sub, rpcRes *RPCResponse) {
