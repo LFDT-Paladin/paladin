@@ -124,7 +124,7 @@ var (
 	TransactionID                                           = pdm("Transaction.id", "Server-generated UUID for this transaction (query only)")
 	TransactionCreated                                      = pdm("Transaction.created", "Server-generated creation timestamp for this transaction (query only)")
 	TransactionSubmitMode                                   = pdm("Transaction.submitMode", "Whether the submission of the transaction to the base ledger is to be performed automatically by the node or coordinated externally (query only)")
-	TransactionIdempotencyKey                               = pdm("Transaction.idempotencyKey", "Externally supplied unique identifier for this transaction. 409 Conflict will be returned on attempt to re-submit")
+	TransactionIdempotencyKey                               = pdm("Transaction.idempotencyKey", "Externally supplied unique identifier for this transaction. Re-submitting with the same key returns a JSON-RPC error with code -32001 and the ID of the existing transaction")
 	TransactionType                                         = pdm("Transaction.type", "Type of transaction (public or private)")
 	TransactionDomain                                       = pdm("Transaction.domain", "Name of a domain - only required on input for private deploy transactions")
 	TransactionFunction                                     = pdm("Transaction.function", "Function signature - inferred from definition if not supplied")
@@ -372,6 +372,7 @@ var (
 	PrivacyGroupMessageLocalGroup         = pdm("PrivacyGroupMessage.group", "Group ID of the privacy group. All members in the group will receive a copy of the message (no guarantee of order)")
 	PrivacyGroupMessageTopic              = pdm("PrivacyGroupMessage.topic", "A topic for the message, which by convention should be a dot or slash separated string instructing the receiver how the message should be processed")
 	PrivacyGroupMessageData               = pdm("PrivacyGroupMessage.data", "Application defined JSON payload for the message. Can be any JSON type including as an object, array, hex string, other string, or number")
+	PrivacyGroupMessageIdempotencyKey     = pdm("PrivacyGroupMessage.idempotencyKey", "Externally supplied unique identifier for this message on the sending node. Re-sending with the same key returns a JSON-RPC error with code -32001 and the ID of the existing message. Not distributed to the other members of the group")
 )
 
 // pldconf/config.go - Configuration field descriptions

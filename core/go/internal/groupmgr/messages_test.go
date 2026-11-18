@@ -25,7 +25,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -303,4 +305,204 @@ func TestGetMessageByIDEmptyNull(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, msgByID)
 
+}
+
+func TestSendMessageIdempotencyKeyRealDB(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, true, &pldconf.GroupManagerConfig{})
+	defer done()
+
+	mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").
+		Return([]*components.RegistryNodeTransportEntry{ /* contents not checked */ }, nil)
+
+	groupIDs := createTestGroups(t, ctx, mc, gm,
+		&pldapi.PrivacyGroupInput{
+			Domain:  "domain1",
+			Members: []string{"me@node1", "you@node2"},
+		},
+	)
+	require.Len(t, groupIDs, 1)
+
+	mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm []*pldapi.ReliableMessage) bool {
+		return rm[0].MessageType.V() == pldapi.RMTPrivacyGroupMessage
+	})).Return(nil).Once()
+
+	client := newTestRPCServer(t, ctx, gm)
+	pgroupRPC := pldclient.Wrap(client).PrivacyGroups()
+
+	msgInput := &pldapi.PrivacyGroupMessageInput{
+		Domain:         "domain1",
+		Group:          groupIDs[0],
+		Topic:          "topic1",
+		Data:           pldtypes.JSONString("some data"),
+		IdempotencyKey: "msg_1",
+	}
+	msgID, err := pgroupRPC.SendMessage(ctx, msgInput)
+	require.NoError(t, err)
+
+	var msgID2 uuid.UUID
+	rpcErr := client.CallRPC(ctx, &msgID2, "pgroup_sendMessage", msgInput)
+	require.Regexp(t, fmt.Sprintf("PD012524.*%s", msgID), rpcErr)
+	require.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
+
+	// The clash is reported in preference to a validation failure of the resubmission
+	rpcErr = client.CallRPC(ctx, &msgID2, "pgroup_sendMessage", &pldapi.PrivacyGroupMessageInput{
+		Domain:         "domain1",
+		Group:          groupIDs[0],
+		Data:           pldtypes.JSONString("some data"),
+		IdempotencyKey: "msg_1",
+	})
+	require.Regexp(t, fmt.Sprintf("PD012524.*%s", msgID), rpcErr)
+	require.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
+
+	msg, err := pgroupRPC.GetMessageByIdempotencyKey(ctx, "msg_1")
+	require.NoError(t, err)
+	require.Equal(t, msgID, msg.ID)
+	require.Equal(t, "msg_1", msg.IdempotencyKey)
+
+	msg, err = pgroupRPC.GetMessageByIdempotencyKey(ctx, "msg_2")
+	require.NoError(t, err)
+	require.Nil(t, msg)
+
+	msgs, err := pgroupRPC.QueryMessages(ctx, query.NewQueryBuilder().Equal("group", groupIDs[0]).Limit(10).Query())
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	require.Equal(t, msgID, msgs[0].ID)
+}
+
+func TestSendMessageIdempotencyKeyLookupFail(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectBegin()
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnError(fmt.Errorf("pop"))
+	mc.db.Mock.ExpectRollback()
+	mc.db.Mock.ExpectQuery("SELECT.*pgroup_msgs").WillReturnError(fmt.Errorf("lookup failed"))
+
+	err := gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := gm.SendMessage(ctx, dbTX, &pldapi.PrivacyGroupMessageInput{
+			Domain:         "domain1",
+			Data:           pldtypes.JSONString("some data"),
+			Group:          pldtypes.RandBytes(32),
+			Topic:          "topic1",
+			IdempotencyKey: "msg_1",
+		})
+		return err
+	})
+	require.Regexp(t, "pop", err)
+	require.NoError(t, mc.db.Mock.ExpectationsWereMet())
+}
+
+func TestReceiveMessagesIgnoresIdempotencyKey(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, true, &pldconf.GroupManagerConfig{})
+	defer done()
+
+	mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").
+		Return([]*components.RegistryNodeTransportEntry{ /* contents not checked */ }, nil)
+
+	groupIDs := createTestGroups(t, ctx, mc, gm,
+		&pldapi.PrivacyGroupInput{
+			Domain:  "domain1",
+			Members: []string{"me@node1", "you@node2"},
+		},
+	)
+	require.Len(t, groupIDs, 1)
+
+	msgID := uuid.New()
+	err := gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err := gm.ReceiveMessages(ctx, dbTX, []*pldapi.PrivacyGroupMessage{
+			{
+				ID:       msgID,
+				Node:     "node2",
+				Sent:     pldtypes.TimestampNow(),
+				Received: pldtypes.TimestampNow(),
+				PrivacyGroupMessageInput: pldapi.PrivacyGroupMessageInput{
+					Domain:         "domain1",
+					Group:          groupIDs[0],
+					Topic:          "topic1",
+					Data:           pldtypes.JSONString("some data"),
+					IdempotencyKey: "their_key",
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NoError(t, results[msgID])
+		return nil
+	})
+	require.NoError(t, err)
+
+	msg, err := gm.GetMessageByID(ctx, gm.p.NOTX(), msgID, true)
+	require.NoError(t, err)
+	require.Empty(t, msg.IdempotencyKey)
+
+	msg, err = gm.GetMessageByIdempotencyKey(ctx, gm.p.NOTX(), "their_key")
+	require.NoError(t, err)
+	require.Nil(t, msg)
+}
+
+func TestSendMessageIdempotencyKeyUnusedReturnsOriginalError(t *testing.T) {
+	ctx, gm, _, done := newTestGroupManager(t, true, &pldconf.GroupManagerConfig{})
+	defer done()
+
+	err := gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := gm.SendMessage(ctx, dbTX, &pldapi.PrivacyGroupMessageInput{
+			Domain:         "domain1",
+			Data:           pldtypes.JSONString("some data"),
+			Group:          pldtypes.RandBytes(32),
+			Topic:          "topic1",
+			IdempotencyKey: "msg_1",
+		})
+		return err
+	})
+	require.Regexp(t, "PD012502", err)
+}
+
+func TestGetMessageForDistributionOmitsIdempotencyKey(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, true, &pldconf.GroupManagerConfig{})
+	defer done()
+
+	mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").
+		Return([]*components.RegistryNodeTransportEntry{ /* contents not checked */ }, nil)
+
+	groupIDs := createTestGroups(t, ctx, mc, gm,
+		&pldapi.PrivacyGroupInput{
+			Domain:  "domain1",
+			Members: []string{"me@node1", "you@node2"},
+		},
+	)
+	require.Len(t, groupIDs, 1)
+
+	mc.transportManager.On("SendReliable", mock.Anything, mock.Anything, mock.MatchedBy(func(rm []*pldapi.ReliableMessage) bool {
+		return rm[0].MessageType.V() == pldapi.RMTPrivacyGroupMessage
+	})).Return(nil)
+
+	var msgID *uuid.UUID
+	err := gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		msgID, err = gm.SendMessage(ctx, dbTX, &pldapi.PrivacyGroupMessageInput{
+			Domain:         "domain1",
+			Group:          groupIDs[0],
+			Topic:          "topic1",
+			Data:           pldtypes.JSONString("some data"),
+			IdempotencyKey: "msg_1",
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	msg, err := gm.GetMessageForDistribution(ctx, gm.p.NOTX(), *msgID)
+	require.NoError(t, err)
+	require.Equal(t, *msgID, msg.ID)
+	require.Empty(t, msg.IdempotencyKey)
+
+	msg, err = gm.GetMessageByID(ctx, gm.p.NOTX(), *msgID, true)
+	require.NoError(t, err)
+	require.Equal(t, "msg_1", msg.IdempotencyKey)
+}
+
+func TestGetMessageForDistributionNotFound(t *testing.T) {
+	ctx, gm, _, done := newTestGroupManager(t, true, &pldconf.GroupManagerConfig{})
+	defer done()
+
+	msg, err := gm.GetMessageForDistribution(ctx, gm.p.NOTX(), uuid.New())
+	require.NoError(t, err)
+	require.Nil(t, msg)
 }

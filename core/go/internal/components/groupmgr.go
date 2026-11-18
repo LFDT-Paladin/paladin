@@ -62,6 +62,8 @@ type GroupManager interface {
 	ReceiveMessages(ctx context.Context, dbTX persistence.DBTX, msgs []*pldapi.PrivacyGroupMessage) (results map[uuid.UUID]error, err error)
 	QueryMessages(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.PrivacyGroupMessage, error)
 	GetMessageByID(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID, failNotFound bool) (*pldapi.PrivacyGroupMessage, error)
+	GetMessageByIdempotencyKey(ctx context.Context, dbTX persistence.DBTX, idempotencyKey string) (*pldapi.PrivacyGroupMessage, error)
+	GetMessageForDistribution(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.PrivacyGroupMessage, error)
 
 	CreateMessageListener(ctx context.Context, spec *pldapi.PrivacyGroupMessageListener) error
 	AddMessageReceiver(ctx context.Context, name string, r PrivacyGroupMessageReceiver) (PrivacyGroupMessageReceiverCloser, error)

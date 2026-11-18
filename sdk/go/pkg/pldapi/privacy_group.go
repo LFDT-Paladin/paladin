@@ -24,7 +24,6 @@ import (
 	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
-
 type PrivacyGroup struct {
 	ID                 pldtypes.HexBytes    `docstruct:"PrivacyGroup" json:"id"`
 	Domain             string               `docstruct:"PrivacyGroup" json:"domain"`
@@ -54,11 +53,12 @@ type PrivacyGroupMessage struct {
 }
 
 type PrivacyGroupMessageInput struct {
-	CorrelationID *uuid.UUID        `docstruct:"PrivacyGroupMessage" json:"correlationId,omitempty"`
-	Domain        string            `docstruct:"PrivacyGroupMessage" json:"domain"`
-	Group         pldtypes.HexBytes `docstruct:"PrivacyGroupMessage" json:"group"`
-	Topic         string            `docstruct:"PrivacyGroupMessage" json:"topic,omitempty"`
-	Data          pldtypes.RawJSON  `docstruct:"PrivacyGroupMessage" json:"data,omitempty"`
+	CorrelationID  *uuid.UUID        `docstruct:"PrivacyGroupMessage" json:"correlationId,omitempty"`
+	Domain         string            `docstruct:"PrivacyGroupMessage" json:"domain"`
+	Group          pldtypes.HexBytes `docstruct:"PrivacyGroupMessage" json:"group"`
+	Topic          string            `docstruct:"PrivacyGroupMessage" json:"topic,omitempty"`
+	Data           pldtypes.RawJSON  `docstruct:"PrivacyGroupMessage" json:"data,omitempty"`
+	IdempotencyKey string            `docstruct:"PrivacyGroupMessage" json:"idempotencyKey,omitempty"`
 }
 
 type PrivacyGroupInput struct {

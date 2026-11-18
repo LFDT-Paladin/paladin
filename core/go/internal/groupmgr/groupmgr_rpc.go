@@ -18,12 +18,15 @@ package groupmgr
 
 import (
 	"context"
+	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
 )
@@ -49,6 +52,7 @@ func (gm *groupManager) initRPC() {
 		Add("pgroup_deleteMessageListener", gm.rpcDeleteMessageListener()).
 		Add("pgroup_sendMessage", gm.rpcSendMessage()).
 		Add("pgroup_getMessageById", gm.rpcGetMessageByID()).
+		Add("pgroup_getMessageByIdempotencyKey", gm.rpcGetMessageByIdempotencyKey()).
 		Add("pgroup_queryMessages", gm.rpcQueryMessages()).
 		Add("pgroup_invokeRPC", gm.rpcInvokeRPC()).
 		AddAsync(gm.rpcEventStreams)
@@ -118,14 +122,17 @@ func (gm *groupManager) rpcCall() rpcserver.RPCHandler {
 }
 
 func (gm *groupManager) rpcSendMessage() rpcserver.RPCHandler {
-	return rpcserver.RPCMethod1(func(ctx context.Context, msg *pldapi.PrivacyGroupMessageInput) (msgID *uuid.UUID, err error) {
+	return rpcserver.RPCMethod1WithRPCCode(func(ctx context.Context, msg *pldapi.PrivacyGroupMessageInput) (msgID *uuid.UUID, _ rpcclient.RPCCode, err error) {
 		ctx = log.WithComponent(ctx, "groupmanager")
 		err = gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 			msgID, err = gm.SendMessage(ctx, dbTX, msg)
 			return err
 		})
 		gm.metrics.IncRpc("sendMessage")
-		return msgID, err
+		if err != nil && strings.Contains(err.Error(), "PD012524") {
+			return msgID, pldclient.RPCCodeConflict, err
+		}
+		return msgID, 0, err
 	})
 }
 
@@ -134,6 +141,14 @@ func (gm *groupManager) rpcGetMessageByID() rpcserver.RPCHandler {
 		ctx = log.WithComponent(ctx, "groupmanager")
 		gm.metrics.IncRpc("getMessageByID")
 		return gm.GetMessageByID(ctx, gm.p.NOTX(), id, false)
+	})
+}
+
+func (gm *groupManager) rpcGetMessageByIdempotencyKey() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod1(func(ctx context.Context, idempotencyKey string) (msg *pldapi.PrivacyGroupMessage, err error) {
+		ctx = log.WithComponent(ctx, "groupmanager")
+		gm.metrics.IncRpc("getMessageByIdempotencyKey")
+		return gm.GetMessageByIdempotencyKey(ctx, gm.p.NOTX(), idempotencyKey)
 	})
 }
 

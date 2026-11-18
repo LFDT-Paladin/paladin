@@ -15,7 +15,7 @@ title: TransactionCall
 
 | Field Name | Description | Type |
 |------------|-------------|------|
-| `idempotencyKey` | Externally supplied unique identifier for this transaction. 409 Conflict will be returned on attempt to re-submit | `string` |
+| `idempotencyKey` | Externally supplied unique identifier for this transaction. Re-submitting with the same key returns a JSON-RPC error with code -32001 and the ID of the existing transaction | `string` |
 | `type` | Type of transaction (public or private) | `"private", "public"` |
 | `domain` | Name of a domain - only required on input for private deploy transactions | `string` |
 | `function` | Function signature - inferred from definition if not supplied | `string` |
