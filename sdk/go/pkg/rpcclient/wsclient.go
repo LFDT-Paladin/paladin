@@ -115,10 +115,10 @@ type wsRPCClient struct {
 	pendingSubsByReqID          map[string]*sub
 	activeSubsBySubID           map[string]*sub
 	notificationMethods         map[string]bool
+	established                 bool
 	closed                      bool
 	closing                     chan struct{}
 	connectMux                  sync.Mutex // serialises Connect, which waits on the reconnect hook and so cannot hold mux
-	established                 bool
 }
 
 type sub struct {
@@ -142,19 +142,13 @@ type sub struct {
 func (rc *wsRPCClient) Connect(ctx context.Context) error {
 	rc.connectMux.Lock()
 	defer rc.connectMux.Unlock()
-	if rc.isClosed() {
-		return NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
-	}
-	if rc.established {
-		return nil
-	}
 	client, err := wsclient.New(ctx, &rc.wsConf, nil, rc.handleReconnect)
 	if err != nil {
 		return err
 	}
-	if !rc.setClient(client) {
+	if established, err := rc.setClient(ctx, client); established || err != nil {
 		client.Close()
-		return NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
+		return err
 	}
 
 	// Logging initialises on first use, which must not race the transport's own logging once it connects
@@ -171,22 +165,16 @@ func (rc *wsRPCClient) Connect(ctx context.Context) error {
 		client.Close()
 		return err
 	}
-	rc.setContext(ctx)
+	rc.setEstablished(ctx)
 	context.AfterFunc(ctx, rc.Close)
-	rc.established = true
 	return nil
 }
 
-func (rc *wsRPCClient) setContext(ctx context.Context) {
+func (rc *wsRPCClient) setEstablished(ctx context.Context) {
 	rc.mux.Lock()
 	defer rc.mux.Unlock()
 	rc.ctx = ctx
-}
-
-func (rc *wsRPCClient) isClosed() bool {
-	rc.mux.Lock()
-	defer rc.mux.Unlock()
-	return rc.closed
+	rc.established = true
 }
 
 func (rc *wsRPCClient) getClient() wsclient.WSClient {
@@ -195,14 +183,18 @@ func (rc *wsRPCClient) getClient() wsclient.WSClient {
 	return rc.client
 }
 
-func (rc *wsRPCClient) setClient(client wsclient.WSClient) bool {
+// The client is not stored when already established
+func (rc *wsRPCClient) setClient(ctx context.Context, client wsclient.WSClient) (established bool, err error) {
 	rc.mux.Lock()
 	defer rc.mux.Unlock()
 	if rc.closed {
-		return false
+		return false, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
+	}
+	if rc.established {
+		return true, nil
 	}
 	rc.client = client
-	return true
+	return false, nil
 }
 
 func (rc *wsRPCClient) waitConnected(ctx context.Context, connected chan struct{}) error {

@@ -344,6 +344,38 @@ func TestWSRPCSubscriptionDeliveryTimeout(t *testing.T) {
 	assert.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
 }
 
+func TestWSRPCSubscriptionDeliveryTimeoutUnsubscribeRejected(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	rc.wsConf.HeartbeatInterval = confutil.P("10s")
+	rc.subscriptionDeliveryTimeout = 10 * time.Millisecond
+	require.NoError(t, rc.Connect(ctx))
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x9ce59a13059e417087c02d3236a0b1cc"}}`
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_unsubscribe","params":["0x9ce59a13059e417087c02d3236a0b1cc"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","error":{"code":-32000,"message":"pop"}}`
+
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+	assert.Regexp(t, "PD020508", s.Err())
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000003","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000003","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	assert.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+}
+
 func TestWSRPCUnsubscribeError(t *testing.T) {
 	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
 	defer done()
@@ -775,6 +807,105 @@ func TestWSRPCResubscribeRetryStopsAfterUnsubscribe(t *testing.T) {
 	// Past the retry delay, the next message the server sees is not a resubscribe
 	time.Sleep(100 * time.Millisecond)
 	callNetVersion("000000004")
+}
+
+func TestWSRPCResubscribeRetryWaitsForInflightSubscribe(t *testing.T) {
+	ctx, rc, s, toServer, fromServer, done := newTestWSRPCSubscribed(t, "100ms")
+	defer done()
+
+	callNetVersion := func(reqID string) {
+		go func() {
+			msg := <-toServer
+			assert.JSONEq(t, `{"jsonrpc":"2.0","id":"`+reqID+`","method":"net_version"}`, msg)
+			fromServer <- `{"jsonrpc":"2.0","id":"` + reqID + `","result":"0x1"}`
+		}()
+		var res pldtypes.HexUint64
+		require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+	}
+
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","error":{"code":-32000,"message":"not ready"}}`
+	// Responses arrive in order, so the rejection has started the retry loop once this returns
+	callNetVersion("000000003")
+
+	// A second reconnect's subscribe is still in flight when the retry loop wakes, then succeeds before it wakes again
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+	msg = <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000004","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	time.Sleep(200 * time.Millisecond)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000004","result":"0x1111"}`
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x1111"}}`
+	n := <-s.Notifications()
+	assert.Equal(t, "0x1111", n.GetCurrentSubID())
+
+	// Past the retry loop's next wake, the next message the server sees is not a resubscribe
+	time.Sleep(250 * time.Millisecond)
+	callNetVersion("000000005")
+}
+
+func TestWSRPCResubscribeRetriedAfterInvalidResponse(t *testing.T) {
+	ctx, rc, s, toServer, fromServer, done := newTestWSRPCSubscribed(t, "1ms")
+	defer done()
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":""}`
+		msg = <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000003","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000003","result":"0x1111"}`
+		fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x1111"}}`
+	}()
+
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+
+	n := <-s.Notifications()
+	assert.Equal(t, "0x1111", n.GetCurrentSubID())
+}
+
+func TestWSRPCResubscribeRetriedAfterSendFailure(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	rc.wsConf.ConnectRetry.InitialDelay = confutil.P("100ms")
+	rc.ctx = ctx
+
+	client, err := wsclient.New(ctx, &rc.wsConf, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, client.Connect())
+	go rc.receiveLoop(ctx, client)
+
+	s, _, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	require.Nil(t, rpcErr)
+
+	// The first attempt has no transport to send on, and the next one does
+	rc.retryResubscribe(ctx, s)
+	time.Sleep(200 * time.Millisecond)
+	established, err := rc.setClient(ctx, client)
+	require.NoError(t, err)
+	require.False(t, established)
+
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":"0x1111"}`
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x1111"}}`
+	n := <-s.Notifications()
+	assert.Equal(t, "0x1111", n.GetCurrentSubID())
+}
+
+func TestResubscribeLoopBadParams(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+	rc.ctx = ctx
+
+	s, _, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{
+		map[bool]bool{false: true}, // cannot be serialized
+	})
+	require.Nil(t, rpcErr)
+
+	rc.resubscribeLoop(ctx, s)
+	assert.Empty(t, rc.pendingSubsByReqID)
 }
 
 func TestSubscribeAfterReconnectSnapshotSendsOnce(t *testing.T) {
