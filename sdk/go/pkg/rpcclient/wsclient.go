@@ -157,11 +157,14 @@ func (rc *wsRPCClient) Connect(ctx context.Context) error {
 		return NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
 	}
 
+	// Logging initialises on first use, which must not race the transport's own logging once it connects
+	receiveCtx := log.WithLogField(ctx, "role", "rpc_websocket")
+
 	// Wait until the afterConnect hook has been driven
 	connected := make(chan struct{})
 	rc.connected = connected
 	if err = client.Connect(); err == nil {
-		go rc.receiveLoop(log.WithLogField(ctx, "role", "rpc_websocket"), client)
+		go rc.receiveLoop(receiveCtx, client)
 		err = rc.waitConnected(ctx, connected)
 	}
 	if err != nil {

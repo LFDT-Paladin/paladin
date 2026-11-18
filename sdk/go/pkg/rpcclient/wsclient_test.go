@@ -34,6 +34,7 @@ import (
 )
 
 func newTestWSRPC(t *testing.T) (context.Context, *wsRPCClient, chan string, chan string, func()) {
+	log.EnsureInit()
 	log.SetLevel("trace")
 
 	toServer, fromServer, url, close := wsclient.NewTestWSServer(func(req *http.Request) {
