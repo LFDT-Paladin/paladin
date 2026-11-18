@@ -262,6 +262,44 @@ func TestWSRPCSubscribeCancelledBeforeConfirm(t *testing.T) {
 	assert.Empty(t, rc.activeSubsBySubID)
 }
 
+func TestWSRPCSubscriptionOutlivesSubscribeContext(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	require.NoError(t, rc.Connect(ctx))
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	subCtx, cancelSub := context.WithCancel(t.Context())
+	s, rpcErr := rc.Subscribe(subCtx, EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+	cancelSub()
+
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x9ce59a13059e417087c02d3236a0b1cc"}}`
+	// Not reading yet, so the notification is waiting for delivery rather than racing a waiting reader
+	time.Sleep(100 * time.Millisecond)
+	n := <-s.Notifications()
+	assert.Equal(t, "0x9ce59a13059e417087c02d3236a0b1cc", n.GetCurrentSubID())
+	assert.Nil(t, s.Err())
+}
+
+func TestWSRPCUnsubscribeAllWhileSubscribing(t *testing.T) {
+	ctx, rc, toServer, _, done := newTestWSRPC(t)
+	defer done()
+	require.NoError(t, rc.Connect(ctx))
+
+	// The server never replies, and the waiting subscription is unsubscribed from elsewhere
+	go func() {
+		<-toServer
+		assert.Nil(t, rc.UnsubscribeAll(t.Context()))
+	}()
+
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	assert.Nil(t, s)
+	assert.Regexp(t, "PD020511", rpcErr)
+}
+
 func TestWSRPCSubscriptionDeliveryTimeout(t *testing.T) {
 	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
 	defer done()
@@ -413,6 +451,37 @@ func TestWSRPCCallDuringConnect(t *testing.T) {
 	}()
 	require.NoError(t, rc.Connect(ctx))
 	assert.Error(t, <-callDone)
+}
+
+func TestWSRPCConnectContextEndClosesClient(t *testing.T) {
+	_, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+
+	connectCtx, cancelConnect := context.WithCancel(t.Context())
+	require.NoError(t, rc.Connect(connectCtx))
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+
+	cancelConnect()
+
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+	assert.Regexp(t, "PD020509", s.Err())
+	assert.Regexp(t, "PD020509", rc.Connect(t.Context()))
+}
+
+func TestWSRPCSubscribeBeforeConnect(t *testing.T) {
+	_, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	assert.Nil(t, s)
+	assert.Regexp(t, "PD020510", rpcErr)
+	assert.Empty(t, rc.configuredSubs)
 }
 
 func TestWSRPCConnectAfterClose(t *testing.T) {
@@ -606,6 +675,7 @@ func TestHandleReonnnectOK(t *testing.T) {
 
 	var err error
 	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil /* so we can invoke it directly */)
+	rc.ctx = ctx
 	assert.NoError(t, err)
 
 	err = rc.client.Connect()
@@ -613,7 +683,8 @@ func TestHandleReonnnectOK(t *testing.T) {
 
 	go rc.receiveLoop(ctx, rc.client)
 
-	s, errChl := rc.addConfiguredSub(ctx, EthSubscribeConfig(), []interface{}{"newHeads"})
+	s, errChl, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	require.Nil(t, rpcErr)
 
 	inflightID, inflightRes := rc.addInflightRequest(&RPCRequest{})
 
@@ -625,7 +696,7 @@ func TestHandleReonnnectOK(t *testing.T) {
 
 	err = rc.handleReconnect(ctx, rc.client)
 	assert.NoError(t, err)
-	rpcErr := <-errChl
+	rpcErr = <-errChl
 	assert.Nil(t, rpcErr)
 	assert.Equal(t, "0x9ce59a13059e417087c02d3236a0b1cc", s.currentSubID)
 
@@ -640,6 +711,7 @@ func newTestWSRPCSubscribed(t *testing.T, retryInitialDelay string) (context.Con
 
 	var err error
 	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil /* so we can invoke handleReconnect directly */)
+	rc.ctx = ctx
 	require.NoError(t, err)
 	require.NoError(t, rc.client.Connect())
 	go rc.receiveLoop(ctx, rc.client)
@@ -710,9 +782,10 @@ func TestSubscribeAfterReconnectSnapshotSendsOnce(t *testing.T) {
 	require.NoError(t, rc.Connect(ctx))
 
 	// Subscribe adds its sub just before a reconnect takes its snapshot, and sends just after it
-	s, errChl := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	s, errChl, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	require.Nil(t, rpcErr)
 	_, snapshot := rc.clearActiveReturnConfiguredSubs()
-	_, rpcErr := s.sendSubscribe(t.Context())
+	_, rpcErr = s.sendSubscribe(t.Context())
 	require.Nil(t, rpcErr)
 	for _, rs := range snapshot {
 		_, rpcErr := rs.sendSubscribe(t.Context())
@@ -741,7 +814,8 @@ func TestReconnectDoesNotResubscribeRemovedSub(t *testing.T) {
 	require.NoError(t, rc.Connect(ctx))
 
 	// The sub is removed after a reconnect has taken its snapshot
-	s, _ := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	s, _, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	require.Nil(t, rpcErr)
 	_, snapshot := rc.clearActiveReturnConfiguredSubs()
 	rc.removeSubscription(s)
 	for _, rs := range snapshot {
@@ -765,9 +839,10 @@ func TestHandleReonnnectFail(t *testing.T) {
 
 	var err error
 	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil /* so we can invoke it directly */)
+	rc.ctx = ctx
 	assert.NoError(t, err)
 
-	_, _ = rc.addConfiguredSub(ctx, EthSubscribeConfig(), []interface{}{
+	_, _, _ = rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{
 		map[bool]bool{false: true}, // cannot be serialized
 	})
 
@@ -813,6 +888,7 @@ func TestHandleAckNack(t *testing.T) {
 
 	var err error
 	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil)
+	rc.ctx = ctx
 	assert.NoError(t, err)
 
 	err = rc.client.Connect()

@@ -103,6 +103,7 @@ func (n *rpcSubscriptionNotification) GetResult() pldtypes.RawJSON {
 
 type wsRPCClient struct {
 	mux                         sync.Mutex
+	ctx                         context.Context // from the first successful Connect, and parent to every subscription
 	wsConf                      pldconf.WSClientConfig
 	requestTimeout              time.Duration
 	subscriptionDeliveryTimeout time.Duration
@@ -167,8 +168,16 @@ func (rc *wsRPCClient) Connect(ctx context.Context) error {
 		client.Close()
 		return err
 	}
+	rc.setContext(ctx)
+	context.AfterFunc(ctx, rc.Close)
 	rc.established = true
 	return nil
+}
+
+func (rc *wsRPCClient) setContext(ctx context.Context) {
+	rc.mux.Lock()
+	defer rc.mux.Unlock()
+	rc.ctx = ctx
 }
 
 func (rc *wsRPCClient) isClosed() bool {
@@ -336,12 +345,14 @@ func (rc *wsRPCClient) removeSubscription(s *sub) string {
 	return currentSubID
 }
 
-// Returns no subscription once the client is closed
-func (rc *wsRPCClient) addConfiguredSub(ctx context.Context, conf SubscriptionConfig, params []interface{}) (*sub, chan ErrorRPC) {
+func (rc *wsRPCClient) addConfiguredSub(ctx context.Context, conf SubscriptionConfig, params []interface{}) (*sub, chan ErrorRPC, ErrorRPC) {
 	rc.mux.Lock()
 	defer rc.mux.Unlock()
 	if rc.closed {
-		return nil, nil
+		return nil, nil, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
+	}
+	if rc.ctx == nil {
+		return nil, nil, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientNotConnected)
 	}
 	s := &sub{
 		SubscriptionConfig: conf,
@@ -351,12 +362,12 @@ func (rc *wsRPCClient) addConfiguredSub(ctx context.Context, conf SubscriptionCo
 		newSubResponse:     make(chan ErrorRPC, 1),
 		notifications:      make(chan RPCSubscriptionNotification), // blocking channel for these, but Unsubscribe will unblock by cancelling ctx
 	}
-	s.ctx, s.cancelCtx = context.WithCancel(ctx)
+	s.ctx, s.cancelCtx = context.WithCancel(rc.ctx)
 	rc.configuredSubs[s.localID] = s
 	rc.notificationMethods[conf.NotificationMethod] = true // trigger notification handling for this method type
 	// need to return newSubResponse because it's a use-once thing (not on reconnect)
 	// and will be nilled out (under lock) when the first creation response comes in
-	return s, s.newSubResponse
+	return s, s.newSubResponse, nil
 }
 
 func (rc *wsRPCClient) clearActiveReturnConfiguredSubs() (map[string]chan *RPCResponse, map[uuid.UUID]*sub) {
@@ -396,9 +407,9 @@ func (rc *wsRPCClient) removeInflightRequest(reqID string) {
 
 func (rc *wsRPCClient) Subscribe(ctx context.Context, conf SubscriptionConfig, params ...interface{}) (sub Subscription, error ErrorRPC) {
 
-	s, newSubResponse := rc.addConfiguredSub(ctx, conf, params)
-	if s == nil {
-		return nil, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
+	s, newSubResponse, rpcErr := rc.addConfiguredSub(ctx, conf, params)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 
 	reqID, rpcErr := s.sendSubscribe(ctx)
@@ -414,13 +425,15 @@ func (rc *wsRPCClient) Subscribe(ctx context.Context, conf SubscriptionConfig, p
 			return nil, rpcErr
 		}
 		return s, nil
-	case <-s.ctx.Done():
-		// Cancelled by the caller, or by Close which sets the error first
+	case <-ctx.Done():
 		rc.removeSubscription(s)
-		if closedErr := s.Err(); closedErr != nil {
-			return nil, closedErr
-		}
 		return nil, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgContextCanceled, reqID)
+	case <-s.ctx.Done():
+		// Removed while waiting for the reply, by Close, a failed delivery, or an unsubscribe from elsewhere
+		if rpcErr := s.Err(); rpcErr != nil {
+			return nil, rpcErr
+		}
+		return nil, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientSubscriptionRemoved, s.localID)
 	}
 }
 
@@ -690,9 +703,9 @@ func (rc *wsRPCClient) retryResubscribe(ctx context.Context, s *sub) {
 // Sends without waiting for the response: a rejection comes back through handleSubscriptionConfirm,
 // and the loop tries again after the next delay unless the subscription has become active
 func (rc *wsRPCClient) resubscribeLoop(ctx context.Context, s *sub) {
-	loopCtx, cancel := context.WithCancel(s.ctx)
+	loopCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stop := context.AfterFunc(ctx, cancel)
+	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
 
 	rpcReq, rpcErr := buildRequest(ctx, s.SubscribeMethod, s.params)

@@ -108,6 +108,7 @@ var (
 	MsgRPCClientSubscriptionDeliveryTimeout = pde("PD020508", "Subscription %s failed: consumer did not read a notification within %s")
 	MsgRPCClientClosed                      = pde("PD020509", "WebSocket client closed")
 	MsgRPCClientNotConnected                = pde("PD020510", "WebSocket client is not connected")
+	MsgRPCClientSubscriptionRemoved         = pde("PD020511", "Subscription %s was unsubscribed before the server confirmed it")
 
 	// HTTPServer PD0108XX
 	MsgHTTPServerStartFailed        = pde("PD020600", "Failed to start server on '%s'")
