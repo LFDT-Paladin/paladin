@@ -53,6 +53,7 @@ func WrapWSConfig(conf *pldconf.WSClientConfig) WSClient {
 		pendingSubsByReqID:          make(map[string]*sub),
 		activeSubsBySubID:           make(map[string]*sub),
 		notificationMethods:         make(map[string]bool),
+		closing:                     make(chan struct{}),
 	}
 }
 
@@ -113,6 +114,10 @@ type wsRPCClient struct {
 	pendingSubsByReqID          map[string]*sub
 	activeSubsBySubID           map[string]*sub
 	notificationMethods         map[string]bool
+	closed                      bool
+	closing                     chan struct{}
+	connectMux                  sync.Mutex // serialises Connect, which waits on the reconnect hook and so cannot hold mux
+	established                 bool
 }
 
 type sub struct {
@@ -132,20 +137,54 @@ type sub struct {
 	resubscribing  bool
 }
 
-func (rc *wsRPCClient) Connect(ctx context.Context) (err error) {
-	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, rc.handleReconnect)
+// Connecting an already connected client keeps its transport. A failed attempt leaves nothing running, so it can be retried
+func (rc *wsRPCClient) Connect(ctx context.Context) error {
+	rc.connectMux.Lock()
+	defer rc.connectMux.Unlock()
+	if rc.isClosed() {
+		return NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
+	}
+	if rc.established {
+		return nil
+	}
+	client, err := wsclient.New(ctx, &rc.wsConf, nil, rc.handleReconnect)
 	if err != nil {
 		return err
 	}
-	go rc.receiveLoop(log.WithLogField(ctx, "role", "rpc_websocket"))
+	if !rc.setClient(client) {
+		client.Close()
+		return NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
+	}
 
 	// Wait until the afterConnect hook has been driven
 	connected := make(chan struct{})
 	rc.connected = connected
-	if err := rc.client.Connect(); err != nil {
+	if err = client.Connect(); err == nil {
+		go rc.receiveLoop(log.WithLogField(ctx, "role", "rpc_websocket"))
+		err = rc.waitConnected(ctx, connected)
+	}
+	if err != nil {
+		client.Close()
 		return err
 	}
-	return rc.waitConnected(ctx, connected)
+	rc.established = true
+	return nil
+}
+
+func (rc *wsRPCClient) isClosed() bool {
+	rc.mux.Lock()
+	defer rc.mux.Unlock()
+	return rc.closed
+}
+
+func (rc *wsRPCClient) setClient(client wsclient.WSClient) bool {
+	rc.mux.Lock()
+	defer rc.mux.Unlock()
+	if rc.closed {
+		return false
+	}
+	rc.client = client
+	return true
 }
 
 func (rc *wsRPCClient) waitConnected(ctx context.Context, connected chan struct{}) error {
@@ -153,14 +192,39 @@ func (rc *wsRPCClient) waitConnected(ctx context.Context, connected chan struct{
 	case <-connected:
 	case <-ctx.Done():
 		return i18n.NewError(ctx, pldmsgs.MsgContextCanceled)
+	case <-rc.closing:
+		return NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
 	}
 	return nil
 }
 
+// Closing is final: every subscription fails with an error from Err, and the client cannot be connected again
 func (rc *wsRPCClient) Close() {
-	if rc.client != nil {
-		rc.client.Close()
+	subs, client := rc.markClosed()
+	for _, s := range subs {
+		rc.removeSubscription(s)
+		s.closeNotifications()
 	}
+	if client != nil {
+		client.Close()
+	}
+}
+
+func (rc *wsRPCClient) markClosed() ([]*sub, wsclient.WSClient) {
+	rc.mux.Lock()
+	defer rc.mux.Unlock()
+	if rc.closed {
+		return nil, nil
+	}
+	rc.closed = true
+	close(rc.closing)
+	closedErr := NewRPCError(context.Background(), RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
+	subs := make([]*sub, 0, len(rc.configuredSubs))
+	for _, s := range rc.configuredSubs {
+		s.err = closedErr
+		subs = append(subs, s)
+	}
+	return subs, rc.client
 }
 
 func (rc *wsRPCClient) handleReconnect(ctx context.Context, w wsclient.WSClient) error {
@@ -272,9 +336,13 @@ func (rc *wsRPCClient) removeSubscription(s *sub) string {
 	return currentSubID
 }
 
+// Returns no subscription once the client is closed
 func (rc *wsRPCClient) addConfiguredSub(ctx context.Context, conf SubscriptionConfig, params []interface{}) (*sub, chan ErrorRPC) {
 	rc.mux.Lock()
 	defer rc.mux.Unlock()
+	if rc.closed {
+		return nil, nil
+	}
 	s := &sub{
 		SubscriptionConfig: conf,
 		rc:                 rc,
@@ -329,6 +397,9 @@ func (rc *wsRPCClient) removeInflightRequest(reqID string) {
 func (rc *wsRPCClient) Subscribe(ctx context.Context, conf SubscriptionConfig, params ...interface{}) (sub Subscription, error ErrorRPC) {
 
 	s, newSubResponse := rc.addConfiguredSub(ctx, conf, params)
+	if s == nil {
+		return nil, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientClosed)
+	}
 
 	reqID, rpcErr := s.sendSubscribe(ctx)
 	if rpcErr != nil {
@@ -343,8 +414,12 @@ func (rc *wsRPCClient) Subscribe(ctx context.Context, conf SubscriptionConfig, p
 			return nil, rpcErr
 		}
 		return s, nil
-	case <-ctx.Done():
+	case <-s.ctx.Done():
+		// Cancelled by the caller, or by Close which sets the error first
 		rc.removeSubscription(s)
+		if closedErr := s.Err(); closedErr != nil {
+			return nil, closedErr
+		}
 		return nil, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgContextCanceled, reqID)
 	}
 }
@@ -370,6 +445,8 @@ func (s *sub) Notifications() chan RPCSubscriptionNotification {
 
 func (s *sub) Unsubscribe(ctx context.Context) ErrorRPC {
 	currentSubID := s.rc.removeSubscription(s)
+	// The subscription is already removed locally, so the channel closes even if the server call fails
+	defer s.closeNotifications()
 	var resultBool bool
 	if currentSubID != "" {
 		// If currently active, we need to unsubscribe
@@ -379,7 +456,6 @@ func (s *sub) Unsubscribe(ctx context.Context) ErrorRPC {
 		}
 	}
 	log.L(ctx).Infof("Unsubscribed %s (subid=%s,result=%t)", s.localID, currentSubID, resultBool)
-	s.closeNotifications()
 	return nil
 }
 

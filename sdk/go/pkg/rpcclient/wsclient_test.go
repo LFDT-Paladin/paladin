@@ -156,20 +156,20 @@ func TestWSRPCSubscribe(t *testing.T) {
 }
 
 func TestWSRPCSubscribeError(t *testing.T) {
-	ctx, rc, _, _, done := newTestWSRPC(t)
+	_, rc, _, _, done := newTestWSRPC(t)
 
-	err := rc.Connect(context.Background())
+	err := rc.Connect(t.Context())
 	assert.NoError(t, err)
 
 	done()
-	_, rpcErr := rc.Subscribe(ctx, EthSubscribeConfig(), []bool{false})
-	assert.Regexp(t, "PD020502|PD020000", rpcErr)
+	_, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), []bool{false})
+	assert.Regexp(t, "PD020509", rpcErr)
 }
 
 func TestWSRPCSubscribeClose(t *testing.T) {
-	ctx, rc, toServer, _, done := newTestWSRPC(t)
+	_, rc, toServer, _, done := newTestWSRPC(t)
 
-	err := rc.Connect(context.Background())
+	err := rc.Connect(t.Context())
 	assert.NoError(t, err)
 
 	go func() {
@@ -177,8 +177,10 @@ func TestWSRPCSubscribeClose(t *testing.T) {
 		done()
 	}()
 
-	_, rpcErr := rc.Subscribe(ctx, EthSubscribeConfig(), []bool{false})
-	assert.Regexp(t, "PD020000", rpcErr)
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), []bool{false})
+	assert.Regexp(t, "PD020509", rpcErr)
+	assert.Nil(t, s)
+	assert.Empty(t, rc.configuredSubs)
 }
 
 func TestWSRPCCallRPCError(t *testing.T) {
@@ -305,8 +307,9 @@ func TestWSRPCSubscriptionDeliveryTimeout(t *testing.T) {
 
 func TestWSRPCUnsubscribeError(t *testing.T) {
 	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
 
-	err := rc.Connect(context.Background())
+	err := rc.Connect(t.Context())
 	assert.NoError(t, err)
 
 	go func() {
@@ -317,11 +320,10 @@ func TestWSRPCUnsubscribeError(t *testing.T) {
 
 		msg = <-toServer
 		assert.Equal(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_unsubscribe","params":["0x9ce59a13059e417087c02d3236a0b1cc"]}`, msg)
-		fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":false}`
-
+		fromServer <- `{"jsonrpc":"2.0","id":"000000002","error":{"code":-32000,"message":"pop"}}`
 	}()
 
-	s, rpcErr := rc.Subscribe(ctx, EthSubscribeConfig(), "newHeads")
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
 	assert.Nil(t, rpcErr)
 
 	newHead := <-s.Notifications()
@@ -334,9 +336,70 @@ func TestWSRPCUnsubscribeError(t *testing.T) {
 	hash := newHead.GetResult().ToMap()["hash"]
 	assert.Equal(t, "0xb3346685172db67de536d8765c43c31009d0eb3bd9c501c9be3229203f15f378", hash)
 
-	done()
-	rpcErr = rc.UnsubscribeAll(ctx)
-	assert.Regexp(t, "PD020502|PD020000", rpcErr)
+	rpcErr = rc.UnsubscribeAll(t.Context())
+	assert.Regexp(t, "pop", rpcErr)
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+}
+
+func TestWSRPCCloseEndsSubscriptions(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+
+	rc.Close()
+
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+	assert.Regexp(t, "PD020509", s.Err())
+	assert.Empty(t, rc.configuredSubs)
+	assert.Nil(t, s.Unsubscribe(t.Context()))
+}
+
+func TestWSRPCConnectTwiceKeepsTransport(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	require.NoError(t, rc.Connect(ctx))
+	client := rc.client
+	require.NoError(t, rc.Connect(ctx))
+	assert.Same(t, client, rc.client)
+}
+
+func TestWSRPCConnectRetryAfterFailure(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+	serverURL := rc.wsConf.URL
+
+	rc.wsConf.URL = "ws://127.0.0.1:1/test"
+	assert.Regexp(t, "PD021103", rc.Connect(ctx))
+	failedClient := rc.client
+	// The failed transport has been closed rather than left running
+	assert.Regexp(t, "PD021102", failedClient.Send(t.Context(), []byte(`{}`)))
+
+	rc.wsConf.URL = serverURL
+	require.NoError(t, rc.Connect(ctx))
+	assert.NotSame(t, failedClient, rc.client)
+}
+
+func TestWSRPCConnectAfterClose(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	rc.Close()
+	assert.Regexp(t, "PD020509", rc.Connect(ctx))
 }
 
 func TestCallRPC(t *testing.T) {
@@ -635,15 +698,27 @@ func TestHandleReonnnectFail(t *testing.T) {
 
 func TestConnectClosedContextFail(t *testing.T) {
 	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
 
 	err := rc.Connect(ctx)
 	assert.NoError(t, err)
-	done()
 
-	connected := make(chan struct{})
-	rc.connected = connected
-	err = rc.waitConnected(ctx, connected)
+	waitCtx, cancelWait := context.WithCancel(t.Context())
+	cancelWait()
+	err = rc.waitConnected(waitCtx, make(chan struct{}))
 	assert.Regexp(t, "PD020000", err)
+}
+
+func TestWaitConnectedClientClosed(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	assert.NoError(t, err)
+
+	rc.Close()
+	err = rc.waitConnected(t.Context(), make(chan struct{}))
+	assert.Regexp(t, "PD020509", err)
 }
 
 func TestDeliverCallResponseNonBlocking(t *testing.T) {
