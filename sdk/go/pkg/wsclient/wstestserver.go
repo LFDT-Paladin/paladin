@@ -136,7 +136,10 @@ func NewTestTLSWSServer(testReq func(req *http.Request), publicKeyFile *os.File,
 	return toServer, fromServer, fmt.Sprintf("wss://%s", addr), func() {
 		close(fromServer)
 		svr.Close()
-		if connected {
+		mu.Lock()
+		wasConnected := connected
+		mu.Unlock()
+		if wasConnected {
 			<-sendDone
 			<-receiveDone
 		}
@@ -190,7 +193,10 @@ func NewTestWSServer(testReq func(req *http.Request)) (toServer, fromServer chan
 	return toServer, fromServer, fmt.Sprintf("ws://%s", svr.Listener.Addr()), func() {
 		close(fromServer)
 		svr.Close()
-		if connected {
+		mu.Lock()
+		wasConnected := connected
+		mu.Unlock()
+		if wasConnected {
 			<-sendDone
 			<-receiveDone
 		}
