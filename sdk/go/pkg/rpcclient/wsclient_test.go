@@ -680,6 +680,61 @@ func TestWSRPCResubscribeRetryStopsAfterUnsubscribe(t *testing.T) {
 	callNetVersion("000000004")
 }
 
+func TestSubscribeAfterReconnectSnapshotSendsOnce(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	require.NoError(t, rc.Connect(ctx))
+
+	// Subscribe adds its sub just before a reconnect takes its snapshot, and sends just after it
+	s, errChl := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	_, snapshot := rc.clearActiveReturnConfiguredSubs()
+	_, rpcErr := s.sendSubscribe(t.Context())
+	require.Nil(t, rpcErr)
+	for _, rs := range snapshot {
+		_, rpcErr := rs.sendSubscribe(t.Context())
+		require.Nil(t, rpcErr)
+	}
+
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000001","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	require.Nil(t, <-errChl)
+
+	// The next request the server sees is this one, not a second subscribe
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+	assert.Len(t, rc.activeSubsBySubID, 1)
+}
+
+func TestReconnectDoesNotResubscribeRemovedSub(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	require.NoError(t, rc.Connect(ctx))
+
+	// The sub is removed after a reconnect has taken its snapshot
+	s, _ := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	_, snapshot := rc.clearActiveReturnConfiguredSubs()
+	rc.removeSubscription(s)
+	for _, rs := range snapshot {
+		_, rpcErr := rs.sendSubscribe(t.Context())
+		require.Nil(t, rpcErr)
+	}
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000001","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+	assert.Empty(t, rc.pendingSubsByReqID)
+}
+
 func TestHandleReonnnectFail(t *testing.T) {
 	ctx, rc, _, _, done := newTestWSRPC(t)
 	defer done()

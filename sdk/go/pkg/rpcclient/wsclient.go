@@ -275,16 +275,10 @@ func (rc *wsRPCClient) addInflightRequest(req *RPCRequest) (string, chan *RPCRes
 	return reqID, resChl
 }
 
+// Caller must hold rc.mux
 func (rc *wsRPCClient) addInflightSub(s *sub) string {
-	rc.mux.Lock()
-	defer rc.mux.Unlock()
-	return rc.addInflightSubLocked(s)
-}
-
-func (rc *wsRPCClient) addInflightSubLocked(s *sub) string {
 	rc.requestCounter++
 	s.pendingReqID = fmt.Sprintf("%.9d", rc.requestCounter)
-	s.currentSubID = ""
 	rc.pendingSubsByReqID[s.pendingReqID] = s
 	return s.pendingReqID
 }
@@ -429,10 +423,17 @@ func (s *sub) sendSubscribe(ctx context.Context) (string, ErrorRPC) {
 	if rpcErr != nil {
 		return "", rpcErr
 	}
+	s.rc.mux.Lock()
+	// A subscription has at most one subscribe in flight or active at a time, and only while it is configured
+	if s.rc.configuredSubs[s.localID] == nil || s.pendingReqID != "" || s.currentSubID != "" {
+		s.rc.mux.Unlock()
+		return "", nil
+	}
 	reqID := s.rc.addInflightSub(s)
-	rpcReq.ID = pldtypes.RawJSON(`"` + reqID + `"`)
+	s.rc.mux.Unlock()
 
-	return reqID, s.rc.sendRPC(ctx, s.pendingReqID, rpcReq)
+	rpcReq.ID = pldtypes.RawJSON(`"` + reqID + `"`)
+	return reqID, s.rc.sendRPC(ctx, reqID, rpcReq)
 }
 
 func (s *sub) LocalID() uuid.UUID {
@@ -720,7 +721,7 @@ func (rc *wsRPCClient) nextResubscribeAttempt(s *sub) (reqID string, done bool) 
 	if s.pendingReqID != "" {
 		return "", false
 	}
-	return rc.addInflightSubLocked(s), false
+	return rc.addInflightSub(s), false
 }
 
 func (rc *wsRPCClient) removeInflightSub(s *sub, reqID string) {
