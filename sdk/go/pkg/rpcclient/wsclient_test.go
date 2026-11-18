@@ -204,6 +204,61 @@ func TestWSRPCSubscribeRPCError(t *testing.T) {
 	assert.Error(t, rpcErr)
 }
 
+func TestWSRPCSubscribeRejected(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000001","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","error":{"code":-32000,"message":"pop"}}`
+	}()
+
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	assert.Regexp(t, "pop", rpcErr)
+	assert.Nil(t, s)
+	assert.Empty(t, rc.configuredSubs)
+	assert.Empty(t, rc.pendingSubsByReqID)
+	assert.Empty(t, rc.activeSubsBySubID)
+}
+
+func TestWSRPCSubscribeCancelledBeforeConfirm(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	subCtx, cancelSub := context.WithCancel(t.Context())
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000001","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		cancelSub()
+	}()
+
+	s, rpcErr := rc.Subscribe(subCtx, EthSubscribeConfig(), "newHeads")
+	assert.Regexp(t, "PD020000", rpcErr)
+	assert.Nil(t, s)
+
+	// The server accepts the subscription after the caller has given up on it.
+	// Responses arrive in order, so the late confirm is processed before net_version returns.
+	fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+
+	assert.Empty(t, rc.configuredSubs)
+	assert.Empty(t, rc.pendingSubsByReqID)
+	assert.Empty(t, rc.activeSubsBySubID)
+}
+
 func TestWSRPCUnsubscribeError(t *testing.T) {
 	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
 

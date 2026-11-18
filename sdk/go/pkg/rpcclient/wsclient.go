@@ -277,12 +277,6 @@ func (rc *wsRPCClient) addConfiguredSub(ctx context.Context, conf SubscriptionCo
 	return s, s.newSubResponse
 }
 
-func (rc *wsRPCClient) removeConfiguredSub(id uuid.UUID) {
-	rc.mux.Lock()
-	defer rc.mux.Unlock()
-	delete(rc.configuredSubs, id)
-}
-
 func (rc *wsRPCClient) clearActiveReturnConfiguredSubs() (map[string]chan *RPCResponse, map[uuid.UUID]*sub) {
 	rc.mux.Lock()
 	defer rc.mux.Unlock()
@@ -324,15 +318,19 @@ func (rc *wsRPCClient) Subscribe(ctx context.Context, conf SubscriptionConfig, p
 
 	reqID, rpcErr := s.sendSubscribe(ctx)
 	if rpcErr != nil {
-		rc.removeConfiguredSub(s.localID)
+		rc.removeSubscription(s)
 		return nil, rpcErr
 	}
 
 	select {
 	case rpcErr := <-newSubResponse:
-		return s, rpcErr
+		if rpcErr != nil {
+			rc.removeSubscription(s)
+			return nil, rpcErr
+		}
+		return s, nil
 	case <-ctx.Done():
-		rc.removeConfiguredSub(s.localID)
+		rc.removeSubscription(s)
 		return nil, NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgContextCanceled, reqID)
 	}
 }
@@ -492,7 +490,7 @@ func (rc *wsRPCClient) handleSubscriptionConfirm(ctx context.Context, inflightSu
 	resChl := inflightSub.newSubResponse
 	inflightSub.newSubResponse = nil // we only dispatch once (it's only new once, on reconnect it's old and there's nobody to tell if we fail)
 	if rpcRes.Error != nil && rpcRes.Error.RPCError().Code != 0 {
-		log.L(ctx).Warnf("RPC[%s] <-- Error creating subscription %s: %s", rpcRes.ID.StringValue(), inflightSub.localID, rpcRes.Params)
+		log.L(ctx).Warnf("RPC[%s] <-- Error creating subscription %s: %s", rpcRes.ID.StringValue(), inflightSub.localID, rpcRes.Error)
 		if resChl != nil {
 			resChl <- rpcRes.Error
 		}
@@ -503,7 +501,7 @@ func (rc *wsRPCClient) handleSubscriptionConfirm(ctx context.Context, inflightSu
 		_ = json.Unmarshal(rpcRes.Result.Bytes(), &subscriptionID)
 	}
 	if len(subscriptionID) == 0 {
-		log.L(ctx).Warnf("RPC[%s] <-- Unable to extract subscription id from eth_subscribe response: %s", rpcRes.ID.StringValue(), rpcRes.Params)
+		log.L(ctx).Warnf("RPC[%s] <-- Unable to extract subscription id from eth_subscribe response: %s", rpcRes.ID.StringValue(), rpcRes.Result)
 		if resChl != nil {
 			resChl <- NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientSubscribeResponseInvalid)
 		}
