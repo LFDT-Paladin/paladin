@@ -391,6 +391,30 @@ func TestWSRPCConnectRetryAfterFailure(t *testing.T) {
 	assert.NotSame(t, failedClient, rc.client)
 }
 
+func TestWSRPCCallBeforeConnect(t *testing.T) {
+	_, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	var res pldtypes.HexUint64
+	assert.Regexp(t, "PD020510", rc.CallRPC(t.Context(), &res, "net_version"))
+}
+
+func TestWSRPCCallDuringConnect(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	// Nothing replies, so the call fails either as not connected or when its context times out
+	callDone := make(chan ErrorRPC)
+	go func() {
+		callCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		var res pldtypes.HexUint64
+		callDone <- rc.CallRPC(callCtx, &res, "net_version")
+	}()
+	require.NoError(t, rc.Connect(ctx))
+	assert.Error(t, <-callDone)
+}
+
 func TestWSRPCConnectAfterClose(t *testing.T) {
 	ctx, rc, _, _, done := newTestWSRPC(t)
 	defer done()
@@ -587,7 +611,7 @@ func TestHandleReonnnectOK(t *testing.T) {
 	err = rc.client.Connect()
 	assert.NoError(t, err)
 
-	go rc.receiveLoop(ctx)
+	go rc.receiveLoop(ctx, rc.client)
 
 	s, errChl := rc.addConfiguredSub(ctx, EthSubscribeConfig(), []interface{}{"newHeads"})
 
@@ -618,7 +642,7 @@ func newTestWSRPCSubscribed(t *testing.T, retryInitialDelay string) (context.Con
 	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil /* so we can invoke handleReconnect directly */)
 	require.NoError(t, err)
 	require.NoError(t, rc.client.Connect())
-	go rc.receiveLoop(ctx)
+	go rc.receiveLoop(ctx, rc.client)
 
 	go func() {
 		<-toServer
@@ -794,7 +818,7 @@ func TestHandleAckNack(t *testing.T) {
 	err = rc.client.Connect()
 	assert.NoError(t, err)
 
-	go rc.receiveLoop(ctx)
+	go rc.receiveLoop(ctx, rc.client)
 
 	subDone := make(chan struct{})
 	go func() {

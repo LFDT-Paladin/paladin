@@ -160,7 +160,7 @@ func (rc *wsRPCClient) Connect(ctx context.Context) error {
 	connected := make(chan struct{})
 	rc.connected = connected
 	if err = client.Connect(); err == nil {
-		go rc.receiveLoop(log.WithLogField(ctx, "role", "rpc_websocket"))
+		go rc.receiveLoop(log.WithLogField(ctx, "role", "rpc_websocket"), client)
 		err = rc.waitConnected(ctx, connected)
 	}
 	if err != nil {
@@ -175,6 +175,12 @@ func (rc *wsRPCClient) isClosed() bool {
 	rc.mux.Lock()
 	defer rc.mux.Unlock()
 	return rc.closed
+}
+
+func (rc *wsRPCClient) getClient() wsclient.WSClient {
+	rc.mux.Lock()
+	defer rc.mux.Unlock()
+	return rc.client
 }
 
 func (rc *wsRPCClient) setClient(client wsclient.WSClient) bool {
@@ -505,7 +511,11 @@ func (rc *wsRPCClient) sendRPC(ctx context.Context, reqID string, rpcReq *RPCReq
 		if log.IsTraceEnabled() {
 			log.L(ctx).Tracef("RPC[%s] INPUT: %s", reqID, jsonInput)
 		}
-		err = rc.client.Send(ctx, jsonInput)
+		if client := rc.getClient(); client != nil {
+			err = client.Send(ctx, jsonInput)
+		} else {
+			err = i18n.NewError(ctx, pldmsgs.MsgRPCClientNotConnected)
+		}
 	}
 	if err != nil {
 		rpcErr := NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientRequestFailed, err)
@@ -748,12 +758,12 @@ func (rc *wsRPCClient) isNotificationMethod(method string) bool {
 	return rc.notificationMethods[method]
 }
 
-func (rc *wsRPCClient) receiveLoop(ctx context.Context) {
+func (rc *wsRPCClient) receiveLoop(ctx context.Context, client wsclient.WSClient) {
 	// Cancelled when the loop exits, which stops any resubscribe retries it started
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	for {
-		bytes, ok := <-rc.client.Receive()
+		bytes, ok := <-client.Receive()
 		if !ok {
 			log.L(ctx).Debugf("WebSocket closed")
 			return
