@@ -19,6 +19,7 @@ package wsclient
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -532,4 +533,112 @@ func TestWSAfterConnectSendLoopExitCausesReconnect(t *testing.T) {
 
 	<-reconnected
 	assert.Equal(t, 2, afterConnectCalls)
+}
+
+func TestWSReconnectBacksOffWhenConnectionClosesBeforeAnythingReceived(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	connections := make(chan time.Time, 10)
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		ws, err := upgrader.Upgrade(res, req, nil)
+		if err != nil {
+			return
+		}
+		connections <- time.Now()
+		_ = ws.Close()
+	}))
+	defer svr.Close()
+
+	wsConfig := &pldconf.WSClientConfig{}
+	wsConfig.URL = fmt.Sprintf("ws://%s", svr.Listener.Addr())
+	wsConfig.ConnectRetry.InitialDelay = confutil.P("100ms")
+	wsConfig.ConnectRetry.Factor = confutil.P(2.0)
+	wsConfig.ConnectRetry.MaxDelay = confutil.P("1s")
+
+	wsc, err := New(t.Context(), wsConfig, nil, nil)
+	require.NoError(t, err)
+	defer wsc.Close()
+	require.NoError(t, wsc.Connect())
+
+	first := <-connections
+	second := <-connections
+	third := <-connections
+	assert.GreaterOrEqual(t, second.Sub(first), 100*time.Millisecond)
+	assert.GreaterOrEqual(t, third.Sub(second), 200*time.Millisecond)
+}
+
+// With a factor of 10, an escalating backoff would put a gap of at least 1s between connections
+func assertReconnectsAtInitialDelay(t *testing.T, connections []time.Time) {
+	for i := 1; i < len(connections); i++ {
+		gap := connections[i].Sub(connections[i-1])
+		assert.GreaterOrEqual(t, gap, 100*time.Millisecond)
+		assert.Less(t, gap, 1*time.Second)
+	}
+}
+
+func provenReconnectConfig(url string) *pldconf.WSClientConfig {
+	wsConfig := &pldconf.WSClientConfig{}
+	wsConfig.URL = url
+	wsConfig.ConnectRetry.InitialDelay = confutil.P("100ms")
+	wsConfig.ConnectRetry.Factor = confutil.P(10.0)
+	wsConfig.ConnectRetry.MaxDelay = confutil.P("10s")
+	return wsConfig
+}
+
+func TestWSReconnectWaitsInitialDelayAfterMessageReceived(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	connections := make(chan time.Time, 10)
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		ws, err := upgrader.Upgrade(res, req, nil)
+		if err != nil {
+			return
+		}
+		connections <- time.Now()
+		_ = ws.WriteMessage(websocket.TextMessage, []byte("hello"))
+		_ = ws.Close()
+	}))
+	defer svr.Close()
+
+	wsc, err := New(t.Context(), provenReconnectConfig(fmt.Sprintf("ws://%s", svr.Listener.Addr())), nil, nil)
+	require.NoError(t, err)
+	defer wsc.Close()
+	require.NoError(t, wsc.Connect())
+
+	var connected []time.Time
+	for i := 0; i < 3; i++ {
+		connected = append(connected, <-connections)
+		assert.Equal(t, "hello", string(<-wsc.Receive()))
+	}
+	assertReconnectsAtInitialDelay(t, connected)
+}
+
+func TestWSReconnectWaitsInitialDelayAfterPongReceived(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	connections := make(chan time.Time, 10)
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		ws, err := upgrader.Upgrade(res, req, nil)
+		if err != nil {
+			return
+		}
+		connections <- time.Now()
+		ws.SetPingHandler(func(data string) error {
+			_ = ws.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(time.Second))
+			// A half close delivers the pong before EOF, where a full close with unread pings pending would reset the connection
+			return ws.UnderlyingConn().(*net.TCPConn).CloseWrite()
+		})
+		for {
+			if _, _, err := ws.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer svr.Close()
+
+	wsConfig := provenReconnectConfig(fmt.Sprintf("ws://%s", svr.Listener.Addr()))
+	wsConfig.HeartbeatInterval = confutil.P("10ms")
+	wsc, err := New(t.Context(), wsConfig, nil, nil)
+	require.NoError(t, err)
+	defer wsc.Close()
+	require.NoError(t, wsc.Connect())
+
+	assertReconnectsAtInitialDelay(t, []time.Time{<-connections, <-connections, <-connections})
 }

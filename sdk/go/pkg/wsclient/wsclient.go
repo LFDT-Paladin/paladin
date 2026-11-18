@@ -68,6 +68,8 @@ type wsClient struct {
 	heartbeatMux         sync.Mutex
 	activePingSent       *time.Time
 	lastPingCompleted    time.Time
+	connectionProven     bool
+	failCount            int
 }
 
 // WSPreConnectHandler will be called before every connect/reconnect. Any error returned will prevent the websocket from connecting.
@@ -265,6 +267,7 @@ func (w *wsClient) readLoop() {
 			l.Infof("WS %s closed: %s", w.url, err)
 			return
 		}
+		w.connectionProven = true
 
 		// Pass the message to the consumer
 		l.Tracef("WS %s read (mt=%d): %s", w.url, mt, message)
@@ -278,6 +281,7 @@ func (w *wsClient) readLoop() {
 }
 
 func (w *wsClient) pongHandler(_ string) error {
+	w.connectionProven = true
 	w.pongReceivedOrReset(true)
 	return nil
 }
@@ -351,6 +355,7 @@ func (w *wsClient) receiveReconnectLoop() {
 	l := log.L(w.ctx)
 	defer close(w.receive)
 	for !w.closed {
+		w.connectionProven = false
 		// Start the sender, letting it close without blocking sending a notification on the sendDone
 		w.sendDoneMu.Lock()
 		w.sendDone = make(chan []byte, 1)
@@ -381,9 +386,20 @@ func (w *wsClient) receiveReconnectLoop() {
 		}
 		w.wsconn = nil
 
+		// Every dropped connection is a failure, but the count only resets once a connection has received something
+		if w.connectionProven {
+			w.failCount = 1
+		} else {
+			w.failCount++
+			l.Warnf("WS %s closed before anything was received (failCount=%d)", w.url, w.failCount)
+		}
+
 		// Go into reconnect
 		if !w.closed {
-			err = w.connect(false)
+			err = w.retry.WaitDelay(w.ctx, w.failCount)
+			if err == nil {
+				err = w.connect(false)
+			}
 			if err != nil {
 				l.Debugf("WS %s exiting: %s", w.url, err)
 				return
