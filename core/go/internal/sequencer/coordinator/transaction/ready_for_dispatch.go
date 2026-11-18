@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"slices"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -68,7 +69,11 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	// and there is no way we could have picked up new dependencies without a re-assemble.
 	// Some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
-	for _, dependencyID := range append(t.grapher.GetDependencies(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, t.pt.ID)...) {
+	for _, dependencyID := range slices.Concat(
+		t.grapher.GetDependencies(ctx, t.pt.ID),
+		t.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, t.pt.ID),
+		t.dependencyTracker.GetReadDeps().GetPrerequisites(ctx, t.pt.ID),
+	) {
 		state, ok := t.getCoordinatorTransactionState(ctx, dependencyID)
 		if !ok {
 			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependencyID))
@@ -103,14 +108,18 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
-	for _, dependentId := range append(t.grapher.GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)...) {
+	for _, dependentId := range slices.Concat(
+		t.grapher.GetDependents(ctx, t.pt.ID),
+		t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID),
+		t.dependencyTracker.GetReadDeps().GetDependents(ctx, t.pt.ID),
+	) {
 		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyReadyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error notifying dependents of readiness for TX %s: %s", t.pt.ID, err)
+			return err
 		}
 	}
 	return nil

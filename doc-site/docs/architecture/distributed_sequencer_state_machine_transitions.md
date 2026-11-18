@@ -129,6 +129,11 @@ stateDiagram-v2
     Signing --> Pooled : SignError [CanRetryErroredSign]
     Signing --> Evicted : SignError [!CanRetryErroredSign]
     Signing --> Pooled : StateTimeoutInterval
+    Signing --> PreAssembly_Blocked : DependencyReset
+    Signing --> Pooled : DependencyReset
+    Signing --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Signing --> Pooled : DependencyConfirmedReverted
+    Signing --> Reverted : ChainedDependencyFailed
     Endorsement_Gathering --> Confirming_Dispatchable : Endorsed [AttestationPlanFulfilled && !HasDependenciesNotReady]
     Endorsement_Gathering --> Blocked : Endorsed [AttestationPlanFulfilled && HasDependenciesNotReady]
     Endorsement_Gathering --> Reverted : EndorseRevert [EndorseRevertExceedsTolerance]
@@ -136,15 +141,41 @@ stateDiagram-v2
     Endorsement_Gathering --> Pooled : EndorseError [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : EndorseRequestRejected [EndorseFailureExceedsTolerance]
     Endorsement_Gathering --> Pooled : StateTimeoutInterval
+    Endorsement_Gathering --> PreAssembly_Blocked : DependencyReset
+    Endorsement_Gathering --> Pooled : DependencyReset
+    Endorsement_Gathering --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Endorsement_Gathering --> Pooled : DependencyConfirmedReverted
+    Endorsement_Gathering --> Reverted : ChainedDependencyFailed
     Blocked --> Confirming_Dispatchable : DependencyReady [!HasDependenciesNotReady]
+    Blocked --> Confirming_Dispatchable : ReadDependencyRemoved [!HasDependenciesNotReady]
+    Blocked --> PreAssembly_Blocked : DependencyReset
+    Blocked --> Pooled : DependencyReset
+    Blocked --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Blocked --> Pooled : DependencyConfirmedReverted
+    Blocked --> Reverted : ChainedDependencyFailed
     Confirming_Dispatchable --> Preparing : DispatchRequestApproved
     Confirming_Dispatchable --> Pooled : DispatchRequestRejected
     Confirming_Dispatchable --> Evicted : PreDispatchRequestRejected
     Confirming_Dispatchable --> Final : PreDispatchRequestRejected
     Confirming_Dispatchable --> Pooled : StateTimeoutInterval
+    Confirming_Dispatchable --> PreAssembly_Blocked : DependencyReset
+    Confirming_Dispatchable --> Pooled : DependencyReset
+    Confirming_Dispatchable --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Confirming_Dispatchable --> Pooled : DependencyConfirmedReverted
+    Confirming_Dispatchable --> Reverted : ChainedDependencyFailed
     Preparing --> Ready_For_Dispatch : PrepareSucceeded
     Preparing --> Pooled : PrepareFailed
+    Preparing --> PreAssembly_Blocked : DependencyReset
+    Preparing --> Pooled : DependencyReset
+    Preparing --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Preparing --> Pooled : DependencyConfirmedReverted
+    Preparing --> Reverted : ChainedDependencyFailed
     Ready_For_Dispatch --> Dispatched : Dispatched
+    Ready_For_Dispatch --> PreAssembly_Blocked : DependencyReset
+    Ready_For_Dispatch --> Pooled : DependencyReset
+    Ready_For_Dispatch --> PreAssembly_Blocked : DependencyConfirmedReverted
+    Ready_For_Dispatch --> Pooled : DependencyConfirmedReverted
+    Ready_For_Dispatch --> Reverted : ChainedDependencyFailed
     Dispatched --> Confirmed : ConfirmedSuccess
     Dispatched --> PreAssembly_Blocked : ConfirmedReverted [CanRetryRevert && HasUnassembledDependencies]
     Dispatched --> Pooled : ConfirmedReverted [CanRetryRevert && !HasUnassembledDependencies]
@@ -186,6 +217,7 @@ stateDiagram-v2
 | **PreDispatchRequestRejected** | |
 | **PrepareFailed** | |
 | **PrepareSucceeded** | |
+| **ReadDependencyRemoved** | |
 | **Selected** | |
 | **SignError** | |
 | **Signed** | |

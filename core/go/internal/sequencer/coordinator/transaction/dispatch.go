@@ -18,6 +18,7 @@ package transaction
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -213,7 +214,11 @@ func (t *coordinatorTransaction) buildTransactionDispatch(ctx context.Context, p
 			// dispatches would result in unncessarily complex code.
 			seen := make(map[uuid.UUID]bool)
 			var chainedDeps []uuid.UUID
-			for _, depID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetPrerequisites(ctx, pt.ID), t.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, pt.ID)...) {
+			for _, depID := range slices.Concat(
+				t.dependencyTracker.GetPostAssemblyDeps().GetPrerequisites(ctx, pt.ID),
+				t.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, pt.ID),
+				t.dependencyTracker.GetReadDeps().GetPrerequisites(ctx, pt.ID),
+			) {
 				if depChildID, ok := t.dependencyTracker.GetChainedDeps().GetChainedChild(ctx, depID); ok && !seen[depChildID] {
 					seen[depChildID] = true
 					chainedDeps = append(chainedDeps, depChildID)
