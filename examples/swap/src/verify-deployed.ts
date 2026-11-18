@@ -6,7 +6,7 @@ import PaladinClient, {
 } from "@lfdecentralizedtrust/paladin-sdk";
 import * as fs from 'fs';
 import * as path from 'path';
-import { nodeConnections } from "../../common/src/config";
+import { nodeConnections } from "paladin-example-common";
 
 const logger = console;
 
