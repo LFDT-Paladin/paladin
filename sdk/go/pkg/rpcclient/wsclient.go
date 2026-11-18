@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/wsclient"
 	"github.com/google/uuid"
 )
@@ -128,6 +129,7 @@ type sub struct {
 	err            ErrorRPC
 	deliverMux     sync.Mutex
 	closed         bool
+	resubscribing  bool
 }
 
 func (rc *wsRPCClient) Connect(ctx context.Context) (err error) {
@@ -212,6 +214,10 @@ func (rc *wsRPCClient) addInflightRequest(req *RPCRequest) (string, chan *RPCRes
 func (rc *wsRPCClient) addInflightSub(s *sub) string {
 	rc.mux.Lock()
 	defer rc.mux.Unlock()
+	return rc.addInflightSubLocked(s)
+}
+
+func (rc *wsRPCClient) addInflightSubLocked(s *sub) string {
 	rc.requestCounter++
 	s.pendingReqID = fmt.Sprintf("%.9d", rc.requestCounter)
 	s.currentSubID = ""
@@ -555,9 +561,11 @@ func (rc *wsRPCClient) handleSubscriptionConfirm(ctx context.Context, inflightSu
 	resChl := inflightSub.newSubResponse
 	inflightSub.newSubResponse = nil // we only dispatch once (it's only new once, on reconnect it's old and there's nobody to tell if we fail)
 	if rpcRes.Error != nil && rpcRes.Error.RPCError().Code != 0 {
-		log.L(ctx).Warnf("RPC[%s] <-- Error creating subscription %s: %s", rpcRes.ID.StringValue(), inflightSub.localID, rpcRes.Error)
+		log.L(ctx).Warnf("RPC[%s] <-- Error creating subscription %s (%s %v): %s", rpcRes.ID.StringValue(), inflightSub.localID, inflightSub.SubscribeMethod, inflightSub.params, rpcRes.Error)
 		if resChl != nil {
 			resChl <- rpcRes.Error
+		} else {
+			rc.retryResubscribe(ctx, inflightSub)
 		}
 		return
 	}
@@ -569,6 +577,8 @@ func (rc *wsRPCClient) handleSubscriptionConfirm(ctx context.Context, inflightSu
 		log.L(ctx).Warnf("RPC[%s] <-- Unable to extract subscription id from eth_subscribe response: %s", rpcRes.ID.StringValue(), rpcRes.Result)
 		if resChl != nil {
 			resChl <- NewRPCError(ctx, RPCCodeInternalError, pldmsgs.MsgRPCClientSubscribeResponseInvalid)
+		} else {
+			rc.retryResubscribe(ctx, inflightSub)
 		}
 		return
 	}
@@ -577,6 +587,72 @@ func (rc *wsRPCClient) handleSubscriptionConfirm(ctx context.Context, inflightSu
 	// all was good, if someone is waiting to be told, notify them
 	if resChl != nil {
 		resChl <- nil
+	}
+}
+
+// A single retry loop owns a subscription's recovery, however many resubscribes are rejected while it runs
+func (rc *wsRPCClient) retryResubscribe(ctx context.Context, s *sub) {
+	rc.mux.Lock()
+	defer rc.mux.Unlock()
+	if !s.resubscribing {
+		s.resubscribing = true
+		go rc.resubscribeLoop(ctx, s)
+	}
+}
+
+// Sends without waiting for the response: a rejection comes back through handleSubscriptionConfirm,
+// and the loop tries again after the next delay unless the subscription has become active
+func (rc *wsRPCClient) resubscribeLoop(ctx context.Context, s *sub) {
+	loopCtx, cancel := context.WithCancel(s.ctx)
+	defer cancel()
+	stop := context.AfterFunc(ctx, cancel)
+	defer stop()
+
+	rpcReq, rpcErr := buildRequest(ctx, s.SubscribeMethod, s.params)
+	if rpcErr != nil {
+		log.L(ctx).Errorf("Unable to retry subscribe %s: %s", s.localID, rpcErr)
+		return
+	}
+	r := retry.NewRetryIndefinite(&rc.wsConf.ConnectRetry)
+	for failCount := 1; ; failCount++ {
+		if r.WaitDelay(loopCtx, failCount) != nil {
+			return
+		}
+		reqID, done := rc.nextResubscribeAttempt(s)
+		if done {
+			return
+		}
+		if reqID == "" {
+			continue
+		}
+		log.L(ctx).Infof("Retrying subscribe %s (attempt=%d)", s.localID, failCount)
+		rpcReq.ID = pldtypes.RawJSON(`"` + reqID + `"`)
+		if rpcErr := rc.sendRPC(loopCtx, reqID, rpcReq); rpcErr != nil {
+			rc.removeInflightSub(s, reqID)
+		}
+	}
+}
+
+// Returns no request ID while a subscribe is already in flight, whether from this loop or from a reconnect
+func (rc *wsRPCClient) nextResubscribeAttempt(s *sub) (reqID string, done bool) {
+	rc.mux.Lock()
+	defer rc.mux.Unlock()
+	if rc.configuredSubs[s.localID] == nil || s.currentSubID != "" {
+		s.resubscribing = false
+		return "", true
+	}
+	if s.pendingReqID != "" {
+		return "", false
+	}
+	return rc.addInflightSubLocked(s), false
+}
+
+func (rc *wsRPCClient) removeInflightSub(s *sub, reqID string) {
+	rc.mux.Lock()
+	defer rc.mux.Unlock()
+	delete(rc.pendingSubsByReqID, reqID)
+	if s.pendingReqID == reqID {
+		s.pendingReqID = ""
 	}
 }
 
@@ -596,6 +672,9 @@ func (rc *wsRPCClient) isNotificationMethod(method string) bool {
 }
 
 func (rc *wsRPCClient) receiveLoop(ctx context.Context) {
+	// Cancelled when the loop exits, which stops any resubscribe retries it started
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	for {
 		bytes, ok := <-rc.client.Receive()
 		if !ok {

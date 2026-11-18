@@ -547,6 +547,76 @@ func TestHandleReonnnectOK(t *testing.T) {
 	assert.Equal(t, inflightID, rpcRes.ID.StringValue())
 }
 
+func newTestWSRPCSubscribed(t *testing.T, retryInitialDelay string) (context.Context, *wsRPCClient, Subscription, chan string, chan string, func()) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	rc.wsConf.ConnectRetry.InitialDelay = confutil.P(retryInitialDelay)
+
+	var err error
+	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil /* so we can invoke handleReconnect directly */)
+	require.NoError(t, err)
+	require.NoError(t, rc.client.Connect())
+	go rc.receiveLoop(ctx)
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+	return ctx, rc, s, toServer, fromServer, done
+}
+
+func TestWSRPCResubscribeRetriedAfterRejection(t *testing.T) {
+	ctx, rc, s, toServer, fromServer, done := newTestWSRPCSubscribed(t, "1ms")
+	defer done()
+
+	go func() {
+		for _, reqID := range []string{"000000002", "000000003"} {
+			msg := <-toServer
+			assert.JSONEq(t, `{"jsonrpc":"2.0","id":"`+reqID+`","method":"eth_subscribe","params":["newHeads"]}`, msg)
+			fromServer <- `{"jsonrpc":"2.0","id":"` + reqID + `","error":{"code":-32000,"message":"not ready"}}`
+		}
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000004","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000004","result":"0x1111"}`
+		fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x1111"}}`
+	}()
+
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+
+	n := <-s.Notifications()
+	assert.Equal(t, "0x1111", n.GetCurrentSubID())
+	assert.Nil(t, s.Err())
+}
+
+func TestWSRPCResubscribeRetryStopsAfterUnsubscribe(t *testing.T) {
+	ctx, rc, s, toServer, fromServer, done := newTestWSRPCSubscribed(t, "50ms")
+	defer done()
+
+	callNetVersion := func(reqID string) {
+		go func() {
+			msg := <-toServer
+			assert.JSONEq(t, `{"jsonrpc":"2.0","id":"`+reqID+`","method":"net_version"}`, msg)
+			fromServer <- `{"jsonrpc":"2.0","id":"` + reqID + `","result":"0x1"}`
+		}()
+		var res pldtypes.HexUint64
+		require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+	}
+
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","error":{"code":-32000,"message":"not ready"}}`
+	// Responses arrive in order, so the rejection has started the retry loop once this returns
+	callNetVersion("000000003")
+
+	require.Nil(t, s.Unsubscribe(t.Context()))
+
+	// Past the retry delay, the next message the server sees is not a resubscribe
+	time.Sleep(100 * time.Millisecond)
+	callNetVersion("000000004")
+}
+
 func TestHandleReonnnectFail(t *testing.T) {
 	ctx, rc, _, _, done := newTestWSRPC(t)
 	defer done()
