@@ -169,7 +169,7 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 	var err error
 	inParams := tx.Params.(*types.UnlockParams)
 
-	lockedInputs := req.InputStates
+	lockedInputs := h.noto.filterSchema(req.InputStates, []string{h.noto.lockedCoinSchema.Id})
 	outputs, lockedOutputs := h.noto.splitStates(req.OutputStates)
 
 	// Include the signature from the sender
