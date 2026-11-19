@@ -723,6 +723,30 @@ func TestSendTransactionSendPreparedTx(t *testing.T) {
 
 }
 
+func TestSendTransactionIdempotencyKeyCheckedOnFailure(t *testing.T) {
+
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectBegin()
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnError(fmt.Errorf("pop"))
+	mc.db.Mock.ExpectRollback()
+	mc.txManager.On("CheckIdempotencyKeys", mock.Anything, mock.MatchedBy(func(err error) bool {
+		return err.Error() == "pop"
+	}), []string{"tx_1"}).Return(fmt.Errorf("clash"))
+
+	err := gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := gm.SendTransaction(ctx, dbTX, &pldapi.PrivacyGroupEVMTXInput{
+			Domain:         "domain1",
+			Group:          pldtypes.RandBytes(32),
+			IdempotencyKey: "tx_1",
+		})
+		return err
+	})
+	require.Regexp(t, "clash", err)
+
+}
+
 func mockGetPrivateSmartContract(t *testing.T, mc *mockComponents, schemaID pldtypes.Bytes32, groupID pldtypes.HexBytes, contractAddr *pldtypes.EthAddress) *componentsmocks.DomainSmartContract {
 	mockDBPrivacyGroup(mc, schemaID, groupID, contractAddr)
 	psc := componentsmocks.NewDomainSmartContract(t)

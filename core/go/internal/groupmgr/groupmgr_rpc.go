@@ -105,13 +105,16 @@ func (gm *groupManager) rpcQueryGroupsWithMember() rpcserver.RPCHandler {
 }
 
 func (gm *groupManager) rpcSendTransaction() rpcserver.RPCHandler {
-	return rpcserver.RPCMethod1(func(ctx context.Context, tx *pldapi.PrivacyGroupEVMTXInput) (txID *uuid.UUID, err error) {
+	return rpcserver.RPCMethod1WithRPCCode(func(ctx context.Context, tx *pldapi.PrivacyGroupEVMTXInput) (txID *uuid.UUID, _ rpcclient.RPCCode, err error) {
 		err = gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 			txID, err = gm.SendTransaction(ctx, dbTX, tx)
 			return err
 		})
 		gm.metrics.IncRpc("sendTransaction")
-		return txID, err
+		if err != nil && strings.Contains(err.Error(), "PD012220") {
+			return txID, pldclient.RPCCodeConflict, err
+		}
+		return txID, 0, err
 	})
 }
 

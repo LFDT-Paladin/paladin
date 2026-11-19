@@ -531,7 +531,20 @@ func (gm *groupManager) prepareTransaction(ctx context.Context, dbTX persistence
 
 }
 
-func (gm *groupManager) SendTransaction(ctx context.Context, dbTX persistence.DBTX, pgTX *pldapi.PrivacyGroupEVMTXInput) (*uuid.UUID, error) {
+func (gm *groupManager) SendTransaction(ctx context.Context, dbTX persistence.DBTX, pgTX *pldapi.PrivacyGroupEVMTXInput) (_ *uuid.UUID, err error) {
+
+	// An existing idempotencyKey takes precedence over any other failure, as re-validating a
+	// transaction that has already been submitted can fail where the original succeeded.
+	if pgTX.IdempotencyKey != "" {
+		defer func() {
+			if err != nil {
+				dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
+					// OUTSIDE of the rolled back transaction
+					return gm.txManager.CheckIdempotencyKeys(ctx, err, pgTX.IdempotencyKey)
+				})
+			}
+		}()
+	}
 
 	tx, err := gm.prepareTransaction(ctx, dbTX, pgTX.Domain, pgTX.Group, &pgTX.PrivacyGroupEVMTX)
 	if err != nil {

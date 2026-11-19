@@ -333,7 +333,7 @@ var (
 	PrivacyGroupEVMTXInput           = pdm("PrivacyGroupEVMTX.input", "An object or array of unencoded inputs, when an function ABI is supplied. Or a hex string containing pre-encoded function selector and ABI encoded inputs")
 	PrivacyGroupEVMTXFunction        = pdm("PrivacyGroupEVMTX.function", "The ABI fragment/entry for the function to call. Do not supply the whole ABI array, just one object for the function/constructor. Omit when pre-encoded hex input is provided")
 	PrivacyGroupEVMTXBytecode        = pdm("PrivacyGroupEVMTX.bytecode", "For contract deployments to EVM privacy groups, the bytecode must be submitted separately to the constructor parameters (which are supplied as input)")
-	PrivacyGroupEVMTXIdempotencyKey  = pdm("PrivacyGroupEVMTX.idempotencyKey", "The idempotencyKey to use in the resulting transaction submission")
+	PrivacyGroupEVMTXIdempotencyKey  = pdm("PrivacyGroupEVMTX.idempotencyKey", "Idempotency key for the resulting transaction, unique across all transactions on this node. Re-submitting with a key already in use returns a JSON-RPC error with code -32001 and the ID of the existing transaction")
 	PrivacyGroupEVMTXPublicTxOptions = pdm("PrivacyGroupEVMTX.publicTxOptions", "The public transaction submission options to use in the resulting transaction submission")
 
 	PrivacyGroupTXOptionsIdempotencyKey = pdm("PrivacyGroupTXOptions.idempotencyKey", "Idempotency key for the genesis transaction of the privacy group, unique across all transactions on this node. The group is only created along with its genesis transaction, so re-submitting with a key already in use does not create a group, and returns a JSON-RPC error with code -32001 and the ID of the existing transaction")

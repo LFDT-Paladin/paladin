@@ -320,6 +320,29 @@ func TestRPCCreateGroupIdempotencyKeyClash(t *testing.T) {
 	require.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
 }
 
+func TestRPCSendTransactionIdempotencyKeyClash(t *testing.T) {
+	existingTxID := uuid.New()
+	clashErr := i18n.NewError(t.Context(), msgs.MsgTxMgrIdempotencyKeyClash, fmt.Sprintf("tx_1=%s", existingTxID))
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectBegin()
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnError(fmt.Errorf("pop"))
+	mc.db.Mock.ExpectRollback()
+	mc.txManager.On("CheckIdempotencyKeys", mock.Anything, mock.Anything, []string{"tx_1"}).Return(clashErr)
+
+	client := newTestRPCServer(t, ctx, gm)
+
+	var txID *uuid.UUID
+	rpcErr := client.CallRPC(ctx, &txID, "pgroup_sendTransaction", &pldapi.PrivacyGroupEVMTXInput{
+		Domain:         "domain1",
+		Group:          pldtypes.RandBytes(32),
+		IdempotencyKey: "tx_1",
+	})
+	require.Regexp(t, fmt.Sprintf("PD012220.*tx_1=%s", existingTxID), rpcErr)
+	require.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
+}
+
 func TestRPCInvokeRPCError(t *testing.T) {
 	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
 	defer done()
