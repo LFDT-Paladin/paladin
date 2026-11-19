@@ -21,10 +21,11 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.BlockValues;
-import org.hyperledger.besu.evm.operation.BlockHashOperation;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 
-public class VirtualBlockchain implements BlockValues, BlockHashOperation.BlockHashLookup {
+public class VirtualBlockchain implements BlockValues, BlockHashLookup {
 
     private long blockNumber;
     private long blockTimestamp;
@@ -67,7 +68,7 @@ public class VirtualBlockchain implements BlockValues, BlockHashOperation.BlockH
     }
 
     @Override
-    public Hash apply(Long aLong) {
+    public Hash apply(MessageFrame frame, Long aLong) {
         return null; // TODO: lookup blocks
     }
 }

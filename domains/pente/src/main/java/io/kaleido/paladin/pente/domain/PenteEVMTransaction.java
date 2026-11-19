@@ -303,10 +303,10 @@
      JSONReceipt buildJSONReceipt(EVMExecutionResult execResult) throws IOException {
          Address contractAddress = null;
          if (execResult.contractAddress != null) {
-             contractAddress = new Address(execResult.contractAddress.toArray());
+             contractAddress = new Address(execResult.contractAddress.getBytes().toArray());
          }
          var evmReceipt = new EVMReceipt(
-             new Address(execResult.senderAddress.toArray()),
+             new Address(execResult.senderAddress.getBytes().toArray()),
              this.to,
              new JsonHexNum.Uint256(execResult.gasUsed),
              contractAddress,

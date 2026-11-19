@@ -31,7 +31,6 @@
  import org.hyperledger.besu.datatypes.Wei;
  import org.hyperledger.besu.evm.Code;
  import org.hyperledger.besu.evm.frame.MessageFrame;
- import org.hyperledger.besu.evm.log.LogTopic;
  import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
  import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
  import org.hyperledger.besu.evm.processor.MessageCallProcessor;
@@ -96,7 +95,7 @@
 
      public static Address nonceSmartContractAddress(Address address, long nonce) {
          var rlpBytes = RlpEncoder.encode(new RlpList(
-                 RlpString.create(address.toArray()),
+                 RlpString.create(address.getBytes().toArray()),
                  RlpString.create(nonce)
          ));
          var hash = new Keccak.Digest256().digest(rlpBytes);
@@ -115,7 +114,7 @@
              codeBytes = Bytes.wrap(codeBytes, constructorParamsBytes);
          }
 
-         Code code = this.evmVersion.evm().getCode(Hash.hash(codeBytes), codeBytes);
+         Code code = new Code(codeBytes);
          var sender = this.world.getUpdater().getOrCreate(senderAddress);
          if (smartContractAddress == null) {
              smartContractAddress = nonceSmartContractAddress(senderAddress, sender.getNonce());
@@ -141,7 +140,7 @@
                          .completer(c -> {})
                          .miningBeneficiary(coinbase)
                          .blockHashLookup(virtualBlockchain)
-                         .maxStackSize(Integer.MAX_VALUE)
+                         .maxStackSize(MessageFrame.DEFAULT_MAX_STACK_SIZE)
                          .build();
          this.runFrame(frame, logAccumulator);
          return frame;
@@ -190,7 +189,7 @@
              throw new IllegalArgumentException("no contract deployed at %s".formatted(smartContractAddress));
          }
          Bytes codeBytes = contractAccount.getCode();
-         Code code = this.evmVersion.evm().getCode(Hash.hash(codeBytes), codeBytes);
+         Code code = new Code(codeBytes);
          final MessageFrame frame =
                  MessageFrame.builder()
                          .type(MessageFrame.Type.MESSAGE_CALL)
@@ -209,7 +208,7 @@
                          .completer(c -> {})
                          .miningBeneficiary(coinbase)
                          .blockHashLookup(virtualBlockchain)
-                         .maxStackSize(Integer.MAX_VALUE)
+                         .maxStackSize(MessageFrame.DEFAULT_MAX_STACK_SIZE)
                          .completer(__ -> {})
                          .build();
          this.runFrame(frame, logAccumulator);
@@ -243,7 +242,6 @@
          final MessageCallProcessor mcp = new MessageCallProcessor(this.evmVersion.evm(), this.evmVersion.precompileContractRegistry());
          final ContractCreationProcessor ccp =
                  new ContractCreationProcessor(
-                         this.evmVersion.gasCalculator(),
                          this.evmVersion.evm(),
                          false,
                          List.of(),
@@ -275,8 +273,8 @@
                  for (int i = 0; i < frameLogs.size(); i++) {
                      var log = frameLogs.get(i);
                      logAccumulator.add(new JsonEVMLog(
-                             new JsonHex.Address(log.getLogger().toArray()),
-                             log.getTopics().stream().map(t -> new JsonHex.Bytes32(t.toArray())).toList(),
+                             new JsonHex.Address(log.getLogger().getBytes().toArray()),
+                             log.getTopics().stream().map(t -> new JsonHex.Bytes32(t.getBytes().toArray())).toList(),
                              new JsonHex.Bytes(log.getData().toArray()),
                              i
                      ));

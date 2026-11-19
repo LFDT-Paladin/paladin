@@ -15,7 +15,6 @@
 
 package io.kaleido.paladin.pente;
 
-import org.apache.tuweni.bytes.DelegatingBytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.hyperledger.besu.datatypes.Address;
 
@@ -29,7 +28,7 @@ import java.util.stream.Stream;
 public class TestUtils {
 
     static String sortedAddressList(Collection<Address> addresses) {
-        return addresses.stream().map(DelegatingBytes::toString).sorted().collect(Collectors.joining(","));
+        return addresses.stream().map(Address::toString).sorted().collect(Collectors.joining(","));
     }
 
     static boolean listContains(Collection<?> entries, String stringMatch) {
