@@ -98,27 +98,27 @@ func goodDeployTxForEvaluate() *components.PrivateContractDeploy {
 }
 
 func TestSequencerManager_handleDeployTx_NoDomain(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
-	err := sm.handleDeployTx(ctx, &components.PrivateContractDeploy{})
+	err := sm.handleDeployTx(ctx, persistencemocks.NewDBTX(t), &components.PrivateContractDeploy{}, false)
 	require.Error(t, err)
 }
 
 func TestSequencerManager_handleDeployTx_DomainNotFound(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
 	mocks.domainManager.EXPECT().GetDomainByName(ctx, "missing").Return(nil, errors.New("not found")).Once()
 
-	err := sm.handleDeployTx(ctx, &components.PrivateContractDeploy{Domain: "missing"})
+	err := sm.handleDeployTx(ctx, persistencemocks.NewDBTX(t), &components.PrivateContractDeploy{Domain: "missing"}, false)
 	require.Error(t, err)
 }
 
 func TestSequencerManager_handleDeployTx_InitDeployError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
@@ -126,12 +126,42 @@ func TestSequencerManager_handleDeployTx_InitDeployError(t *testing.T) {
 	mocks.domainManager.EXPECT().GetDomainByName(ctx, "test-domain").Return(mockDomain, nil).Once()
 	mockDomain.EXPECT().InitDeploy(ctx, mock.Anything).Return(errors.New("init failed")).Once()
 
-	err := sm.handleDeployTx(ctx, &components.PrivateContractDeploy{Domain: "test-domain"})
+	err := sm.handleDeployTx(ctx, persistencemocks.NewDBTX(t), &components.PrivateContractDeploy{Domain: "test-domain"}, false)
 	require.Error(t, err)
 }
 
-func TestSequencerManager_handleDeployTx_Success(t *testing.T) {
-	ctx := context.Background()
+func TestSequencerManager_handleDeployTx_StartsAfterCommit(t *testing.T) {
+	ctx := t.Context()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+	dbTX := persistencemocks.NewDBTX(t)
+
+	mockDomain := componentsmocks.NewDomain(t)
+	mocks.domainManager.EXPECT().GetDomainByName(ctx, "test-domain").Return(mockDomain, nil).Once()
+	mockDomain.EXPECT().InitDeploy(ctx, mock.Anything).Return(nil).Once()
+	var postCommit func(context.Context)
+	dbTX.EXPECT().AddPostCommit(mock.Anything).Run(func(fn func(context.Context)) {
+		postCommit = fn
+	}).Once()
+
+	// No metrics expectation is set yet, so starting the deployment before the post-commit fails the test
+	err := sm.handleDeployTx(ctx, dbTX, &components.PrivateContractDeploy{Domain: "test-domain"}, false)
+	require.NoError(t, err)
+	require.NotNil(t, postCommit)
+
+	done := make(chan struct{})
+	mockDomain.EXPECT().PrepareDeploy(mock.Anything, mock.Anything).Return(errors.New("stop background loop")).Once()
+	mocks.metrics.EXPECT().IncDispatchedTransactions().Once()
+	mocks.syncPoints.EXPECT().QueueTransactionFinalize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(ctx context.Context, req *syncpoints.TransactionFinalizeRequest, onCommit func(context.Context), onRollback func(context.Context, error)) {
+		close(done)
+	}).Once()
+
+	postCommit(ctx)
+	<-done
+}
+
+func TestSequencerManager_handleDeployTx_ResumeStartsImmediately(t *testing.T) {
+	ctx := t.Context()
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
@@ -145,7 +175,7 @@ func TestSequencerManager_handleDeployTx_Success(t *testing.T) {
 		close(done)
 	}).Once()
 
-	err := sm.handleDeployTx(ctx, &components.PrivateContractDeploy{Domain: "test-domain"})
+	err := sm.handleDeployTx(ctx, persistencemocks.NewDBTX(t), &components.PrivateContractDeploy{Domain: "test-domain"}, true)
 	require.NoError(t, err)
 	<-done
 }
@@ -412,7 +442,7 @@ func TestSequencerManager_HandleNewTx_DeployNotSupported(t *testing.T) {
 }
 
 func TestSequencerManager_HandleNewTx_DeployAuto(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 	dbTX := persistencemocks.NewDBTX(t)
@@ -428,6 +458,9 @@ func TestSequencerManager_HandleNewTx_DeployAuto(t *testing.T) {
 	mocks.metrics.EXPECT().IncDispatchedTransactions().Once()
 	mocks.syncPoints.EXPECT().QueueTransactionFinalize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(ctx context.Context, req *syncpoints.TransactionFinalizeRequest, onCommit func(context.Context), onRollback func(context.Context, error)) {
 		close(done)
+	}).Once()
+	dbTX.EXPECT().AddPostCommit(mock.Anything).Run(func(fn func(context.Context)) {
+		fn(ctx)
 	}).Once()
 
 	err := sm.HandleNewTx(ctx, dbTX, txi)
