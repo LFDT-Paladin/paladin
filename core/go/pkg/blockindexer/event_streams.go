@@ -425,6 +425,9 @@ func (es *eventStream) start(updateDB bool) error {
 			// overwrite the configured/desired started state.
 			es.definition.Started = confutil.P(true)
 		}
+		// A stopped detector can leave messages queued, and the dispatcher must not checkpoint past events the new
+		// detector has yet to resend from the persisted checkpoint.
+		es.dispatch = make(chan *detectorMsg, es.batchSize)
 		es.detectorDone = make(chan struct{})
 		es.dispatcherDone = make(chan struct{})
 		es.detectorStarted = make(chan struct{})

@@ -960,6 +960,86 @@ func TestBlockIndexerResetsAfterReceiptIntegrityFail(t *testing.T) {
 	require.NotNil(t, es.dispatcherDone, "Event stream dispatcher should be started after reset")
 }
 
+func TestEventStreamDeliversEveryEventAcrossReceiptIntegrityReset(t *testing.T) {
+	for _, failBlock := range []int{3, 6, 9, 12} {
+		t.Run(fmt.Sprintf("fail_block_%d", failBlock), func(t *testing.T) {
+			_, bi, mRPC, blDone := newTestBlockIndexer(t)
+			defer blDone()
+
+			const blockCount = 15
+			blocks, receipts := testBlockArray(t, blockCount)
+
+			var mux sync.Mutex
+			sentFail := false
+			mockBlocksRPCCallsDynamic(mRPC, func(args mock.Arguments) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
+				mux.Lock()
+				defer mux.Unlock()
+				if !sentFail &&
+					args[2].(string) == "eth_getBlockReceipts" &&
+					args[3].([]interface{})[0].(ethtypes.HexBytes0xPrefix).Equals(blocks[failBlock].Hash) {
+					sentFail = true
+					badReceipts := make(map[string][]*TXReceiptJSONRPC, len(receipts))
+					for hash, blockReceipts := range receipts {
+						badReceipts[hash] = blockReceipts
+					}
+					badReceipts[blocks[failBlock].Hash.String()] = []*TXReceiptJSONRPC{}
+					return blocks, badReceipts
+				}
+				return blocks, receipts
+			})
+			mockBlockListenerNil(mRPC)
+
+			delivered := map[string]bool{}
+			err := bi.Start(&InternalEventStream{
+				HandlerDBTX: func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
+					// Hold the stream behind the indexer so the reset lands while it has events queued.
+					time.Sleep(5 * time.Millisecond)
+					dbTX.AddPostCommit(func(ctx context.Context) {
+						mux.Lock()
+						defer mux.Unlock()
+						for _, e := range batch.Events {
+							delivered[fmt.Sprintf("%d/%d", e.BlockNumber, e.LogIndex)] = true
+						}
+					})
+					return nil
+				},
+				Definition: &EventStreamDefinition{
+					Name: "unit_test",
+					Config: EventStreamConfig{
+						BatchSize:    confutil.P(1),
+						BatchTimeout: confutil.P("1ms"),
+					},
+					Sources: []EventStreamSource{{
+						ABI: abi.ABI{testABI[1], testABI[2]},
+					}},
+				},
+			})
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				var checkpoints []*EventStreamCheckpoint
+				require.NoError(t, bi.persistence.DB(t.Context()).Table("event_stream_checkpoints").Find(&checkpoints).Error)
+				return len(checkpoints) == 1 && checkpoints[0].BlockNumber >= blockCount-1
+			}, 20*time.Second, 10*time.Millisecond)
+
+			mux.Lock()
+			defer mux.Unlock()
+			assert.True(t, sentFail)
+			var missing []string
+			// A batch that ends partway through block 0 checkpoints block 0, so block 0 is left out. A real chain's
+			// genesis block carries no events.
+			for b := 1; b < blockCount; b++ {
+				for _, logIndex := range []int{1, 2} {
+					if k := fmt.Sprintf("%d/%d", b, logIndex); !delivered[k] {
+						missing = append(missing, k)
+					}
+				}
+			}
+			assert.Empty(t, missing)
+		})
+	}
+}
+
 func TestBlockIndexerDispatcherFallsBehindHead(t *testing.T) {
 	_, bi, mRPC, blDone := newTestBlockIndexer(t)
 	defer blDone()
