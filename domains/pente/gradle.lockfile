@@ -2,7 +2,6 @@
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
 biz.aQute.bnd:biz.aQute.bnd.annotation:7.1.0=compileClasspath,testCompileClasspath
-ch.qos.reload4j:reload4j:1.2.22=testCompileClasspath,testRuntimeClasspath
 com.fasterxml.jackson.core:jackson-annotations:2.23=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 com.fasterxml.jackson.core:jackson-core:2.23.0=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 com.fasterxml.jackson.core:jackson-databind:2.23.0=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
@@ -88,6 +87,7 @@ net.java.dev.jna:jna:5.19.1=integrationTestRuntimeClasspath,runtimeClasspath,tes
 org.apache.commons:commons-lang3:3.20.0=integrationTestRuntimeClasspath,runtimeClasspath,testRuntimeClasspath
 org.apache.logging.log4j:log4j-api:2.26.1=compileClasspath,integrationTestRuntimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.apache.logging.log4j:log4j-core:2.26.1=compileClasspath,integrationTestRuntimeClasspath,testCompileClasspath,testRuntimeClasspath
+org.apache.logging.log4j:log4j-slf4j2-impl:2.26.1=integrationTestRuntimeClasspath,testRuntimeClasspath
 org.apiguardian:apiguardian-api:1.1.2=integrationTestCompileClasspath,testCompileClasspath
 org.bouncycastle:bc-jdk18on-bom:1.87=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.bouncycastle:bcpkix-jdk18on:1.87=integrationTestRuntimeClasspath,runtimeClasspath,testRuntimeClasspath
@@ -128,9 +128,7 @@ org.osgi:org.osgi.annotation.versioning:1.1.2=compileClasspath,testCompileClassp
 org.osgi:org.osgi.resource:1.0.0=compileClasspath,testCompileClasspath
 org.osgi:org.osgi.service.serviceloader:1.0.0=compileClasspath,testCompileClasspath
 org.skyscreamer:jsonassert:1.5.3=testCompileClasspath,testRuntimeClasspath
-org.slf4j:slf4j-api:2.0.17=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath
-org.slf4j:slf4j-api:2.0.20=testCompileClasspath,testRuntimeClasspath
-org.slf4j:slf4j-reload4j:2.0.20=testCompileClasspath,testRuntimeClasspath
+org.slf4j:slf4j-api:2.0.17=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.web3j:abi:6.1.0=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.web3j:rlp:6.1.0=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.web3j:utils:6.1.0=compileClasspath,integrationTestCompileClasspath,integrationTestRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
