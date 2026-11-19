@@ -32,16 +32,17 @@ import (
 )
 
 type persistedMessage struct {
-	LocalSeq uint64             `gorm:"column:local_seq;autoIncrement;primaryKey"`
-	Domain   string             `gorm:"column:domain"`
-	Group    pldtypes.HexBytes  `gorm:"column:group"`
-	Node     string             `gorm:"column:node"`
-	Sent     pldtypes.Timestamp `gorm:"column:sent"`
-	Received pldtypes.Timestamp `gorm:"column:received"`
-	ID       uuid.UUID          `gorm:"column:id"`
-	CID      *uuid.UUID         `gorm:"column:cid"`
-	Topic    string             `gorm:"column:topic"`
-	Data     pldtypes.RawJSON   `gorm:"column:data"`
+	LocalSeq       uint64             `gorm:"column:local_seq;autoIncrement;primaryKey"`
+	Domain         string             `gorm:"column:domain"`
+	Group          pldtypes.HexBytes  `gorm:"column:group"`
+	Node           string             `gorm:"column:node"`
+	Sent           pldtypes.Timestamp `gorm:"column:sent"`
+	Received       pldtypes.Timestamp `gorm:"column:received"`
+	ID             uuid.UUID          `gorm:"column:id"`
+	CID            *uuid.UUID         `gorm:"column:cid"`
+	Topic          string             `gorm:"column:topic"`
+	Data           pldtypes.RawJSON   `gorm:"column:data"`
+	IdempotencyKey *string            `gorm:"column:idempotency_key"`
 }
 
 func (persistedMessage) TableName() string {
@@ -49,14 +50,15 @@ func (persistedMessage) TableName() string {
 }
 
 var messageFilters = filters.FieldMap{
-	"localSequence": filters.Int64Field("local_seq"),
-	"domain":        filters.StringField("domain"),
-	"group":         filters.HexBytesField(`"group"`),
-	"sent":          filters.TimestampField("sent"),
-	"received":      filters.TimestampField("received"),
-	"id":            filters.UUIDField("id"),
-	"correlationId": filters.UUIDField("cid"),
-	"topic":         filters.StringField("topic"),
+	"localSequence":  filters.Int64Field("local_seq"),
+	"domain":         filters.StringField("domain"),
+	"group":          filters.HexBytesField(`"group"`),
+	"sent":           filters.TimestampField("sent"),
+	"received":       filters.TimestampField("received"),
+	"id":             filters.UUIDField("id"),
+	"correlationId":  filters.UUIDField("cid"),
+	"topic":          filters.StringField("topic"),
+	"idempotencyKey": filters.StringField("idempotency_key"),
 }
 
 // Validation before attempting DB insertion
@@ -76,8 +78,22 @@ func (gm *persistedMessage) preValidate(ctx context.Context) error {
 	return nil
 }
 
-func (gm *groupManager) SendMessage(ctx context.Context, dbTX persistence.DBTX, msg *pldapi.PrivacyGroupMessageInput) (*uuid.UUID, error) {
+func (gm *groupManager) SendMessage(ctx context.Context, dbTX persistence.DBTX, msg *pldapi.PrivacyGroupMessageInput) (_ *uuid.UUID, err error) {
 	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
+
+	// An existing idempotencyKey takes precedence over any other failure, as re-validating a
+	// message that has already been sent can fail where the original succeeded.
+	if msg.IdempotencyKey != "" {
+		defer func() {
+			if err != nil {
+				dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
+					// OUTSIDE of the rolled back transaction
+					return gm.checkIdempotencyKey(ctx, err, msg.IdempotencyKey)
+				})
+			}
+		}()
+	}
+
 	pg, err := gm.GetGroupByID(ctx, dbTX, msg.Domain, msg.Group)
 	if err != nil {
 		return nil, err
@@ -99,6 +115,9 @@ func (gm *groupManager) SendMessage(ctx context.Context, dbTX persistence.DBTX, 
 		CID:      msg.CorrelationID,
 		Topic:    msg.Topic,
 		Data:     msg.Data,
+	}
+	if msg.IdempotencyKey != "" {
+		pMsg.IdempotencyKey = &msg.IdempotencyKey
 	}
 	if err := pMsg.preValidate(ctx); err != nil {
 		return nil, err
@@ -139,6 +158,21 @@ func (gm *groupManager) SendMessage(ctx context.Context, dbTX persistence.DBTX, 
 
 	return &msgID, nil
 
+}
+
+// Will either return the original error, or will return a special idempotency key error that can be used by the caller
+// to determine that they need to ask for the existing message (rather than fail)
+func (gm *groupManager) checkIdempotencyKey(ctx context.Context, origErr error, idempotencyKey string) error {
+	existing, lookupErr := gm.GetMessageByIdempotencyKey(ctx, gm.p.NOTX(), idempotencyKey)
+	if lookupErr != nil {
+		log.L(ctx).Errorf("Failed to query for existing idempotencyKey after send error (returning original error): %s", lookupErr)
+		return origErr
+	}
+	if existing != nil {
+		log.L(ctx).Errorf("Overriding send error with idempotencyKey error. origErr: %s", origErr)
+		return i18n.NewError(ctx, msgs.MsgPGroupsIdempotencyKeyClash, existing.ID)
+	}
+	return origErr
 }
 
 func (gm *groupManager) ReceiveMessages(ctx context.Context, dbTX persistence.DBTX, messages []*pldapi.PrivacyGroupMessage) (results map[uuid.UUID]error, err error) {
@@ -222,6 +256,24 @@ func (gm *groupManager) GetMessageByID(ctx context.Context, dbTX persistence.DBT
 			return nil, i18n.NewError(ctx, msgs.MsgPGroupsMessageNotFound)
 		}
 		return nil, nil
+	}
+	return dbMsgs[0], nil
+}
+
+func (gm *groupManager) GetMessageForDistribution(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.PrivacyGroupMessage, error) {
+	msg, err := gm.GetMessageByID(ctx, dbTX, id, false)
+	if msg != nil {
+		// The idempotencyKey is local to the sending node
+		msg.IdempotencyKey = ""
+	}
+	return msg, err
+}
+
+func (gm *groupManager) GetMessageByIdempotencyKey(ctx context.Context, dbTX persistence.DBTX, idempotencyKey string) (*pldapi.PrivacyGroupMessage, error) {
+	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
+	dbMsgs, err := gm.QueryMessages(ctx, dbTX, query.NewQueryBuilder().Equal("idempotencyKey", idempotencyKey).Limit(1).Query())
+	if len(dbMsgs) == 0 || err != nil {
+		return nil, err
 	}
 	return dbMsgs[0], nil
 }

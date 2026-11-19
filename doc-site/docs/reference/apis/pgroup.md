@@ -72,6 +72,16 @@ title: pgroup_*
 
 0. `msg`: [`PrivacyGroupMessage`](../types/privacygroupmessage.md#privacygroupmessage)
 
+## `pgroup_getMessageByIdempotencyKey`
+
+### Parameters
+
+0. `idempotencyKey`: `string`
+
+### Returns
+
+0. `msg`: [`PrivacyGroupMessage`](../types/privacygroupmessage.md#privacygroupmessage)
+
 ## `pgroup_getMessageListener`
 
 ### Parameters

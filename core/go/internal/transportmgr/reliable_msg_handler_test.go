@@ -1130,7 +1130,7 @@ func TestParsePrivacyGroupMessageGetMessageError(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			mc.groupManager.On("GetMessageByID", mock.Anything, mock.Anything, mock.Anything, false).Return(nil, fmt.Errorf("pop"))
+			mc.groupManager.On("GetMessageForDistribution", mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
 
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
@@ -1156,7 +1156,7 @@ func TestParsePrivacyGroupMessageGetMessageNotFound(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			mc.groupManager.On("GetMessageByID", mock.Anything, mock.Anything, mock.Anything, false).Return(nil, nil)
+			mc.groupManager.On("GetMessageForDistribution", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()

@@ -76,6 +76,7 @@ export interface IPrivacyGroupMessageInput {
   group: string;
   topic: string;
   data: any;
+  idempotencyKey?: string;
 }
 
 export interface IPrivacyGroupMessage extends IPrivacyGroupMessageInput {

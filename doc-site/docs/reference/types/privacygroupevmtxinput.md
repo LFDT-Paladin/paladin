@@ -15,7 +15,7 @@ title: PrivacyGroupEVMTXInput
 
 | Field Name | Description | Type |
 |------------|-------------|------|
-| `idempotencyKey` | The idempotencyKey to use in the resulting transaction submission | `string` |
+| `idempotencyKey` | Idempotency key for the resulting transaction, unique across all transactions on this node. Re-submitting with a key already in use returns a JSON-RPC error with code -32001 and the ID of the existing transaction | `string` |
 | `domain` | The domain that manages the privacy group | `string` |
 | `group` | The privacy group ID | [`HexBytes`](simpletypes.md#hexbytes) |
 | `from` | The local signing identity to use to submit the transaction | `string` |

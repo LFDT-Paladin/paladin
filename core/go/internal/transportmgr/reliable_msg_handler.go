@@ -536,7 +536,7 @@ func (tm *transportManager) buildPrivacyGroupMessageMsg(ctx context.Context, dbT
 	}
 
 	// Get the Message
-	msg, err := tm.groupManager.GetMessageByID(ctx, dbTX, pmd.ID, false)
+	msg, err := tm.groupManager.GetMessageForDistribution(ctx, dbTX, pmd.ID)
 	if err != nil {
 		return nil, nil, err
 	}

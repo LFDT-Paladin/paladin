@@ -85,7 +85,7 @@ func (tt SubmitMode) Default() string {
 
 // The Base fields that are input and output fields
 type TransactionBase struct {
-	IdempotencyKey string                         `docstruct:"Transaction" json:"idempotencyKey,omitempty"` // externally supplied unique identifier for this transaction. 409 Conflict will be returned on attempt to re-submit
+	IdempotencyKey string                         `docstruct:"Transaction" json:"idempotencyKey,omitempty"` // externally supplied unique identifier for this transaction. Re-submitting with the same key returns a JSON-RPC error with code -32001
 	Type           pldtypes.Enum[TransactionType] `docstruct:"Transaction" json:"type,omitempty"`           // public transactions go straight to a base ledger EVM smart contract. Private transactions use a Paladin domain to mask the on-chain data
 	Domain         string                         `docstruct:"Transaction" json:"domain,omitempty"`         // name of a domain - only required on input for private deploy transactions (n/a for public, and inferred from "to" for invoke)
 	Function       string                         `docstruct:"Transaction" json:"function,omitempty"`       // inferred from definition if not supplied. Resolved to full signature and stored. Required with abiReference on input if not constructor
