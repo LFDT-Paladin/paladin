@@ -336,6 +336,8 @@ var (
 	PrivacyGroupEVMTXIdempotencyKey  = pdm("PrivacyGroupEVMTX.idempotencyKey", "The idempotencyKey to use in the resulting transaction submission")
 	PrivacyGroupEVMTXPublicTxOptions = pdm("PrivacyGroupEVMTX.publicTxOptions", "The public transaction submission options to use in the resulting transaction submission")
 
+	PrivacyGroupTXOptionsIdempotencyKey = pdm("PrivacyGroupTXOptions.idempotencyKey", "Idempotency key for the genesis transaction of the privacy group, unique across all transactions on this node. The group is only created along with its genesis transaction, so re-submitting with a key already in use does not create a group, and returns a JSON-RPC error with code -32001 and the ID of the existing transaction")
+
 	PrivacyGroupInputTransactionOptions = pdm("PrivacyGroupInput.transactionOptions", "Options that will be propagated to the final private transaction that is submitted after the domain has validated the input properties and generated the base private transaction")
 
 	PrivacyGroupID                 = pdm("PrivacyGroup.id", "The ID of the group, which is the hash-derived ID of the genesis state (assured to be unique within the domain)")

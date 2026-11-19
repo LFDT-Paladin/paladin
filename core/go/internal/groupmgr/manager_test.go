@@ -231,6 +231,31 @@ func TestPrivacyGroupDomainConfigureFail(t *testing.T) {
 	require.Regexp(t, "pop", err)
 }
 
+func TestPrivacyGroupIdempotencyKeyCheckedOnFailure(t *testing.T) {
+
+	ctx, gm, _, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{},
+		mockEmptyMessageListeners,
+		mockBeginRollback,
+		func(mc *mockComponents, conf *pldconf.GroupManagerConfig) {
+			mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").Return(nil, nil)
+			mc.domain.On("ConfigurePrivacyGroup", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
+			mc.txManager.On("CheckIdempotencyKeys", mock.Anything, mock.MatchedBy(func(err error) bool {
+				return err.Error() == "pop"
+			}), []string{"group_1"}).Return(fmt.Errorf("clash"))
+		})
+	defer done()
+
+	err := gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := gm.CreateGroup(ctx, dbTX, &pldapi.PrivacyGroupInput{
+			Domain:             "domain1",
+			Members:            []string{"me@node1", "you@node2"},
+			TransactionOptions: &pldapi.PrivacyGroupTXOptions{IdempotencyKey: "group_1"},
+		})
+		return err
+	})
+	require.Regexp(t, "clash", err)
+}
+
 func TestPrivacyGroupDomainEnsureSchemasFail(t *testing.T) {
 
 	ctx, gm, _, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{},

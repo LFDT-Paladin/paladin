@@ -991,9 +991,7 @@ func TestCheckIdempotencyKeyNoOverrideErrIfFail(t *testing.T) {
 	defer done()
 
 	// Default public constructor invoke
-	err := txm.checkIdempotencyKeys(ctx, fmt.Errorf("pop"), []*pldapi.TransactionInput{{TransactionBase: pldapi.TransactionBase{
-		IdempotencyKey: "idem1",
-	}}})
+	err := txm.CheckIdempotencyKeys(ctx, fmt.Errorf("pop"), "idem1")
 	assert.Regexp(t, "pop", err)
 }
 

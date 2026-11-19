@@ -39,7 +39,7 @@ type PrivacyGroup struct {
 }
 
 type PrivacyGroupTXOptions struct {
-	IdempotencyKey string `docstruct:"PrivacyGroup" json:"idempotencyKey,omitempty"`
+	IdempotencyKey string `docstruct:"PrivacyGroupTXOptions" json:"idempotencyKey,omitempty"`
 	PublicTxOptions
 }
 

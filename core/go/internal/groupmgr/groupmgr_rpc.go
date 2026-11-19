@@ -59,14 +59,17 @@ func (gm *groupManager) initRPC() {
 }
 
 func (gm *groupManager) rpcCreateGroup() rpcserver.RPCHandler {
-	return rpcserver.RPCMethod1(func(ctx context.Context, spec pldapi.PrivacyGroupInput) (group *pldapi.PrivacyGroup, err error) {
+	return rpcserver.RPCMethod1WithRPCCode(func(ctx context.Context, spec pldapi.PrivacyGroupInput) (group *pldapi.PrivacyGroup, _ rpcclient.RPCCode, err error) {
 		ctx = log.WithComponent(ctx, "groupmanager")
 		err = gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 			group, err = gm.CreateGroup(ctx, dbTX, &spec)
 			return err
 		})
 		gm.metrics.IncRpc("createGroup")
-		return group, err
+		if err != nil && strings.Contains(err.Error(), "PD012220") {
+			return group, pldclient.RPCCodeConflict, err
+		}
+		return group, 0, err
 	})
 }
 

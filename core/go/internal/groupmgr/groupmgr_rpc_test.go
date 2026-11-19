@@ -22,9 +22,11 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
@@ -206,6 +208,12 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 	).Error
 	require.NoError(t, err)
 
+	// Query it by genesis transaction
+	groups, err = pgroupRPC.QueryGroups(ctx, query.NewQueryBuilder().Equal("genesisTransaction", groups[0].GenesisTransaction).Limit(1).Query())
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	require.Equal(t, groupID, groups[0].ID)
+
 	// Get it directly by ID
 	fullGroup, err := pgroupRPC.GetGroupById(ctx, "domain1", groupID)
 	require.NoError(t, err)
@@ -284,6 +292,32 @@ func TestPrivacyGroupRPCLifecycleRealDB(t *testing.T) {
 	require.Len(t, msgByCID, 1)
 	require.Equal(t, msgID, msgByCID[0].ID)
 
+}
+
+func TestRPCCreateGroupIdempotencyKeyClash(t *testing.T) {
+	existingTxID := uuid.New()
+	ctx, gm, _, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{},
+		mockEmptyMessageListeners,
+		mockBeginRollback,
+		mockReadyToSendTransaction(t),
+		func(mc *mockComponents, conf *pldconf.GroupManagerConfig) {
+			mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).
+				Return(nil, i18n.NewError(t.Context(), msgs.MsgTxMgrIdempotencyKeyClash, fmt.Sprintf("group_1=%s", existingTxID)))
+			mc.txManager.On("CheckIdempotencyKeys", mock.Anything, mock.Anything, []string{"group_1"}).
+				Return(i18n.NewError(t.Context(), msgs.MsgTxMgrIdempotencyKeyClash, fmt.Sprintf("group_1=%s", existingTxID)))
+		})
+	defer done()
+
+	client := newTestRPCServer(t, ctx, gm)
+
+	var group *pldapi.PrivacyGroup
+	rpcErr := client.CallRPC(ctx, &group, "pgroup_createGroup", &pldapi.PrivacyGroupInput{
+		Domain:             "domain1",
+		Members:            []string{"me@node1", "you@node2"},
+		TransactionOptions: &pldapi.PrivacyGroupTXOptions{IdempotencyKey: "group_1"},
+	})
+	require.Regexp(t, fmt.Sprintf("PD012220.*group_1=%s", existingTxID), rpcErr)
+	require.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
 }
 
 func TestRPCInvokeRPCError(t *testing.T) {
