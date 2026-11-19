@@ -19,6 +19,7 @@ package wsclient
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,6 +33,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func lastPingCompleted(w WSClient) time.Time {
+	wsc := w.(*wsClient)
+	wsc.heartbeatMux.Lock()
+	defer wsc.heartbeatMux.Unlock()
+	return wsc.lastPingCompleted
+}
 
 func TestWSClientE2ETLS(t *testing.T) {
 	publicKeyFile, privateKeyFile := GenerateTLSCertficates(t)
@@ -71,7 +79,7 @@ func TestWSClientE2ETLS(t *testing.T) {
 		KeyFile:  privateKeyFile.Name(),
 	}
 
-	wsc, err := New(context.Background(), wsConfig, beforeConnect, afterConnect)
+	wsc, err := New(t.Context(), wsConfig, beforeConnect, afterConnect)
 	require.NoError(t, err)
 	defer wsc.Close()
 
@@ -81,7 +89,7 @@ func TestWSClientE2ETLS(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test server rejects a 2nd connection
-	wsc2, err := New(context.Background(), wsConfig, beforeConnect, afterConnect)
+	wsc2, err := New(t.Context(), wsConfig, beforeConnect, afterConnect)
 	require.NoError(t, err)
 	defer wsc2.Close()
 
@@ -99,7 +107,7 @@ func TestWSClientE2ETLS(t *testing.T) {
 	assert.Equal(t, `some data from server`, string(reply))
 
 	// Send some data back
-	err = wsc.Send(context.Background(), []byte(`some data to server`))
+	err = wsc.Send(t.Context(), []byte(`some data to server`))
 	assert.NoError(t, err)
 
 	// Check the sevrer got it
@@ -108,7 +116,7 @@ func TestWSClientE2ETLS(t *testing.T) {
 
 	// Check heartbeating works
 	beforePing := time.Now()
-	for wsc.(*wsClient).lastPingCompleted.Before(beforePing) {
+	for lastPingCompleted(wsc).Before(beforePing) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
@@ -138,7 +146,7 @@ func TestWSClientE2E(t *testing.T) {
 	wsConfig.HeartbeatInterval = confutil.P("50ms")
 	wsConfig.InitialConnectAttempts = confutil.P(2)
 
-	wsc, err := New(context.Background(), wsConfig, beforeConnect, afterConnect)
+	wsc, err := New(t.Context(), wsConfig, beforeConnect, afterConnect)
 	require.NoError(t, err)
 	defer wsc.Close()
 
@@ -157,7 +165,7 @@ func TestWSClientE2E(t *testing.T) {
 	assert.Equal(t, `some data from server`, string(reply))
 
 	// Send some data back
-	err = wsc.Send(context.Background(), []byte(`some data to server`))
+	err = wsc.Send(t.Context(), []byte(`some data to server`))
 	assert.NoError(t, err)
 
 	// Check the sevrer got it
@@ -166,7 +174,7 @@ func TestWSClientE2E(t *testing.T) {
 
 	// Check heartbeating works
 	beforePing := time.Now()
-	for wsc.(*wsClient).lastPingCompleted.Before(beforePing) {
+	for lastPingCompleted(wsc).Before(beforePing) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
@@ -532,4 +540,186 @@ func TestWSAfterConnectSendLoopExitCausesReconnect(t *testing.T) {
 
 	<-reconnected
 	assert.Equal(t, 2, afterConnectCalls)
+}
+
+func TestWSReconnectBacksOffWhenConnectionClosesBeforeAnythingReceived(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	connections := make(chan time.Time, 10)
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		ws, err := upgrader.Upgrade(res, req, nil)
+		if err != nil {
+			return
+		}
+		connections <- time.Now()
+		_ = ws.Close()
+	}))
+	defer svr.Close()
+
+	wsConfig := &pldconf.WSClientConfig{}
+	wsConfig.URL = fmt.Sprintf("ws://%s", svr.Listener.Addr())
+	wsConfig.ConnectRetry.InitialDelay = confutil.P("100ms")
+	wsConfig.ConnectRetry.Factor = confutil.P(2.0)
+	wsConfig.ConnectRetry.MaxDelay = confutil.P("1s")
+
+	wsc, err := New(t.Context(), wsConfig, nil, nil)
+	require.NoError(t, err)
+	defer wsc.Close()
+	require.NoError(t, wsc.Connect())
+
+	first := <-connections
+	second := <-connections
+	third := <-connections
+	assert.GreaterOrEqual(t, second.Sub(first), 100*time.Millisecond)
+	assert.GreaterOrEqual(t, third.Sub(second), 200*time.Millisecond)
+}
+
+// With a factor of 10, an escalating backoff would put a gap of at least 1s between connections
+func assertReconnectsAtInitialDelay(t *testing.T, connections []time.Time) {
+	for i := 1; i < len(connections); i++ {
+		gap := connections[i].Sub(connections[i-1])
+		assert.GreaterOrEqual(t, gap, 100*time.Millisecond)
+		assert.Less(t, gap, 1*time.Second)
+	}
+}
+
+func provenReconnectConfig(url string) *pldconf.WSClientConfig {
+	wsConfig := &pldconf.WSClientConfig{}
+	wsConfig.URL = url
+	wsConfig.ConnectRetry.InitialDelay = confutil.P("100ms")
+	wsConfig.ConnectRetry.Factor = confutil.P(10.0)
+	wsConfig.ConnectRetry.MaxDelay = confutil.P("10s")
+	return wsConfig
+}
+
+func TestWSReconnectWaitsInitialDelayAfterMessageReceived(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	connections := make(chan time.Time, 10)
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		ws, err := upgrader.Upgrade(res, req, nil)
+		if err != nil {
+			return
+		}
+		connections <- time.Now()
+		_ = ws.WriteMessage(websocket.TextMessage, []byte("hello"))
+		_ = ws.Close()
+	}))
+	defer svr.Close()
+
+	wsc, err := New(t.Context(), provenReconnectConfig(fmt.Sprintf("ws://%s", svr.Listener.Addr())), nil, nil)
+	require.NoError(t, err)
+	defer wsc.Close()
+	require.NoError(t, wsc.Connect())
+
+	var connected []time.Time
+	for i := 0; i < 3; i++ {
+		connected = append(connected, <-connections)
+		assert.Equal(t, "hello", string(<-wsc.Receive()))
+	}
+	assertReconnectsAtInitialDelay(t, connected)
+}
+
+func TestWSReconnectWaitsInitialDelayAfterPongReceived(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	connections := make(chan time.Time, 10)
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		ws, err := upgrader.Upgrade(res, req, nil)
+		if err != nil {
+			return
+		}
+		connections <- time.Now()
+		ws.SetPingHandler(func(data string) error {
+			_ = ws.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(time.Second))
+			// A half close delivers the pong before EOF, where a full close with unread pings pending would reset the connection
+			return ws.UnderlyingConn().(*net.TCPConn).CloseWrite()
+		})
+		for {
+			if _, _, err := ws.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer svr.Close()
+
+	wsConfig := provenReconnectConfig(fmt.Sprintf("ws://%s", svr.Listener.Addr()))
+	wsConfig.HeartbeatInterval = confutil.P("10ms")
+	wsc, err := New(t.Context(), wsConfig, nil, nil)
+	require.NoError(t, err)
+	defer wsc.Close()
+	require.NoError(t, wsc.Connect())
+
+	assertReconnectsAtInitialDelay(t, []time.Time{<-connections, <-connections, <-connections})
+}
+
+func TestWSCloseDuringReconnectDelay(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	connected := make(chan struct{}, 10)
+	svr := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		ws, err := upgrader.Upgrade(res, req, nil)
+		if err != nil {
+			return
+		}
+		connected <- struct{}{}
+		_ = ws.Close()
+	}))
+	defer svr.Close()
+
+	wsConfig := &pldconf.WSClientConfig{}
+	wsConfig.URL = fmt.Sprintf("ws://%s", svr.Listener.Addr())
+	wsConfig.ConnectRetry.InitialDelay = confutil.P("1h")
+
+	wsc, err := New(t.Context(), wsConfig, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, wsc.Connect())
+	<-connected
+	// Give the client time to see the server close the connection and start its 1h reconnect delay
+	time.Sleep(100 * time.Millisecond)
+
+	wsc.Close()
+	_, ok := <-wsc.Receive()
+	assert.False(t, ok)
+}
+
+func TestWSConcurrentClose(t *testing.T) {
+	_, _, url, done := NewTestWSServer(nil)
+	defer done()
+
+	wsConfig := &pldconf.WSClientConfig{}
+	wsConfig.URL = url
+	wsc, err := New(t.Context(), wsConfig, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, wsc.Connect())
+
+	closed := make(chan struct{})
+	go func() {
+		wsc.Close()
+		close(closed)
+	}()
+	wsc.Close()
+	<-closed
+}
+
+func TestWSCloseWhileReceiveNotRead(t *testing.T) {
+	_, fromServer, url, done := NewTestWSServer(nil)
+	defer done()
+
+	wsConfig := &pldconf.WSClientConfig{}
+	wsConfig.URL = url
+	wsConfig.HeartbeatInterval = confutil.P("0")
+	wsc, err := New(t.Context(), wsConfig, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, wsc.Connect())
+
+	// Nothing reads Receive(), so the reader is left holding this message
+	fromServer <- `unread`
+	time.Sleep(100 * time.Millisecond)
+
+	w := wsc.(*wsClient)
+	w.sendDoneMu.Lock()
+	sendDone := w.sendDone
+	w.sendDoneMu.Unlock()
+
+	wsc.Close()
+	<-sendDone
+	_, ok := <-wsc.Receive()
+	assert.False(t, ok)
 }

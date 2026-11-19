@@ -216,13 +216,6 @@ var _ = Describe("noto/pente - simple", Ordered, func() {
 			Expect(err).To(BeNil())
 		})
 
-		var receiptsSub rpcclient.Subscription
-		It("starts a receipt listener", func() {
-			sub, err := wsRPC[paladinPrefix+"1"].PTX().SubscribeReceipts(ctx, listenerName)
-			Expect(err).To(BeNil())
-			receiptsSub = sub
-		})
-
 		var notoCoinSchemaID *pldtypes.Bytes32
 		It("gets the coin schema", func() {
 			var schemas []*pldapi.Schema
@@ -618,12 +611,16 @@ var _ = Describe("noto/pente - simple", Ordered, func() {
 		})
 
 		It("streams down receipts until it finds the mint", func() {
+			receiptsSub, err := wsRPC[paladinPrefix+"1"].PTX().SubscribeReceipts(ctx, listenerName)
+			Expect(err).To(BeNil())
 			mintMatched := false
 			for !mintMatched {
 				var receiptBatch pldapi.TransactionReceiptBatch
 				var notification rpcclient.RPCSubscriptionNotification
 				select {
-				case notification = <-receiptsSub.Notifications():
+				case n, ok := <-receiptsSub.Notifications():
+					Expect(ok).To(BeTrue(), "receipt subscription closed: %v", receiptsSub.Err())
+					notification = n
 					err := json.Unmarshal(notification.GetResult(), &receiptBatch)
 					Expect(err).To(BeNil())
 				case <-time.After(5 * time.Second):
