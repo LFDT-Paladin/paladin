@@ -20,6 +20,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"sync/atomic"
 	"testing"
@@ -639,6 +640,23 @@ func TestGetReliableMessageScanNoAction(t *testing.T) {
 	}
 
 	require.Nil(t, p.reliableMessageScan(false))
+
+}
+
+func TestReliableMessageScanStaleNotification(t *testing.T) {
+
+	ctx, tm, _, done := newTestTransport(t, false)
+	defer done()
+
+	// A concurrent scan has already consumed the sequence floor set by the notification
+	p := &peer{
+		ctx:              ctx,
+		tm:               tm,
+		lowestPendingSeq: math.MaxUint64,
+	}
+
+	require.NoError(t, p.reliableMessageScan(true))
+	require.Equal(t, uint64(math.MaxUint64), p.lowestPendingSeq)
 
 }
 
