@@ -14,7 +14,16 @@ plugins {
 
 group = 'io.kaleido'
 
+sourceSets {
+    integrationTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
 configurations {
+    integrationTestImplementation.extendsFrom implementation
+
     // Resolvable configurations
     toolkitProtoDefinitions {
         canBeConsumed = false
@@ -69,12 +78,30 @@ test {
         }
     }
     useJUnitPlatform()
+    finalizedBy 'integrationTest'
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs the testbed tests, with the Pente domain loaded from the built jar.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    testLogging {
+        testLogging {
+            events("passed", "skipped", "failed")
+            showStackTraces = true
+            exceptionFormat = TestExceptionFormat.FULL
+        }
+    }
+    useJUnitPlatform()
     systemProperty "jna.library.path", [
         new File(project(":core:go").buildDir, "libs").absolutePath,
         new File(project(":toolkit:go").buildDir, "libs").absolutePath,
         new File(project(":domains:noto").buildDir, "libs").absolutePath
     ].join(File.pathSeparator)
     dependsOn ':testinfra:startTestInfra'
+    dependsOn shadowJar
+    systemProperty "pente.jar", shadowJar.archiveFile.get().asFile.absolutePath
 }
 
 repositories {
@@ -114,18 +141,23 @@ dependencies {
     implementation penteLibs.netty.all
     compileOnly coreLibs.log4j.core
 
-    testImplementation project(path: ":core:java")
     testImplementation project(path: ":solidity", configuration: "compiledContracts")
-    testImplementation project(path: ":core:go", configuration: "libcore")
-    testImplementation project(path: ":domains:noto", configuration: "libnoto")
 
     testImplementation platform(penteLibs.junit.bom)
     testImplementation penteLibs.junit.jupiter
-    testImplementation penteLibs.mockito.core
     testImplementation penteLibs.slf4j.reload4j
     testImplementation penteLibs.jackson.databind
     testImplementation penteLibs.jsonassert
     testImplementation coreLibs.log4j.core
+
+    integrationTestImplementation project(path: ":core:java")
+    integrationTestImplementation project(path: ":solidity", configuration: "compiledContracts")
+    integrationTestImplementation project(path: ":core:go", configuration: "libcore")
+    integrationTestImplementation project(path: ":domains:noto", configuration: "libnoto")
+
+    integrationTestImplementation platform(penteLibs.junit.bom)
+    integrationTestImplementation penteLibs.junit.jupiter
+    integrationTestImplementation penteLibs.jackson.databind
 
     implementation penteLibs.besu.evm
     implementation penteLibs.besu.datatypes
