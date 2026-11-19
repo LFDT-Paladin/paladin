@@ -1,0 +1,9 @@
+# This is a Gradle generated file for dependency locking.
+# Manual edits can break the build and are not advised.
+# This file is expected to be part of source control.
+com.google.code.findbugs:jsr305:3.0.2=classpath
+com.google.gradle:osdetector-gradle-plugin:1.7.3=classpath
+com.google.protobuf:com.google.protobuf.gradle.plugin:0.9.4=classpath
+com.google.protobuf:protobuf-gradle-plugin:0.9.4=classpath
+kr.motd.maven:os-maven-plugin:1.7.1=classpath
+empty=
