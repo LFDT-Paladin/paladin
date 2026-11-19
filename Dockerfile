@@ -93,6 +93,9 @@ WORKDIR /app
 
 # Initialize gradle and build tasks
 COPY build.gradle settings.gradle ./
+COPY core/java/libs.versions.toml core/java/libs.versions.toml
+COPY toolkit/java/libs.versions.toml toolkit/java/libs.versions.toml
+COPY domains/pente/libs.versions.toml domains/pente/libs.versions.toml
 COPY buildSrc buildSrc
 RUN gradle --no-daemon --parallel :buildSrc:jar
 

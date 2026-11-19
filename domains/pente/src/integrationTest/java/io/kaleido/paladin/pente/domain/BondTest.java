@@ -187,7 +187,7 @@ public class BondTest {
                 new Testbed.ConfigDomain(
                         "pente",
                         penteFactoryAddress,
-                        new Testbed.ConfigPlugin("jar", "", PenteDomainFactory.class.getName()),
+                        TestbedHelper.pentePlugin(),
                         new HashMap<>()
                 ),
                 new Testbed.ConfigDomain(

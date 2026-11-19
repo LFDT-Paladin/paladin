@@ -1,12 +1,24 @@
+buildscript {
+    dependencyLocking {
+        lockAllConfigurations()
+        lockMode = LockMode.STRICT
+    }
+}
+
 plugins {
     id 'java'
-    id 'com.google.protobuf' version '0.9.4'
+    alias(toolkitLibs.plugins.protobuf)
 }
 
 group = 'io.kaleido'
 
 repositories {
     mavenCentral()
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode = LockMode.STRICT
 }
 
 test {
@@ -49,42 +61,39 @@ tasks.register("protoc") {
     dependsOn tasks.generateProto
 }
 
-def grpcVersion = '1.69+'
-def protobufVersion = '4.29+'
-def protocVersion = protobufVersion
-
 dependencies {
     // GRPC and Protobuf dependencies
-    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
-    implementation "io.grpc:grpc-services:${grpcVersion}"
-    implementation "io.grpc:grpc-stub:${grpcVersion}"
-    implementation "io.grpc:grpc-netty:${grpcVersion}"
+    implementation toolkitLibs.grpc.protobuf
+    implementation toolkitLibs.grpc.services
+    implementation toolkitLibs.grpc.stub
+    implementation toolkitLibs.grpc.netty
 
-    implementation 'org.bouncycastle:bcprov-jdk18on:1.78+'
-    implementation 'io.netty:netty-all:4.1+'
-    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.9'
+    implementation toolkitLibs.bcprov
+    implementation toolkitLibs.netty.all
+    implementation toolkitLibs.jackson.dataformat.yaml
 
-    implementation 'org.apache.logging.log4j:log4j-core:2.25.4'
+    compileOnly coreLibs.log4j.core
 
     toolkitProtoDefinitions project(path: ":toolkit:proto", configuration: "protoDefinitions")
 
-    implementation 'net.java.dev.jna:jna-platform:5.14+'
-    implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
+    implementation toolkitLibs.jna.platform
+    implementation toolkitLibs.protobuf.java.util
 
-    compileOnly "org.apache.tomcat:annotations-api:6.0+"
+    compileOnly toolkitLibs.tomcat.annotations.api
 
     // Test dependencies
     testImplementation project(path: ":solidity", configuration: "compiledContracts")
-    testImplementation platform('org.junit:junit-bom:5.9+')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testImplementation 'org.skyscreamer:jsonassert:1.5.3'
+    testImplementation platform(toolkitLibs.junit.bom)
+    testImplementation toolkitLibs.junit.jupiter
+    testImplementation toolkitLibs.jsonassert
+    testRuntimeOnly coreLibs.log4j.core
 }
 
 protobuf {
-    protoc { artifact = "com.google.protobuf:protoc:${protocVersion}" }
+    protoc { artifact = "com.google.protobuf:protoc:${toolkitLibs.versions.protobuf.asProvider().get()}" }
     plugins {
         grpc {
-            artifact = "io.grpc:protoc-gen-grpc-java:${grpcVersion}"
+            artifact = "io.grpc:protoc-gen-grpc-java:${toolkitLibs.versions.grpc.get()}"
         }
     }
     generateProtoTasks {

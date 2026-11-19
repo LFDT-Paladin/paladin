@@ -66,3 +66,6 @@ bin/
 examples/data
 
 **.tar.gz
+
+# Written by --write-locks for the version catalog; nothing reads it
+/settings-gradle.lockfile

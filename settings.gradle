@@ -1,5 +1,13 @@
 rootProject.name = 'paladin'
 
+dependencyResolutionManagement {
+    versionCatalogs {
+        coreLibs { from(files('core/java/libs.versions.toml')) }
+        toolkitLibs { from(files('toolkit/java/libs.versions.toml')) }
+        penteLibs { from(files('domains/pente/libs.versions.toml')) }
+    }
+}
+
 include 'common:go'
 include 'config'
 include 'core:go'

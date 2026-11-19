@@ -353,3 +353,9 @@ task dockerx(type: Exec) {
     args '-t', 'paladin:test'
     args '.'
 }
+
+// Run with --write-locks to regenerate the Java projects' lockfiles from the version catalog.
+task lockJavaDependencies {
+    group = 'build'
+    dependsOn ':core:java:dependencies', ':core:java:buildEnvironment', ':toolkit_java:dependencies', ':toolkit_java:buildEnvironment', ':domains:pente:dependencies', ':domains:pente:buildEnvironment'
+}

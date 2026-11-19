@@ -18,17 +18,24 @@ import io.kaleido.paladin.logging.PaladinLogging;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Method;
-import java.net.URI;
-import java.net.URL;
-import java.net.URLClassLoader;
+import java.net.MalformedURLException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PluginJAR extends Plugin {
 
     private static final Logger LOGGER = PaladinLogging.getLogger(PluginJAR.class);
 
+    // Every plugin instance loaded from a jar shares one class loader, so the jar's classes are loaded once.
+    // A plugin's classes stay in use by the threads it started, so each class loader is kept for the life
+    // of the process.
+    private static final Map<String, ClassLoader> jarClassLoaders = new ConcurrentHashMap<>();
+
     private final String libName;
     private final String className;
+    private ClassLoader classLoader;
     private Object pluginImpl;
     private Method stopInstanceMethod;
 
@@ -41,24 +48,49 @@ public class PluginJAR extends Plugin {
     @Override
     public synchronized void loadAndStart() throws Exception {
         LOGGER.info("loading JAR plugin {} libName={}", className, libName);
-        ClassLoader classLoader = this.getClass().getClassLoader();
+        classLoader = this.getClass().getClassLoader();
         if (libName != null && !libName.isBlank()) {
-            URI fileURI = new File(libName).toURI();
-            classLoader = new URLClassLoader(new URL[]{fileURI.toURL()}, classLoader);
+            classLoader = classLoaderFor(libName);
         }
-        Class<?> clazz = classLoader.loadClass(className);
-        pluginImpl = clazz.getDeclaredConstructor().newInstance();
-        Method startInstanceMethod = clazz.getMethod("startInstance", String.class, String.class);
-        stopInstanceMethod = clazz.getMethod("stopInstance", String.class);
-        LOGGER.info("loaded JAR plugin {} pluginId={}", pluginImpl.getClass().getName(), info.instanceId());
-        startInstanceMethod.invoke(pluginImpl, grpcTarget, info.instanceId());
+        // Libraries look classes up through the thread's context class loader, and threads inherit it from
+        // the thread that creates them, so the plugin starts and stops with its own class loader in place.
+        Thread thread = Thread.currentThread();
+        ClassLoader previous = thread.getContextClassLoader();
+        thread.setContextClassLoader(classLoader);
+        try {
+            Class<?> clazz = classLoader.loadClass(className);
+            pluginImpl = clazz.getDeclaredConstructor().newInstance();
+            Method startInstanceMethod = clazz.getMethod("startInstance", String.class, String.class);
+            stopInstanceMethod = clazz.getMethod("stopInstance", String.class);
+            LOGGER.info("loaded JAR plugin {} pluginId={}", pluginImpl.getClass().getName(), info.instanceId());
+            startInstanceMethod.invoke(pluginImpl, grpcTarget, info.instanceId());
+        } finally {
+            thread.setContextClassLoader(previous);
+        }
         LOGGER.info("started JAR plugin {} pluginId={}", pluginImpl.getClass().getName(), info.instanceId());
+    }
+
+    static ClassLoader classLoaderFor(String libName) {
+        return jarClassLoaders.computeIfAbsent(libName, n -> {
+            try {
+                return new PluginClassLoader(new File(n).toURI().toURL(), PluginJAR.class.getClassLoader());
+            } catch (MalformedURLException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
     }
 
     @Override
     public synchronized void stop() throws Exception {
         if (stopInstanceMethod != null) {
-            stopInstanceMethod.invoke(pluginImpl, info.instanceId());
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            thread.setContextClassLoader(classLoader);
+            try {
+                stopInstanceMethod.invoke(pluginImpl, info.instanceId());
+            } finally {
+                thread.setContextClassLoader(previous);
+            }
         }
         onStop.pluginStopped(info.instanceId(), this, null);
     }
