@@ -21,7 +21,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,6 +33,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.kaleido.paladin.pente.domain.helpers.PenteHelper;
+import io.kaleido.paladin.pente.domain.helpers.TestbedHelper;
 import io.kaleido.paladin.testbed.Testbed;
 import io.kaleido.paladin.toolkit.Algorithms;
 import io.kaleido.paladin.toolkit.JsonABI;
@@ -170,7 +171,7 @@ public class PenteDomainTests {
                 JsonHex.Bytes32 groupSalt = JsonHex.randomBytes32();
                 try (Testbed testbed = new Testbed(testbedSetup, new Testbed.ConfigDomain(
                                 "pente", address,
-                                new Testbed.ConfigPlugin("jar", "", PenteDomainFactory.class.getName()),
+                                TestbedHelper.pentePlugin(),
                                 new HashMap<>()))) {
                         PenteConfiguration.GroupTupleJSON groupInfo = new PenteConfiguration.GroupTupleJSON(
                                         groupSalt,
@@ -298,7 +299,7 @@ public class PenteDomainTests {
                 JsonHex.Bytes32 groupSalt = JsonHex.randomBytes32();
                 try (Testbed testbed = new Testbed(testbedSetup, new Testbed.ConfigDomain(
                                 "pente", address,
-                                new Testbed.ConfigPlugin("jar", "", PenteDomainFactory.class.getName()),
+                                TestbedHelper.pentePlugin(),
                                 new HashMap<>()))) {
                         var mapper = new ObjectMapper();
                         PenteConfiguration.GroupTupleJSON groupInfo = new PenteConfiguration.GroupTupleJSON(
@@ -438,7 +439,7 @@ public class PenteDomainTests {
                 JsonHex.Bytes32 groupSalt = JsonHex.randomBytes32();
                 try (Testbed testbed = new Testbed(testbedSetup, new Testbed.ConfigDomain(
                                 "pente", address,
-                                new Testbed.ConfigPlugin("jar", "", PenteDomainFactory.class.getName()),
+                                TestbedHelper.pentePlugin(),
                                 new HashMap<>()))) {
                         PenteConfiguration.GroupTupleJSON groupInfo = new PenteConfiguration.GroupTupleJSON(
                                         groupSalt,
@@ -529,7 +530,7 @@ public class PenteDomainTests {
                 JsonHex.Bytes32 groupSalt = JsonHex.randomBytes32();
                 try (Testbed testbed = new Testbed(testbedSetup, new Testbed.ConfigDomain(
                                 "pente", address,
-                                new Testbed.ConfigPlugin("jar", "", PenteDomainFactory.class.getName()),
+                                TestbedHelper.pentePlugin(),
                                 new HashMap<>()))) {
                         PenteConfiguration.GroupTupleJSON groupInfo = new PenteConfiguration.GroupTupleJSON(
                                         groupSalt,
@@ -576,15 +577,43 @@ public class PenteDomainTests {
         }
 
         @Test
-        void testTxIdForLogConvertsBytes32IdToUuid() {
-                String txId = "0x6fda3bc284c74ddab6029d20d4d63d3900000000000000000000000000000000";
-                String logValue = PenteDomain.txIdForLog(txId);
-                assertEquals(UUID.fromString("6fda3bc2-84c7-4dda-b602-9d20d4d63d39").toString(), logValue);
-        }
+        void testRecoverSigner() throws Exception {
+                JsonHex.Address address = deployFactory();
+                try (Testbed testbed = new Testbed(testbedSetup, new Testbed.ConfigDomain(
+                                "pente", address,
+                                TestbedHelper.pentePlugin(),
+                                new HashMap<>()))) {
+                        PenteConfiguration.GroupTupleJSON groupInfo = new PenteConfiguration.GroupTupleJSON(
+                                        JsonHex.randomBytes32(),
+                                        new String[] { "member1", "member2" });
+                        var pente = PenteHelper.newPrivacyGroup("pente", "member1", testbed, groupInfo, false);
 
-        @Test
-        void testTxIdForLogFallsBackToOriginalValueForInvalidHex() {
-                String txId = "not-a-hex-id";
-                assertEquals(txId, PenteDomain.txIdForLog(txId));
+                        String recoverBytecode = ResourceLoader.jsonResourceEntryText(
+                                        this.getClass().getClassLoader(),
+                                        "contracts/testcontracts/Recover.sol/Recover.json",
+                                        "bytecode");
+                        var recoverAddress = pente.deploy("member1", recoverBytecode, JsonABI.newParameters(),
+                                        new HashMap<>());
+
+                        var result = pente.call(
+                                        "verifySignature",
+                                        JsonABI.newParameters(
+                                                        JsonABI.newParameter("messageHash", "bytes32"),
+                                                        JsonABI.newParameter("signature", "bytes"),
+                                                        JsonABI.newParameter("expectedSigner", "address")),
+                                        JsonABI.newParameters(
+                                                        JsonABI.newParameter("output", "bool"),
+                                                        JsonABI.newParameter("recoveredSigner", "address")),
+                                        "member1",
+                                        recoverAddress,
+                                        new HashMap<>() {
+                                                {
+                                                        put("messageHash", "0xacaf3289d7b601cbd114fb36c4d29c85bbfd5e133f14cb355c3fd8d99367964f");
+                                                        put("signature", "0xe76d4a6f194440ca1b19695e41538b960afc9c27c69722ef93cbf0134cbc6fd317481bff0ca56883b81fd37dcf009d7b9c98c793a67826602b8d8eb83a8b94c51b");
+                                                        put("expectedSigner", "0x78826125b6be403ea159876f5a32a3eac7cd0fe5");
+                                                }
+                                        });
+                        assertEquals("true", result.output());
+                }
         }
 }

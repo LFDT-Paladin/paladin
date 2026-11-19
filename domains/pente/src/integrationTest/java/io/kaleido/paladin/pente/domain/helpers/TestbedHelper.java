@@ -3,6 +3,7 @@ package io.kaleido.paladin.pente.domain.helpers;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.kaleido.paladin.pente.domain.PenteDomainFactory;
 import io.kaleido.paladin.testbed.Testbed;
 
 import java.io.IOException;
@@ -10,6 +11,11 @@ import java.util.HashMap;
 
 public class TestbedHelper {
     private static int POLL_INTERVAL_MS = 100;
+
+    // Tests run the domain from the built pente.jar, on the libraries it ships with.
+    public static Testbed.ConfigPlugin pentePlugin() {
+        return new Testbed.ConfigPlugin("jar", System.getProperty("pente.jar"), PenteDomainFactory.class.getName());
+    }
 
     public static Testbed.TransactionResult getTransactionResult(HashMap<String, Object> res) {
         return new ObjectMapper().convertValue(res, Testbed.TransactionResult.class);

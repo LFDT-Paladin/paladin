@@ -29,6 +29,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.kaleido.paladin.pente.domain.helpers.TestbedHelper;
 import io.kaleido.paladin.testbed.Testbed;
 import io.kaleido.paladin.toolkit.Algorithms;
 import io.kaleido.paladin.toolkit.JsonABI;
@@ -168,7 +169,7 @@ public class PenteMultiContractTests {
         JsonHex.Address address = deployFactory();
         JsonHex.Bytes32 groupSalt = JsonHex.randomBytes32();
         try (Testbed testbed = new Testbed(testbedSetup, new Testbed.ConfigDomain(
-                "pente", address, new Testbed.ConfigPlugin("jar", "", PenteDomainFactory.class.getName()), new HashMap<>()
+                "pente", address, TestbedHelper.pentePlugin(), new HashMap<>()
         ))) {
             PenteConfiguration.GroupTupleJSON groupInfo = new PenteConfiguration.GroupTupleJSON(
                     groupSalt,
