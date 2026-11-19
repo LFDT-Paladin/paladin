@@ -1021,3 +1021,44 @@ func TestSendTransactionIdempotencyConflict(t *testing.T) {
 	assert.Regexp(t, "PD012220", rpcErr.Error())
 	assert.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
 }
+
+func TestSendTransactionIdempotencyConflictValidationFails(t *testing.T) {
+
+	senderAddr := pldtypes.RandAddress()
+	ctx, url, _, done := newTestTransactionManagerWithRPC(t,
+		func(tmc *pldconf.TxManagerConfig, mc *mockComponents) {
+			mockResolveKey(t, mc, "sender1", senderAddr)
+			mc.publicTxMgr.On("ValidateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+			mc.publicTxMgr.On("ValidateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("PD012216: Transaction reverted"))
+			mc.publicTxMgr.On("WriteNewTransactions", mock.Anything, mock.Anything, mock.Anything).Return([]*pldapi.PublicTx{
+				{LocalID: confutil.P(uint64(12345))},
+			}, nil)
+		},
+	)
+	defer done()
+
+	rpcClient, err := rpcclient.NewHTTPClient(ctx, &pldconf.HTTPClientConfig{URL: url})
+	require.NoError(t, err)
+
+	txInput := &pldapi.TransactionInput{
+		ABI: abi.ABI{{Type: abi.Function, Name: "set", Inputs: abi.ParameterArray{{Type: "uint256"}}}},
+		TransactionBase: pldapi.TransactionBase{
+			IdempotencyKey: "idem-conflict-1",
+			From:           "sender1",
+			Type:           pldapi.TransactionTypePublic.Enum(),
+			Function:       "set(uint256)",
+			To:             pldtypes.MustEthAddress(pldtypes.RandHex(20)),
+			Data:           pldtypes.RawJSON(`[12345]`),
+		},
+	}
+
+	var txID uuid.UUID
+	err = rpcClient.CallRPC(ctx, &txID, "ptx_sendTransaction", txInput)
+	require.NoError(t, err)
+
+	var txID2 uuid.UUID
+	rpcErr := rpcClient.CallRPC(ctx, &txID2, "ptx_sendTransaction", txInput)
+	require.Error(t, rpcErr)
+	assert.Regexp(t, fmt.Sprintf("PD012220.*idem-conflict-1=%s", txID), rpcErr.Error())
+	assert.Equal(t, int64(pldclient.RPCCodeConflict), rpcErr.RPCError().Code)
+}

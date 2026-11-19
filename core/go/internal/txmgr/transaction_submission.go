@@ -484,6 +484,17 @@ func (tm *txManager) PrepareTransactions(ctx context.Context, dbTX persistence.D
 func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistence.DBTX, txs []*pldapi.TransactionInput, submitMode pldapi.SubmitMode) (txIDs []uuid.UUID, err error) {
 	log.L(ctx).Debugf("processNewTransactions %+v, submit mode %+v", txs, submitMode)
 
+	// An existing idempotencyKey takes precedence over any other failure, as re-validating a
+	// transaction that has already been submitted can fail where the original succeeded.
+	defer func() {
+		if err != nil {
+			dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
+				// OUTSIDE of the rolled back transaction
+				return tm.checkIdempotencyKeys(ctx, err, txs)
+			})
+		}
+	}()
+
 	// Public transactions need a signing address resolution and nonce allocation trackers
 	// before we open the database transaction
 	var publicTxs []*components.PublicTxSubmission
@@ -532,12 +543,8 @@ func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistenc
 
 	// Now we're ready to insert into the database
 	log.L(ctx).Debugf("insertTransactions into DB")
-	_, err = tm.insertTransactions(ctx, dbTX, txis, false /* all must succeed on this path - we map idempotency errors below */)
+	_, err = tm.insertTransactions(ctx, dbTX, txis, false /* all must succeed on this path - idempotency errors are mapped on rollback */)
 	if err != nil {
-		dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
-			// OUTSIDE of the rolled back transaction
-			return tm.checkIdempotencyKeys(ctx, err, txs)
-		})
 		return nil, err
 	}
 
