@@ -29,7 +29,15 @@ import (
 	"github.com/iden3/go-rapidsnark/witness/wasmer"
 )
 
-func loadCircuit(ctx context.Context, circuitName string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+// variantDirName is the per-variant artifact subdirectory, matching ZetoVariant.ArtifactDirName().
+// It is duplicated here rather than imported to keep the signer free of a dependency on the domain types package.
+func variantDirName(variant uint64) string {
+	return fmt.Sprintf("V%d", variant)
+}
+
+// loadCircuit reads the circuit's artifacts from <dir>/<variantDir>/, where variantDir is empty for a prover whose
+// artifacts are not laid out per variant.
+func loadCircuit(ctx context.Context, variantDir string, circuitName string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 	if config.CircuitsDir == "" {
 		return nil, []byte{}, i18n.NewError(ctx, msgs.MsgInvalidConfigCircuitRoot)
 	}
@@ -38,13 +46,13 @@ func loadCircuit(ctx context.Context, circuitName string, config *zetosignerapi.
 	}
 
 	// load the wasm file for the circuit
-	wasmBytes, err := os.ReadFile(path.Join(config.CircuitsDir, fmt.Sprintf("%s_js", circuitName), fmt.Sprintf("%s.wasm", circuitName)))
+	wasmBytes, err := os.ReadFile(path.Join(config.CircuitsDir, variantDir, fmt.Sprintf("%s_js", circuitName), fmt.Sprintf("%s.wasm", circuitName)))
 	if err != nil {
 		return nil, []byte{}, err
 	}
 
 	// create the prover
-	zkeyBytes, err := os.ReadFile(path.Join(config.ProvingKeysDir, fmt.Sprintf("%s.zkey", circuitName)))
+	zkeyBytes, err := os.ReadFile(path.Join(config.ProvingKeysDir, variantDir, fmt.Sprintf("%s.zkey", circuitName)))
 	if err != nil {
 		return nil, []byte{}, err
 	}

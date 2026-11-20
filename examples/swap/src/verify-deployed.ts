@@ -22,7 +22,7 @@ export interface ContractData {
     assetAmount: number;
     cashAmount: number;
     lockId: string;
-    lockedStateId: string;
+    cashLockId: string;
     assetUnlockCall: string;
     encodedCashTransfer: string;
   };
@@ -250,12 +250,12 @@ async function main(): Promise<boolean> {
     logger.log(`Asset amount: ${contractData.swapDetails.assetAmount}`);
     logger.log(`Cash amount: ${contractData.swapDetails.cashAmount}`);
     logger.log(`Lock ID: ${contractData.swapDetails.lockId}`);
-    logger.log(`Locked state ID: ${contractData.swapDetails.lockedStateId}`);
+    logger.log(`Cash lock ID: ${contractData.swapDetails.cashLockId}`);
     logger.log(`Asset unlock call: ${contractData.swapDetails.assetUnlockCall.substring(0, 50)}...`);
     logger.log(`Encoded cash transfer: ${contractData.swapDetails.encodedCashTransfer.substring(0, 50)}...`);
 
     // Verify that the swap details are properly formatted
-    if (!contractData.swapDetails.lockId || !contractData.swapDetails.lockedStateId) {
+    if (!contractData.swapDetails.lockId || !contractData.swapDetails.cashLockId) {
       logger.error("STEP 6: ERROR - Swap details are missing critical information!");
       return false;
     }

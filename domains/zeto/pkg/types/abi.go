@@ -20,23 +20,48 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
+	"github.com/hyperledger-firefly/signer/pkg/abi"
 )
 
-//go:embed abis/IZetoFungible.json
-var zetoFungibleJSON []byte
+//go:embed abis/IZetoFungible_V0.json
+var zetoFungibleJSON_V0 []byte
 
-//go:embed abis/IZetoNonFungible.json
-var zetoNonFungibleJSON []byte
+//go:embed abis/IZetoFungible_V1.json
+var zetoFungibleJSON_V1 []byte
 
-var ZetoFungibleABI = solutils.MustParseBuildABI(zetoFungibleJSON)
+//go:embed abis/IZetoNonFungible_V0.json
+var zetoNonFungibleJSON_V0 []byte
 
-var ZetoNonFungibleABI = solutils.MustParseBuildABI(zetoNonFungibleJSON)
+// zetoFungibleABIBuilds holds one parsed private ABI per ZetoVariant. Adding a variant means adding an embed above and
+// a row here; nothing else is needed to serve its private ABI.
+var zetoFungibleABIBuilds = map[ZetoVariant]abi.ABI{
+	ZetoVariant_V0: solutils.MustParseBuildABI(zetoFungibleJSON_V0),
+	ZetoVariant_V1: solutils.MustParseBuildABI(zetoFungibleJSON_V1),
+}
+
+// ZetoNonFungibleABI_V0 is the only non-fungible variant today. The _V0 suffix is deliberate: it asserts the variant
+// exists for non-fungible too, so a future variant is an added row rather than a rename.
+var ZetoNonFungibleABI_V0 = solutils.MustParseBuildABI(zetoNonFungibleJSON_V0)
+
+// ZetoFungibleABIForVariant returns the private ABI for a variant, or nil for a value this build does not know (callers
+// validate with ValidateZetoVariant where the value is untrusted).
+func ZetoFungibleABIForVariant(variant ZetoVariant) abi.ABI {
+	return zetoFungibleABIBuilds[variant]
+}
+
+// ZetoFungibleFunctionForVariant resolves the function entry using the variant's private ABI (IZetoFungible_V*.json).
+func ZetoFungibleFunctionForVariant(variant ZetoVariant, name string) *abi.Entry {
+	return ZetoFungibleABIForVariant(variant).Functions()[name]
+}
 
 const (
 	METHOD_MINT            = "mint"
 	METHOD_TRANSFER        = "transfer"
 	METHOD_TRANSFER_LOCKED = "transferLocked"
 	METHOD_LOCK            = "lock"
+	METHOD_CREATE_LOCK     = "createLock"
+	METHOD_SPEND_LOCK      = "spendLock"
+	METHOD_CANCEL_LOCK     = "cancelLock"
 	METHOD_DEPOSIT         = "deposit"
 	METHOD_WITHDRAW        = "withdraw"
 	METHOD_BALANCE_OF      = "balanceOf"
@@ -47,6 +72,9 @@ type InitializerParams struct {
 	Symbol    string `json:"symbol"`
 	TokenName string `json:"tokenName"`
 	// InitialOwner string `json:"initialOwner"` // TODO: allow the initial owner to be specified by the deploy request
+	// Variant is omitted to deploy at the domain's default variant. Typed rather than a bare uint64 because the
+	// deploy params are serialized from the constructor ABI, where uint256 renders as a decimal string.
+	Variant *ZetoVariant `json:"variant,omitempty"`
 }
 
 type DeployParams struct {
@@ -96,6 +124,47 @@ type NonFungibleTransferParamEntry struct {
 type LockParams struct {
 	Amount   *pldtypes.HexUint256 `json:"amount"`
 	Delegate *pldtypes.EthAddress `json:"delegate"`
+}
+
+// CreateLockParams is the Paladin domain JSON for IZetoFungible_V1.createLock (see ZetoVariant_V1 / IZetoFungible_V1.sol).
+//
+// Surface: from, recipients, unlockData, data — used for validation, proving, and off-chain lock info.
+// unlockData is application-specific opaque bytes copied into lock info and on-chain outer data; locked value is the sum of recipients' amounts.
+// The prepared public transaction uses ILockableCapability.createLock on the pool (see types.LockableCapabilityCreateLockABI).
+type CreateLockParams struct {
+	From       string                        `json:"from,omitempty"`
+	Recipients []*FungibleTransferParamEntry `json:"recipients,omitempty"`
+	// No omitempty: IZetoFungible_V1.createLock ABI validation requires unlockData and data keys (bytes may be empty "0x").
+	UnlockData pldtypes.HexBytes `json:"unlockData"`
+	Data       pldtypes.HexBytes `json:"data"`
+}
+
+// SpendLockParams is the Paladin domain JSON for IZetoFungible_V1.spendLock (see ZetoVariant_V1).
+//
+// The prepared public transaction uses ILockableCapability.spendLock on the pool (lockId, spendArgs, data);
+// ZetoSpendLockArgs from IZetoLockableCapability is ABI-encoded in spendArgs (see types.LockableCapabilitySpendLockABI).
+//
+// Wire JSON is lockId, from, and data only (matching the on-chain entrypoint). Locked coin ids, lock spender witness inputs,
+// and the spend recipient list come from persisted ZetoLockInfoState (see lockedOutputs, spendData, Spender).
+type SpendLockParams struct {
+	LockId pldtypes.Bytes32 `json:"lockId"`
+	// From is the Paladin identity that spends the lock (IZetoFungible_V1); must match the transaction signer.
+	From string `json:"from"`
+	// No omitempty: IZetoFungible_V1.spendLock ABI validation requires a `data` key (bytes may be empty "0x").
+	Data pldtypes.HexBytes `json:"data"`
+}
+
+// CancelLockParams is the Paladin domain JSON for IZetoFungible_V1.cancelLock (see ZetoVariant_V1).
+//
+// The prepared public transaction uses ILockableCapability.cancelLock on the pool (lockId, cancelArgs, data);
+// ZetoSpendLockArgs from IZetoLockableCapability is ABI-encoded in cancelArgs (see types.LockableCapabilityCancelLockABI).
+//
+// Wire JSON is lockId, from, and data only. Locked collateral and cancel return outputs come from persisted ZetoLockInfoState
+// (see lockedOutputs, cancelData, cancelOutputs, Spender).
+type CancelLockParams struct {
+	LockId pldtypes.Bytes32  `json:"lockId"`
+	From   string            `json:"from"`
+	Data   pldtypes.HexBytes `json:"data"`
 }
 
 type DepositParams struct {

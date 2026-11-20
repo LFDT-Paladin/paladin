@@ -386,7 +386,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 
 func TestTransferLockedLoadCoinsLeadingZeroID(t *testing.T) {
 	leadingZeroID := pldtypes.MustParseHexUint256("0x00f212ae0727d9d928346f112a728b54130662f6b0cf9dd05fe90386322f4e70")
-	expectedID := common.HexUint256To32ByteHexString(leadingZeroID)
+	expectedID := "0x00f212ae0727d9d928346f112a728b54130662f6b0cf9dd05fe90386322f4e70"
 	queryChecked := false
 
 	h := transferLockedHandler{
@@ -403,7 +403,7 @@ func TestTransferLockedLoadCoinsLeadingZeroID(t *testing.T) {
 				return &prototk.FindAvailableStatesResponse{
 					States: []*prototk.StoredState{
 						{
-							Id:       "0x" + expectedID,
+							Id:       expectedID,
 							SchemaId: "coin",
 							DataJson: "{\"salt\":\"0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec\",\"owner\":\"0x19d2ee6b9770a4f8d7c3b7906bc7595684509166fa42d718d1d880b62bcb7922\",\"amount\":\"0x0a\",\"locked\":true}",
 						},
@@ -413,12 +413,20 @@ func TestTransferLockedLoadCoinsLeadingZeroID(t *testing.T) {
 		},
 	}
 
-	inputs, revert, err := h.loadCoins(context.Background(), []*pldtypes.HexUint256{leadingZeroID}, false, "")
+	inputs, revert, err := h.loadCoins(t.Context(), []*pldtypes.HexUint256{leadingZeroID}, false, "")
 	assert.NoError(t, err)
 	assert.False(t, revert)
 	assert.True(t, queryChecked)
 	assert.Len(t, inputs.states, 1)
 	assert.Len(t, inputs.coins, 1)
+}
+
+func TestTransferLockedLoadCoinsIDOutside256Bits(t *testing.T) {
+	h := transferLockedHandler{}
+	tooWide := pldtypes.MustParseHexUint256(overflowCommitment)
+	_, revert, err := h.loadCoins(t.Context(), []*pldtypes.HexUint256{tooWide}, false, "")
+	assert.Regexp(t, "PD020027", err)
+	assert.False(t, revert)
 }
 
 func TestTransferLockedEndorse(t *testing.T) {

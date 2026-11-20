@@ -25,7 +25,7 @@ var _ Zeto = &zeto.Zeto{}
 
 type Zeto interface {
 	plugintk.DomainAPI
-	GetHandler(method, tokenName string) types.DomainHandler
+	GetHandler(method, tokenName string, variant types.ZetoVariant) types.DomainHandler
 	Name() string
 	CoinSchemaID() string
 	NFTSchemaID() string

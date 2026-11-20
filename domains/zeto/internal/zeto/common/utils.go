@@ -44,6 +44,9 @@ type StateSchemas struct {
 	DataSchema           *prototk.StateSchema
 	MerkleTreeRootSchema *prototk.StateSchema
 	MerkleTreeNodeSchema *prototk.StateSchema
+	// LockInfoSchema is optional (nil on legacy 5-schema registrations). When set, createLock/spendLock may persist
+	// types.ZetoLockInfoState keyed by lockId (see domains/zeto/pkg/types/lock_info.go).
+	LockInfoSchema *prototk.StateSchema
 }
 
 type MerkleTreeSpec struct {
@@ -109,6 +112,18 @@ func GetInputSize(sizeOfEndorsableStates int) int {
 		return 2
 	}
 	return 10
+}
+
+func CoinStateIDs(ctx context.Context, commitments []pldtypes.HexUint256) ([]pldtypes.Bytes32, error) {
+	ids := make([]pldtypes.Bytes32, len(commitments))
+	for i := range commitments {
+		id, err := commitments[i].Bytes32(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
+	}
+	return ids, nil
 }
 
 // the circuits take the same number of inputs and outputs, so the larger of the two

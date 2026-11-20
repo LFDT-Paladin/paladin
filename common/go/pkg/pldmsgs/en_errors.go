@@ -54,6 +54,7 @@ var (
 	MsgBigIntParseFailed                     = pde("PD020024", "Failed to parse JSON value '%s' into BigInt")
 	MsgBigIntTooLarge                        = pde("PD020025", "Byte length of serialized integer is too large %d (max=%d)")
 	MsgTypeRestoreFailed                     = pde("PD020026", "Failed to restore type '%T' into '%T'")
+	MsgTypesUint256NotBytes32                = pde("PD020027", "Integer cannot be represented as an unsigned 32 byte value: %s")
 
 	// Inflight PD0201XX
 	MsgInflightRequestCancelled = pde("PD020100", "Request cancelled after %s")
