@@ -96,6 +96,9 @@ type grapher struct {
 	createLocksByStateID     map[string]*prototk.SnapshotStateLock      // create locks keyed by state ID (at most one per state, from its minter)
 	spendLocksByStateID      map[string]*prototk.SnapshotStateLock      // spend locks keyed by state ID (at most one per state)
 	readLocksByStateID       map[string]*prototk.SnapshotStateLock      // read locks keyed by state ID (at most one per state)
+	unspentCreatedStateIDs   map[string]struct{}                        // states with a create lock and no spend lock, so a snapshot never scans the spent majority
+	spentStateIDs            map[string]pldtypes.HexBytes               // the spend-locked state IDs, parsed once when the lock is taken rather than on every snapshot
+	confirmedLocksByBlock    map[uint64][]*prototk.SnapshotStateLock    // confirmed locks by confirmedAtBlock, so a sweep visits only the locks that are due
 	locksByTransaction       map[uuid.UUID][]*prototk.SnapshotStateLock // secondary index for O(1) transaction-driven cleanup
 }
 
@@ -114,6 +117,9 @@ func NewGrapher(dependencyTracker dependencytracker.DependencyTracker, stateVisi
 		createLocksByStateID:     make(map[string]*prototk.SnapshotStateLock),
 		spendLocksByStateID:      make(map[string]*prototk.SnapshotStateLock),
 		readLocksByStateID:       make(map[string]*prototk.SnapshotStateLock),
+		unspentCreatedStateIDs:   make(map[string]struct{}),
+		spentStateIDs:            make(map[string]pldtypes.HexBytes),
+		confirmedLocksByBlock:    make(map[uint64][]*prototk.SnapshotStateLock),
 		locksByTransaction:       make(map[uuid.UUID][]*prototk.SnapshotStateLock),
 	}
 }
@@ -194,6 +200,7 @@ func (g *grapher) ForgetTransaction(ctx context.Context, transactionID uuid.UUID
 		lock.Transaction = nil
 		lock.ConfirmedAtBlock = &confirmedAtBlock
 	}
+	g.confirmedLocksByBlock[confirmedAtBlock] = append(g.confirmedLocksByBlock[confirmedAtBlock], txLocks...)
 	delete(g.locksByTransaction, transactionID)
 	delete(g.transactionByID, transactionID)
 
@@ -213,35 +220,39 @@ func (g *grapher) ForgetConfirmedLocks(ctx context.Context, currentBlockHeight u
 	g.forgetConfirmedLocks(ctx, currentBlockHeight)
 }
 
+// A lock is removed only while it is still the state's current lock of its type: a later lock on the
+// same state (another reader) replaces the entry, and is then governed by its own transaction.
 // Caller must hold g.mu write lock.
 func (g *grapher) forgetConfirmedLocks(ctx context.Context, currentBlockHeight uint64) {
-	for stateID, lock := range g.createLocksByStateID {
-		if lock.Transaction == nil && lock.ConfirmedAtBlock != nil {
-			if currentBlockHeight >= *lock.ConfirmedAtBlock+g.blockHeightTolerance {
-				log.L(ctx).Debugf("forgetConfirmedLocks: removing create lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
-					stateID, *lock.ConfirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
-				delete(g.createLocksByStateID, stateID)
-				g.stateVisibilityTracker.Delete(stateID)
+	for confirmedAtBlock, locks := range g.confirmedLocksByBlock {
+		if currentBlockHeight < confirmedAtBlock+g.blockHeightTolerance {
+			continue
+		}
+		for _, lock := range locks {
+			stateID := lock.GetStateId()
+			switch lock.GetType() {
+			case prototk.SnapshotStateLock_CREATE:
+				if g.createLocksByStateID[stateID] == lock {
+					log.L(ctx).Debugf("forgetConfirmedLocks: removing create lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
+						stateID, confirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
+					g.deleteCreateLock(stateID)
+					g.stateVisibilityTracker.Delete(stateID)
+				}
+			case prototk.SnapshotStateLock_SPEND:
+				if g.spendLocksByStateID[stateID] == lock {
+					log.L(ctx).Debugf("forgetConfirmedLocks: removing spend lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
+						stateID, confirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
+					g.deleteSpendLock(stateID)
+				}
+			default:
+				if g.readLocksByStateID[stateID] == lock {
+					log.L(ctx).Debugf("forgetConfirmedLocks: removing read lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
+						stateID, confirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
+					delete(g.readLocksByStateID, stateID)
+				}
 			}
 		}
-	}
-	for stateID, lock := range g.spendLocksByStateID {
-		if lock.Transaction == nil && lock.ConfirmedAtBlock != nil {
-			if currentBlockHeight >= *lock.ConfirmedAtBlock+g.blockHeightTolerance {
-				log.L(ctx).Debugf("forgetConfirmedLocks: removing spend lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
-					stateID, *lock.ConfirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
-				delete(g.spendLocksByStateID, stateID)
-			}
-		}
-	}
-	for stateID, lock := range g.readLocksByStateID {
-		if lock.Transaction == nil && lock.ConfirmedAtBlock != nil {
-			if currentBlockHeight >= *lock.ConfirmedAtBlock+g.blockHeightTolerance {
-				log.L(ctx).Debugf("forgetConfirmedLocks: removing read lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
-					stateID, *lock.ConfirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
-				delete(g.readLocksByStateID, stateID)
-			}
-		}
+		delete(g.confirmedLocksByBlock, confirmedAtBlock)
 	}
 }
 
@@ -298,7 +309,15 @@ func (g *grapher) ImportStatesAndLocks(ctx context.Context, snapshot *prototk.St
 			log.L(ctx).Debugf("ImportStatesAndLocks: skipping lock on state %s — existing lock takes precedence", stateID)
 			continue
 		}
-		targetMap[stateID] = lock
+		switch lock.GetType() {
+		case prototk.SnapshotStateLock_CREATE:
+			g.setCreateLock(stateID, lock)
+		case prototk.SnapshotStateLock_SPEND:
+			g.setSpendLock(ctx, stateID, lock)
+		default:
+			targetMap[stateID] = lock
+		}
+		g.confirmedLocksByBlock[*lock.ConfirmedAtBlock] = append(g.confirmedLocksByBlock[*lock.ConfirmedAtBlock], lock)
 		log.L(ctx).Debugf("ImportStatesAndLocks: imported confirmed lock on state %s", stateID)
 	}
 }
@@ -326,15 +345,50 @@ func (g *grapher) forgetTxLocks(transactionID uuid.UUID) {
 		stateID := lock.GetStateId()
 		switch lock.GetType() {
 		case prototk.SnapshotStateLock_CREATE:
-			delete(g.createLocksByStateID, stateID)
+			g.deleteCreateLock(stateID)
 			g.stateVisibilityTracker.Delete(stateID)
 		case prototk.SnapshotStateLock_SPEND:
-			delete(g.spendLocksByStateID, stateID)
+			g.deleteSpendLock(stateID)
 		default:
 			delete(g.readLocksByStateID, stateID)
 		}
 	}
 	delete(g.locksByTransaction, transactionID)
+}
+
+// The create and spend lock maps should change only through these four functions, which keep
+// unspentCreatedStateIDs and spentStateIDs consistent with them. Caller must hold g.mu write lock.
+func (g *grapher) setCreateLock(stateID string, lock *prototk.SnapshotStateLock) {
+	g.createLocksByStateID[stateID] = lock
+	if _, spent := g.spendLocksByStateID[stateID]; !spent {
+		g.unspentCreatedStateIDs[stateID] = struct{}{}
+	}
+}
+
+func (g *grapher) deleteCreateLock(stateID string) {
+	delete(g.createLocksByStateID, stateID)
+	delete(g.unspentCreatedStateIDs, stateID)
+}
+
+func (g *grapher) setSpendLock(ctx context.Context, stateID string, lock *prototk.SnapshotStateLock) {
+	g.spendLocksByStateID[stateID] = lock
+	delete(g.unspentCreatedStateIDs, stateID)
+	id, err := pldtypes.ParseHexBytes(ctx, stateID)
+	if err != nil {
+		// Lock keys are produced from locally-resolved state IDs, so this cannot happen in
+		// practice; leaving it out keeps the spent set a valid superset of the consumed states.
+		log.L(ctx).Warnf("spend lock on unparseable state id %q is left out of the spent set: %s", stateID, err)
+		return
+	}
+	g.spentStateIDs[stateID] = id
+}
+
+func (g *grapher) deleteSpendLock(stateID string) {
+	delete(g.spendLocksByStateID, stateID)
+	delete(g.spentStateIDs, stateID)
+	if _, created := g.createLocksByStateID[stateID]; created {
+		g.unspentCreatedStateIDs[stateID] = struct{}{}
+	}
 }
 
 // Get transactions we are dependent on
@@ -368,7 +422,7 @@ func (g *grapher) LockMintsOnCreate(ctx context.Context, states []*prototk.Endor
 		stateID := state.GetId()
 		log.L(ctx).Debugf("LockMintsOnCreate: creating lock for state %s", stateID)
 		lock := &prototk.SnapshotStateLock{StateId: stateID, Transaction: &txnStr, Type: prototk.SnapshotStateLock_CREATE}
-		g.createLocksByStateID[stateID] = lock
+		g.setCreateLock(stateID, lock)
 		g.locksByTransaction[transactionID] = append(g.locksByTransaction[transactionID], lock)
 	}
 }
@@ -394,7 +448,7 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*pro
 		stateID := state.GetId()
 		log.L(ctx).Debugf("LockMintsOnReadAndSpend: TX %s taking spend lock on state %s", transactionID.String(), stateID)
 		lock := &prototk.SnapshotStateLock{StateId: stateID, Transaction: &txnStr, Type: prototk.SnapshotStateLock_SPEND}
-		g.spendLocksByStateID[stateID] = lock
+		g.setSpendLock(ctx, stateID, lock)
 		g.locksByTransaction[transactionID] = append(g.locksByTransaction[transactionID], lock)
 		if mintedBy := g.transactionByOutputState[stateID]; mintedBy != nil {
 			g.dependencyChain.AddPrerequisites(ctx, transactionID, mintedBy.ID)
@@ -439,30 +493,17 @@ func (g *grapher) SnapshotView(ctx context.Context, node string) ([]*prototk.Sna
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	// Exclude states that have a spend lock — those are already consumed ahead-of-chain by another
-	// transaction, so the assembler cannot select them. Restrict to only CREATE-locked states — any
-	// SPENT-locked states are not selectable.
+	// Only states with a create lock and no spend lock are selectable ahead-of-chain: a spend lock
+	// means another transaction already consumed the state.
 	var candidates []*prototk.SnapshotState
-	g.stateVisibilityTracker.RangeForNode(node, func(state *prototk.SnapshotState) {
-		stateID := state.GetState().GetId()
-		if _, hasCreateLock := g.createLocksByStateID[stateID]; !hasCreateLock {
-			return
+	for stateID := range g.unspentCreatedStateIDs {
+		if state := g.stateVisibilityTracker.GetByIDForNode(stateID, node); state != nil {
+			candidates = append(candidates, state)
 		}
-		if _, hasSpendLock := g.spendLocksByStateID[stateID]; hasSpendLock {
-			return
-		}
-		candidates = append(candidates, state)
-	})
+	}
 
-	spentStateIDs := make([]pldtypes.HexBytes, 0, len(g.spendLocksByStateID))
-	for stateID := range g.spendLocksByStateID {
-		id, err := pldtypes.ParseHexBytes(ctx, stateID)
-		if err != nil {
-			// Lock keys are produced from locally-resolved state IDs, so this cannot happen in
-			// practice; skipping keeps the set a valid superset of the consumed states.
-			log.L(ctx).Warnf("SnapshotView: skipping unparseable state id %q: %s", stateID, err)
-			continue
-		}
+	spentStateIDs := make([]pldtypes.HexBytes, 0, len(g.spentStateIDs))
+	for _, id := range g.spentStateIDs {
 		spentStateIDs = append(spentStateIDs, id)
 	}
 
