@@ -1015,7 +1015,7 @@ func TestValidateStateHashesNFTState(t *testing.T) {
 	require.NoError(t, err)
 	hash, err := token.Hash(ctx)
 	require.NoError(t, err)
-	expectedID := zetocommon.HexUint256To32ByteHexString(hash)
+	expectedID := "0x" + zetocommon.HexUint256To32ByteHexString(hash)
 
 	req.States[0].StateDataJson = string(tokenJSON)
 	res, err := z.ValidateStateHashes(ctx, req)
@@ -1026,10 +1026,10 @@ func TestValidateStateHashesNFTState(t *testing.T) {
 	_, err = z.ValidateStateHashes(ctx, req)
 	assert.ErrorContains(t, err, "PD210086")
 
-	req.States[0].Id = "0x" + expectedID
+	req.States[0].Id = expectedID
 	res, err = z.ValidateStateHashes(ctx, req)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"0x" + expectedID}, res.StateIds)
+	assert.Equal(t, []string{expectedID}, res.StateIds)
 
 	req.States[0].Id = ""
 	req.States[0].StateDataJson = `{"tokenID":"0x01"}`

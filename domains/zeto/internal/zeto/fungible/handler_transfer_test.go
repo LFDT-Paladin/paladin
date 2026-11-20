@@ -689,7 +689,7 @@ func TestFormatTransferProvingRequestOutputsDetermineSize(t *testing.T) {
 	}
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 
-	payloadBytes, err := formatTransferProvingRequest(ctx, nil, nil, nil, signercommon.GetHasher(), inputCoins, outputCoins, &zetosignerapi.Circuit{Name: "anon", Type: "transfer"}, constants.TOKEN_ANON, "testContext", contractAddress)
+	payloadBytes, err := formatTransferProvingRequest(ctx, nil, nil, nil, signercommon.GetHasher(), inputCoins, outputCoins, &zetosignerapi.Circuit{Name: "anon", Type: "transfer"}, constants.TOKEN_ANON, "testContext", contractAddress, false)
 	require.NoError(t, err)
 
 	var provingReq corepb.ProvingRequest
