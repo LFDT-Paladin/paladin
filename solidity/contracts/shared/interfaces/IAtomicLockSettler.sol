@@ -5,13 +5,13 @@ pragma solidity ^0.8.20;
  * @title IAtomicLockSettler
  * @dev Interface for an atomic lock settler.
  *      An atomic lock settler is a contract that can spend or cancel a set
- *      of ILockableCapability locks atomically. All locks can be delegated
+ *      of IERC8316 locks atomically. All locks can be delegated
  *      to the atomic lock settler, which will then spend or cancel them
  *      together.
  */
 interface IAtomicLockSettler {
     struct LockEntry {
-        address contractAddress; // ILockableCapability implementation
+        address contractAddress; // IERC8316 implementation
         bytes32 lockId; // The lock to spend or cancel
         bytes spendInputs; // Passed to spendLock() as spendInputs
         bytes cancelInputs; // Passed to cancelLock() as cancelInputs
