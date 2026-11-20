@@ -308,6 +308,7 @@ var (
 	MsgDomainInvalidPGroupTxTypeNotPrivate    = pde("PD011665", "Resulting wrapped function call for privacy group must be a private transaction (type=%s)")
 	MsgDomainInvalidPGroupTxCannotRedirect    = pde("PD011666", "Resulting wrapped function call must target the same smart contract (contract=%s,addr=%s)")
 	MsgDomainUnsupportedStateQualifier        = pde("PD011667", "Unsupported state qualifier '%s'")
+	MsgDomainInvalidRegistryEventData         = pde("PD011668", "Invalid data in event '%s'")
 
 	// Entrypoint PD0117XX
 	MsgEntrypointUnknownRunMode = pde("PD011700", "Unknown run mode '%s'")
@@ -446,6 +447,7 @@ var (
 	MsgTxMgrDependencyLookupFailed                = pde("PD012254", "Failed to lookup dependency transaction %s: %s")
 	MsgTxMgrResumeTXFailed                        = pde("PD012255", "Failed to resume transaction %s: %s")
 	MsgTxMgrDependencyFailed                      = pde("PD012256", "Transaction dependency %s failed")
+	MsgTxMgrDependsOnPrivateOnly                  = pde("PD012257", "dependsOn is only supported for private transactions")
 
 	// FlushWriter module PD0123XX
 	MsgFlushWriterQuiescing      = pde("PD012300", "Writer shutting down")

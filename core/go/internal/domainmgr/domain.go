@@ -43,6 +43,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
@@ -66,6 +67,8 @@ type domain struct {
 	config      *prototk.DomainConfig
 	schemasByID map[string]components.Schema
 	eventStream blockindexer.EventStream
+
+	indexedContracts cache.Cache[pldtypes.EthAddress, *domainContract] // only used by the event stream's batch handler, one batch at a time
 
 	initError atomic.Pointer[error]
 	initDone  chan struct{}
@@ -101,6 +104,7 @@ func (dm *domainManager) newDomain(name string, conf *pldconf.DomainConfig, toDo
 		schemasByID:          make(map[string]components.Schema),
 		inFlight:             make(map[string]*inFlightDomainRequest),
 		completionQueue:      make(chan []*components.TxCompletion, 100),
+		indexedContracts:     cache.NewCache[pldtypes.EthAddress, *domainContract](&dm.conf.DomainManager.ContractCache, &pldconf.PaladinConfigDefaults.DomainManager.ContractCache),
 	}
 	if conf.DefaultGasLimit != nil {
 		d.defaultGasLimit = pldtypes.HexUint64(*conf.DefaultGasLimit)
@@ -144,10 +148,14 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 		}
 	}
 
+	// Registration is only trusted from the registry, but an upgrade may be announced by any registered
+	// instance as well as the registry, so it is matched from any address and the emitter is checked
+	// against the registered contracts when the event is handled.
 	stream := &blockindexer.EventStreamDefinition{
 		Type: blockindexer.EventStreamTypeInternal.Enum(),
 		Sources: []blockindexer.EventStreamSource{
-			{ABI: iPaladinContractRegistryABI, Address: d.registryAddress},
+			{ABI: registryEventABI("PaladinRegisterSmartContract_V0"), Address: d.registryAddress},
+			{ABI: registryEventABI("PaladinUpgradeSmartContractConfig_V0")},
 		},
 	}
 
@@ -185,6 +193,10 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 	return &prototk.InitDomainRequest{
 		AbiStateSchemas: schemasProto,
 	}, nil
+}
+
+func registryEventABI(eventName string) abi.ABI {
+	return abi.ABI{iPaladinContractRegistryABI.Events()[eventName]}
 }
 
 func (d *domain) init() {
@@ -654,6 +666,7 @@ func (d *domain) PrepareDeploy(ctx context.Context, tx *components.PrivateContra
 		// Must specify exactly one of the two types of transaction
 		return i18n.NewError(ctx, msgs.MsgDomainInvalidPrepareDeployResult)
 	}
+	tx.PublicTxOptions = pldapi.PublicTxOptions{Gas: &d.defaultGasLimit}
 	return nil
 }
 

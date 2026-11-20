@@ -263,7 +263,7 @@ func TestUnlock(t *testing.T) {
 	// Validate the parameters
 	notoParams := decodeSingleABITuple[types.NotoSpendLockArgs](t, types.NotoSpendLockArgsABI, params.SpendArgs)
 	require.Equal(t, "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d", notoParams.TxId)
-	require.Equal(t, []string{inputCoin.ID.String(), inputLockInfo.Id}, notoParams.Inputs)
+	require.Equal(t, []string{inputCoin.ID.String()}, notoParams.Inputs)
 	require.Equal(t, []string{*outputCoinState.Id}, notoParams.Outputs)
 	require.Equal(t, signatureBytes, notoParams.Proof)
 	data, err := n.decodeTransactionDataV1(ctx, notoParams.Data)
@@ -629,6 +629,38 @@ func TestLockCommonCheckAllowedLocalNodeNameFailed(t *testing.T) {
 		Transaction:  &prototk.TransactionSpecification{From: "sender@node1"},
 		DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
 	}
-	err := h.checkAllowed(t.Context(), tx, "sender")
-	assert.ErrorContains(t, err, "pop")
+	assertEndorseInternal(t, h.checkAllowed(t.Context(), tx, "sender"), "pop")
+}
+
+func TestUnlockValidateParamsRevert(t *testing.T) {
+	h := &unlockHandler{}
+	lockID := pldtypes.RandBytes32()
+	for _, tc := range []struct{ name, params, match string }{
+		{"malformed JSON", `{"lockId":`, "unexpected end of JSON input"},
+		{"missing lockId", `{"from": "sender@node1"}`, "PD200007.*'lockId'"},
+		{"missing from", fmt.Sprintf(`{"lockId": "%s"}`, lockID), "PD200007.*'from'"},
+		{"missing recipients", fmt.Sprintf(`{"lockId": "%s", "from": "sender@node1"}`, lockID), "PD200007.*'recipients'"},
+		{"zero recipient amount", fmt.Sprintf(`{"lockId": "%s", "from": "sender@node1", "recipients": [{"to": "receiver@node2", "amount": 0}]}`, lockID), "PD200008.*'recipient amount'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, tc.params)
+			assertRevert(t, err, tc.match)
+		})
+	}
+}
+
+func TestLockCommonCheckAllowedRevertsOnInvalidFrom(t *testing.T) {
+	h := &lockCommon{noto: &Noto{Callbacks: newMockCallbacks()}}
+	for _, tc := range []struct{ name, txFrom, from, match string }{
+		{"unparsable locator", "sender@node1", "sender@node1@node2", "PD020006"},
+		{"not the lock creator", "someoneelse@node1", "sender", "PD200031"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := &types.ParsedTransaction{
+				Transaction:  &prototk.TransactionSpecification{From: tc.txFrom},
+				DomainConfig: &types.NotoParsedConfig{NotaryMode: types.NotaryModeBasic.Enum()},
+			}
+			assertEndorseRevert(t, h.checkAllowed(t.Context(), tx, tc.from), tc.match)
+		})
+	}
 }

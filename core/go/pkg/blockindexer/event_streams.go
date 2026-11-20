@@ -533,7 +533,7 @@ func (es *eventStream) detector() {
 	// the dispatcher's checkpoint, which represents the last block to be fully processed and persisted.
 	checkpointBlock, err := es.processCheckpoint()
 	if err != nil {
-		log.L(es.ctx).Debugf("exiting before retrieving checkpoint")
+		log.L(es.ctx).Infof("exiting before retrieving checkpoint")
 		close(es.detectorStarted)
 		return
 	}
@@ -566,7 +566,7 @@ func (es *eventStream) detector() {
 		// Note startupBlock might be nil, and that's fine
 		startupBlock, err = es.bi.getHighestIndexedBlock(es.ctx)
 		if err != nil {
-			log.L(es.ctx).Debugf("exiting before retrieving highest block")
+			log.L(es.ctx).Infof("exiting before retrieving highest block")
 			return
 		}
 	}
@@ -609,7 +609,7 @@ func (es *eventStream) detector() {
 			var caughtUp bool
 			caughtUp, lastCatchupEvent, err = es.processCatchupEventPage(lastCatchupEvent, *checkpointBlock, catchUpToBlockNumber)
 			if err != nil {
-				log.L(es.ctx).Debugf("exiting during catchup phase")
+				log.L(es.ctx).Infof("exiting during catchup phase")
 				return
 			}
 			if caughtUp {
@@ -693,11 +693,14 @@ func (es *eventStream) dispatcher() {
 		select {
 		case msg := <-es.dispatch:
 			if msg.confirmed != nil {
-				// A block (or catchup range) was confirmed to contain no matching events- advance the checkpoint
+				// A block (or catchup range) was confirmed to contain no matching events - advance the checkpoint
+				// with DB retry on any transient errors
 				if msg.confirmed.blockNumber > es.checkpoint.Load() {
-					err := es.updateCheckpoint(es.ctx, es.bi.persistence.NOTX(), int64(msg.confirmed.blockNumber))
+					err := es.bi.retry.Do(es.ctx, func(attempt int) (retryable bool, err error) {
+						return true, es.updateCheckpoint(es.ctx, es.bi.persistence.NOTX(), int64(msg.confirmed.blockNumber))
+					})
 					if err != nil {
-						l.Debugf("event stream dispatcher ending (during checkpoint update)")
+						l.Infof("event stream dispatcher ending (during checkpoint update)")
 						return
 					}
 				}
@@ -742,7 +745,7 @@ func (es *eventStream) dispatcher() {
 			batch.timeoutCancel()
 			l.Debugf("Running batch %s (len=%d,timeout=%t,age=%dms)", batch.BatchID, len(batch.Events), timedOut, time.Since(batch.opened).Milliseconds())
 			if err := es.runBatch(batch); err != nil {
-				l.Debugf("event stream dispatcher ending (during dispatch)")
+				l.Infof("event stream dispatcher ending (during dispatch)")
 				return
 			}
 			batch = nil

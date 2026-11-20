@@ -18,3 +18,4 @@ await copyFile(path.join(paladinDir, 'abis/PentePrivacyGroup.json'), 'src/domain
 await copyFile(path.join(paladinDir, 'abis/INoto.json'), 'src/domains/abis/INoto.json');
 await copyFile(path.join(paladinDir, 'abis/INotoPrivate.json'), 'src/domains/abis/INotoPrivate.json');
 await copyFile(path.join(paladinDir, 'abis/IZetoFungible.json'), 'src/domains/abis/IZetoFungible.json');
+await copyFile(path.join(paladinDir, 'abis/IZetoNonFungible.json'), 'src/domains/abis/IZetoNonFungible.json');

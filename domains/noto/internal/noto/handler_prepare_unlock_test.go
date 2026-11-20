@@ -479,6 +479,14 @@ func TestPrepareUnlock(t *testing.T) {
 	require.Equal(t, lockInfo.LockID, receipt.LockInfo.LockID)
 	require.Equal(t, "spendLock", receipt.LockInfo.UnlockFunction)
 	require.NotNil(t, receipt.LockInfo.UnlockParams)
+
+	// With every info state in the order the transaction reported it, the receipt carries the
+	// transaction's own data and not the unlock data
+	receipt = testGetDomainReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId: tx.TransactionId,
+		InfoStates:    newStateToEndorsableState(assembleRes.AssembledTransaction.InfoStates),
+	})
+	assert.Equal(t, "0x1234", receipt.Data.String())
 }
 
 func TestPrepareUnlock_V0(t *testing.T) {
@@ -746,4 +754,10 @@ func TestPrepareUnlock_V0(t *testing.T) {
 
 func unlockHashFromStates_V0(ctx context.Context, n *Noto, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []*prototk.EndorsableState, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
 	return n.unlockHashFromIDs_V0(ctx, contract, n.endorsableStateIDs(ctx, nil, lockedInputs, false), n.endorsableStateIDs(ctx, nil, lockedOutputs, false), n.endorsableStateIDs(ctx, nil, outputs, false), data)
+}
+
+func TestPrepareUnlockValidateParamsRevert(t *testing.T) {
+	h := &prepareUnlockHandler{}
+	_, err := h.ValidateParams(t.Context(), notoBasicConfigV1, `{"lockId":`)
+	assertRevert(t, err, "unexpected end of JSON input")
 }

@@ -45,6 +45,14 @@ Before you begin, ensure you have the following installed:
 
 ## Getting Started
 
+> **Run all commands in this guide from the `operator/` directory, including `../gradlew deploy` and all `make` commands.**
+
+From the repository root, change to the `operator/` directory:
+
+```sh
+cd operator/
+```
+
 ### One-Click Installation with Gradle
 
 For convenience, you can run the entire setup with a single Gradle command:
@@ -81,10 +89,10 @@ Alternatively, you can follow these steps to build and deploy the Paladin Operat
 
 #### Step 1: Build the Paladin and Operator Images
 
-Navigate to the **parent directory** of the project (where the `build.gradle` file is located) and run:
+From the **operator directory**, run:
 
 ```sh
-../gradlew docker
+../gradlew buildPaladinImage buildOperatorImage
 ```
 
 This command will:

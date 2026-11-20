@@ -186,6 +186,7 @@ func (bi *blockIndexer) startOrReset() {
 	if err := bi.retry.Do(runCtx, func(attempt int) (retryable bool, err error) {
 		return true, bi.restoreCheckpoint()
 	}); err != nil {
+		log.L(runCtx).Infof("block indexer start ending (during checkpoint restore)")
 		cancelFunc()
 		return
 	}

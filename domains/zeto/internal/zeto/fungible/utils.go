@@ -292,7 +292,7 @@ func makeLeafIndexesFromCoinOwners(ctx context.Context, inputOwner string, outpu
 // (transferLocked with nullifier-based locked inputs). Optional delegate sets lockDelegate in nullifier extras
 // only when the target circuit expects it (not anon_nullifier_transfer createLock — see zeto_anon_nullifier.ts).
 func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, hasher utxocore.Hasher, inputCoins, outputCoins []*types.ZetoCoin, circuit *zetosignerapi.Circuit, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, smtFromLockedStatesTree bool, delegate ...string) ([]byte, error) {
-	inputSize := common.GetInputSize(len(inputCoins))
+	inputSize := common.GetCircuitSize(len(inputCoins), len(outputCoins))
 	inputCommitments := make([]string, inputSize)
 	inputValueInts := make([]uint64, inputSize)
 	inputSalts := make([]string, inputSize)

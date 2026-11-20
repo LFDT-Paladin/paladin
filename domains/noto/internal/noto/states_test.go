@@ -16,8 +16,10 @@
 package noto
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -206,4 +208,92 @@ func TestNullifierPayloadTypeRoundTrip(t *testing.T) {
 	assert.Error(t, err)
 	_, err = types.ParseNullifierPayloadType(types.PAYLOAD_DOMAIN_NOTO_NULLIFIER + ":not-an-address")
 	assert.Error(t, err)
+}
+
+func TestPrepareInputsInsufficientFunds(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{
+		Callbacks:  mockCallbacks,
+		coinSchema: testSchema("coin"),
+	}
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		return &prototk.FindAvailableStatesResponse{}, nil
+	}
+	owner := &identityPair{identifier: "sender@node1", address: pldtypes.RandAddress()}
+
+	_, err := n.prepareInputs(t.Context(), "query-context", owner, pldtypes.Int64ToInt256(100), false)
+	assertAssembleRevert(t, err, "PD200005")
+}
+
+func TestPrepareInputsLoadFail(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{
+		Callbacks:  mockCallbacks,
+		coinSchema: testSchema("coin"),
+	}
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	owner := &identityPair{identifier: "sender@node1", address: pldtypes.RandAddress()}
+
+	_, err := n.prepareInputs(t.Context(), "query-context", owner, pldtypes.Int64ToInt256(100), false)
+	assertAssembleInternal(t, err, "pop")
+}
+
+func notoForLockedInputs(states []*prototk.StoredState, queryErr error) *Noto {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		return &prototk.FindAvailableStatesResponse{States: states}, nil
+	}
+	return &Noto{Callbacks: mockCallbacks, lockedCoinSchema: testSchema("lockedCoin")}
+}
+
+func TestPrepareLockedInputsInsufficientFunds(t *testing.T) {
+	n := notoForLockedInputs(nil, nil)
+	_, err := n.prepareLockedInputs(t.Context(), "query-context", pldtypes.RandBytes32(), pldtypes.RandAddress(), big.NewInt(100), false)
+	assertAssembleRevert(t, err, "PD200005")
+}
+
+func TestPrepareLockedInputsLoadFail(t *testing.T) {
+	n := notoForLockedInputs(nil, fmt.Errorf("pop"))
+	_, err := n.prepareLockedInputs(t.Context(), "query-context", pldtypes.RandBytes32(), pldtypes.RandAddress(), big.NewInt(100), false)
+	assertAssembleInternal(t, err, "pop")
+}
+
+func TestPrepareLockedInputsBadStoredState(t *testing.T) {
+	n := notoForLockedInputs([]*prototk.StoredState{{
+		Id:       pldtypes.RandBytes32().String(),
+		SchemaId: hashName("lockedCoin"),
+		DataJson: `{"amount": "not-a-number"}`,
+	}}, nil)
+	_, err := n.prepareLockedInputs(t.Context(), "query-context", pldtypes.RandBytes32(), pldtypes.RandAddress(), big.NewInt(100), false)
+	assertAssembleInternal(t, err, "PD200006")
+}
+
+func TestPrepareInputsBadStoredState(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		return &prototk.FindAvailableStatesResponse{States: []*prototk.StoredState{{
+			Id:       pldtypes.RandBytes32().String(),
+			SchemaId: hashName("coin"),
+			DataJson: `{"amount": "not-a-number"}`,
+		}}}, nil
+	}
+	n := &Noto{Callbacks: mockCallbacks, coinSchema: testSchema("coin")}
+	owner := &identityPair{identifier: "sender@node1", address: pldtypes.RandAddress()}
+
+	_, err := n.prepareInputs(t.Context(), "query-context", owner, pldtypes.Int64ToInt256(100), false)
+	assertAssembleInternal(t, err, "PD200006")
+}
+
+func TestAllocateStateIDsLoadFail(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	mockCallbacks.MockValidateStates = func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+	n := &Noto{Callbacks: mockCallbacks}
+	assertAssembleInternal(t, n.allocateStateIDs(t.Context(), "query-context", []*prototk.NewState{{}}), "pop")
 }

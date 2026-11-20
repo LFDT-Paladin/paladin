@@ -11,6 +11,9 @@ await copyFile('../../solidity/artifacts/contracts/domains/interfaces/IZetoFungi
 
 await copyFile('../../solidity/artifacts/contracts/domains/interfaces/IZetoFungible_V1.sol/IZetoFungible_V1.json', 'src/domains/abis/IZetoFungible_V1.json');
 
+// download the zeto anon contract ABI
+const tmpDir = await downloadZetoAbis();
+
 // Upstream zeto ABIs come from the release tree Gradle already extracts for the build, rather than a separate
 // download pinned to its own version. downloadZetoAbis defaulted to v0.2.0, which left the SDK carrying the V0
 // pool API (delegateLock(uint256[],address,bytes)) long after the deployed contracts moved on — calls built from

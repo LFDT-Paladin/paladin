@@ -93,7 +93,7 @@ func goodPSC(t *testing.T, td *testDomainContext) *domainContract {
 		RegistryAddress: *d.RegistryAddress(),
 		Address:         pldtypes.EthAddress(pldtypes.RandBytes(20)),
 		ConfigBytes:     []byte{0xfe, 0xed, 0xbe, 0xef},
-	})
+	}, d.dm.getContractCacheGeneration())
 	require.NoError(t, err)
 	require.Equal(t, pscValid, loadResult)
 	require.NotNil(t, psc.ContractConfig())
@@ -1891,7 +1891,7 @@ func TestInitSmartContractQueryGroupsError(t *testing.T) {
 		RegistryAddress: *td.d.RegistryAddress(),
 		Address:         *pldtypes.RandAddress(),
 		ConfigBytes:     []byte{},
-	})
+	}, td.d.dm.getContractCacheGeneration())
 	require.Error(t, err)
 	assert.Regexp(t, "groups query error", err)
 	assert.Equal(t, pscInitError, loadResult)
@@ -1928,7 +1928,7 @@ func TestInitSmartContractWithPrivacyGroup(t *testing.T) {
 		RegistryAddress: *td.d.RegistryAddress(),
 		Address:         *pldtypes.RandAddress(),
 		ConfigBytes:     []byte{},
-	})
+	}, td.d.dm.getContractCacheGeneration())
 	require.NoError(t, err)
 	assert.Equal(t, pscValid, loadResult)
 	assert.NotNil(t, psc)
@@ -2025,4 +2025,22 @@ func TestPublicTxOptionsFromProto_Nil(t *testing.T) {
 	assert.Nil(t, opts.Value)
 	assert.Nil(t, opts.MaxFeePerGas)
 	assert.Nil(t, opts.MaxPriorityFeePerGas)
+}
+
+func TestContractConfigChangedEvictsAndNotifiesSequencer(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.sequencerManager.On("HandleContractConfigChanged", mock.Anything, mock.Anything).Return()
+	})
+	defer done()
+	ctx := td.ctx
+
+	psc := goodPSC(t, td)
+	_, cached := td.dm.contractCache.Get(psc.info.Address)
+	require.True(t, cached)
+
+	td.dm.contractConfigChanged(ctx, psc.info.Address)
+
+	_, cached = td.dm.contractCache.Get(psc.info.Address)
+	assert.False(t, cached)
+	td.mc.sequencerManager.AssertCalled(t, "HandleContractConfigChanged", mock.Anything, psc.info.Address)
 }

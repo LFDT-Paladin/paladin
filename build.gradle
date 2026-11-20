@@ -297,6 +297,10 @@ task copyZetoZKPFiles(type: Copy) {
         'withdraw_nullifier_batch.zkey',
         'withdraw_nullifier_batch-vkey.json',
         'withdraw_nullifier_batch_js/withdraw_nullifier_batch.wasm',
+        // nf_anon
+        'nf_anon.zkey',
+        'nf_anon-vkey.json',
+        'nf_anon_js/nf_anon.wasm'
     ]
 
     // Every Zeto variant is shipped, each under its own V<n>/ directory, because circuit names are NOT unique

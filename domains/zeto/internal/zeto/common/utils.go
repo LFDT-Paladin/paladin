@@ -18,6 +18,7 @@ package common
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -123,6 +124,26 @@ func CoinStateIDs(ctx context.Context, commitments []pldtypes.HexUint256) ([]pld
 		ids[i] = id
 	}
 	return ids, nil
+}
+
+// the circuits take the same number of inputs and outputs, so the larger of the two
+// counts determines the circuit size (e.g. 1 input and 3 outputs needs the batch circuit)
+func GetCircuitSize(inputCount, outputCount int) int {
+	return GetInputSize(max(inputCount, outputCount))
+}
+
+func HexUint256To32ByteHexString(v *pldtypes.HexUint256) string {
+	paddedBytes := IntTo32ByteSlice(v.Int())
+	return hex.EncodeToString(paddedBytes)
+}
+
+func IntTo32ByteSlice(bigInt *big.Int) (res []byte) {
+	return bigInt.FillBytes(make([]byte, 32))
+}
+
+func IntTo32ByteHexString(bigInt *big.Int) string {
+	paddedBytes := bigInt.FillBytes(make([]byte, 32))
+	return hex.EncodeToString(paddedBytes)
 }
 
 func LoadBabyJubKey(payload []byte) (*babyjub.PublicKey, error) {

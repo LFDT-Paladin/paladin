@@ -1180,6 +1180,57 @@ func TestDispatcherBlockConfirmedCheckpoint(t *testing.T) {
 	require.NoError(t, p.Mock.ExpectationsWereMet())
 }
 
+// A transient DB error writing the checkpoint for a confirmed (empty) block must not end the
+// dispatcher - nothing restarts it for the life of the process, so the stream would silently
+// stop delivering events until the next node restart.
+func TestDispatcherBlockConfirmedCheckpointRetriesTransientError(t *testing.T) {
+	ctx, bi, _, p, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(3)
+
+	cancellableCtx, cancelCtx := context.WithCancel(ctx)
+
+	es := &eventStream{
+		bi:  bi,
+		ctx: cancellableCtx,
+		definition: &EventStreamDefinition{
+			ID:   uuid.New(),
+			Type: EventStreamTypeInternal.Enum(),
+		},
+		batchSize:           10,
+		batchTimeout:        1 * time.Second,
+		dispatch:            make(chan *detectorMsg, 5),
+		dispatcherDone:      make(chan struct{}),
+		dispatcherStarted:   make(chan struct{}),
+		checkpointCommitted: make(chan int64, 1),
+	}
+
+	// First write fails transiently, the retry succeeds
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnError(fmt.Errorf("pop"))
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnResult(sqlmock.NewResult(1, 1))
+
+	go func() {
+		assert.NotPanics(t, func() { es.dispatcher() })
+	}()
+	<-es.dispatcherStarted
+
+	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 5}}
+
+	// The dispatcher must survive the transient error and commit the checkpoint
+	require.Equal(t, int64(5), <-es.checkpointCommitted)
+	assert.Equal(t, int64(5), es.checkpoint.Load())
+
+	// ... and still be alive to process another advance
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnResult(sqlmock.NewResult(1, 1))
+	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 6}}
+	require.Equal(t, int64(6), <-es.checkpointCommitted)
+
+	cancelCtx()
+	<-es.dispatcherDone
+	require.NoError(t, p.Mock.ExpectationsWereMet())
+}
+
 func TestProcessCatchupEventPageFailRPC(t *testing.T) {
 	ctx, bi, mRPC, p, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
 	defer done()
@@ -1452,6 +1503,11 @@ func TestDispatcherCheckpointUpdateError(t *testing.T) {
 	ctx, bi, _, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
 	defer done()
 
+	// Checkpoint updates for confirmed (empty) blocks are retried indefinitely in production,
+	// so the dispatcher no longer ends on a checkpoint write failure. Bound the retry so the
+	// error return path (context cancellation in production) is still exercised.
+	bi.retry.UTSetMaxAttempts(1)
+
 	cancellableCtx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
 
@@ -1476,4 +1532,5 @@ func TestDispatcherCheckpointUpdateError(t *testing.T) {
 
 	es.dispatch <- &detectorMsg{confirmed: &blockConfirmed{blockNumber: 5}}
 	<-es.dispatcherDone
+	assert.Equal(t, int64(0), es.checkpoint.Load())
 }

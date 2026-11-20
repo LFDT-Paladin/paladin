@@ -127,6 +127,28 @@ func (sMgr *sequencerManager) parseUUIDField(ctx context.Context, message *compo
 	return parsed, true
 }
 
+// A transaction specification carries the transaction's UUID in the domain's bytes32 form: the UUID in
+// the first 16 bytes, zero padded. It must be in exactly the form the originator produces so that no
+// other encoding of the same UUID reaches the domain.
+func (sMgr *sequencerManager) parseTransactionSpecificationID(ctx context.Context, message *components.ReceivedMessage, field string, spec *prototk.TransactionSpecification) (uuid.UUID, bool) {
+	if spec.TransactionId == "" {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, field)
+		return uuid.UUID{}, false
+	}
+	b32, err := pldtypes.ParseBytes32Ctx(ctx, spec.TransactionId)
+	if err != nil {
+		sMgr.logPaladinMessageFieldInvalidError(ctx, message, field, spec.TransactionId, err)
+		return uuid.UUID{}, false
+	}
+	transactionID := b32.UUIDFirst16()
+	if expected := pldtypes.Bytes32UUIDFirst16(transactionID).String(); spec.TransactionId != expected {
+		sMgr.logPaladinMessageFieldInvalidError(ctx, message, field, spec.TransactionId,
+			fmt.Errorf("not a transaction UUID in bytes32 form (expected %s)", expected))
+		return uuid.UUID{}, false
+	}
+	return transactionID, true
+}
+
 func (sMgr *sequencerManager) parseBytes32Field(ctx context.Context, message *components.ReceivedMessage, field string, value []byte) (pldtypes.Bytes32, bool) {
 	if len(value) == 0 {
 		sMgr.logPaladinMessageFieldMissingError(ctx, message, field)
@@ -544,12 +566,6 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 		return
 	}
 
-	from := heartbeatNotification.From
-	if from == "" {
-		sMgr.logPaladinMessageFieldMissingError(ctx, message, "From")
-		return
-	}
-
 	contractAddress := sMgr.parseContractAddressString(ctx, heartbeatNotification.ContractAddress, message)
 	if contractAddress == nil {
 		return
@@ -568,7 +584,7 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 	}
 
 	heartbeatEvent := &common.HeartbeatReceivedEvent{}
-	heartbeatEvent.FromNode = from
+	heartbeatEvent.FromNode = message.FromNode
 	heartbeatEvent.ContractAddress = contractAddress
 	heartbeatEvent.CoordinatorSnapshot = coordinatorSnapshot
 	heartbeatEvent.EventTime = time.Now()
@@ -722,13 +738,7 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	}
 
 	for _, del := range delegationRequest.Transactions {
-		id, err := uuid.Parse(del.GetId())
-		if err != nil {
-			sMgr.logPaladinMessageFieldMissingError(ctx, message, "delegation.id")
-			return
-		}
 		privateTransaction := &components.PrivateTransaction{
-			ID:          id,
 			Domain:      del.GetDomain(),
 			Address:     *contractAddress,
 			Intent:      del.GetIntent(),
@@ -740,6 +750,22 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 		}
 		if privateTransaction.PreAssembly.TransactionSpecification == nil {
 			sMgr.logPaladinMessageFieldMissingError(ctx, message, "delegation.pre_assembly.transaction_specification")
+			return
+		}
+		id, ok := sMgr.parseTransactionSpecificationID(ctx, message, "delegation.pre_assembly.transaction_specification.transaction_id", privateTransaction.PreAssembly.TransactionSpecification)
+		if !ok {
+			return
+		}
+		privateTransaction.ID = id
+		// The coordinator sends each transaction's traffic to the node named in its own From, so a node
+		// may only delegate transactions whose From is one of its own identities
+		from := privateTransaction.PreAssembly.TransactionSpecification.From
+		originatorNode, err := pldtypes.PrivateIdentityLocator(from).Node(ctx, false)
+		if err == nil && originatorNode != message.FromNode {
+			err = fmt.Errorf("originator is not on the sending node %s", message.FromNode)
+		}
+		if err != nil {
+			sMgr.logPaladinMessageFieldInvalidError(ctx, message, "delegation.pre_assembly.transaction_specification.from", from, err)
 			return
 		}
 		if transactionDelegatedEvent.Originator == "" {
@@ -849,7 +875,7 @@ func (sMgr *sequencerManager) handleHandoverRequest(ctx context.Context, message
 	}
 
 	handoverEvent := &coordinator.HandoverRequestEvent{}
-	handoverEvent.FromNode = handoverRequest.FromNode
+	handoverEvent.FromNode = message.FromNode
 	handoverEvent.EventTime = time.Now()
 	seq.GetCoordinator().QueueEvent(ctx, handoverEvent)
 }
@@ -864,6 +890,16 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 
 	contractAddress := sMgr.parseContractAddressString(ctx, endorsementRequest.ContractAddress, message)
 	if contractAddress == nil {
+		return
+	}
+
+	if endorsementRequest.TransactionSpecification == nil {
+		sMgr.logPaladinMessageFieldMissingError(ctx, message, "transaction_specification")
+		return
+	}
+
+	transactionID, ok := sMgr.parseTransactionSpecificationID(ctx, message, "transaction_specification.transaction_id", endorsementRequest.TransactionSpecification)
+	if !ok {
 		return
 	}
 
@@ -892,7 +928,7 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 
 	endorsementRequestReceivedEvent := &coordinator.EndorsementRequestReceivedEvent{
 		FromNode:                  message.FromNode,
-		TransactionId:             endorsementRequest.TransactionId,
+		TransactionId:             transactionID.String(),
 		IdempotencyKey:            endorsementRequest.IdempotencyKey,
 		Party:                     endorsementRequest.Party,
 		PrivateEndorsementRequest: privateEndorsementRequest,

@@ -24,6 +24,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/mocks/originatortransactionmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
@@ -272,7 +274,12 @@ func newDelegatableMockTxn(t *testing.T, state transaction.State) (*originatortr
 	mockTxn.On("GetID").Return(txID)
 	mockTxn.On("GetCurrentState").Return(state)
 	mockTxn.On("GetFirstDelegatedTime").Return(staleDelegatedTime()).Maybe()
-	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{ID: txID})
+	mockTxn.On("GetPrivateTransaction").Return(&components.PrivateTransaction{
+		ID: txID,
+		PreAssembly: &prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String()},
+		},
+	})
 	mockTxn.On("HandleEvent", mock.Anything, mock.Anything).Return(nil)
 	return mockTxn, txID
 }
