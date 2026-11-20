@@ -433,17 +433,17 @@ func TestGetTransactionStatesFail(t *testing.T) {
 func insertTestState(t *testing.T, ss *stateManager, domainName string, id pldtypes.HexBytes) {
 	t.Helper()
 	schemaHash := pldtypes.Bytes32Keccak([]byte("test"))
-	err := ss.p.DB(context.Background()).
+	err := ss.p.DB(t.Context()).
 		Clauses(clause.OnConflict{DoNothing: true}).
-		Create(&pldapi.Schema{
+		Create(&persistedSchema{
 			ID:         schemaHash,
 			DomainName: domainName,
 			Type:       pldapi.SchemaTypeABI.Enum(),
 		}).Error
 	require.NoError(t, err)
-	err = ss.p.DB(context.Background()).
+	err = ss.p.DB(t.Context()).
 		Table("states").
-		Create(&pldapi.StateBase{
+		Create(&persistedStateBase{
 			ID:         id,
 			DomainName: domainName,
 			Schema:     schemaHash,

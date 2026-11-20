@@ -84,19 +84,19 @@ func (q *StateStatusQualifier) UnmarshalJSON(b []byte) error {
 }
 
 type Schema struct {
-	ID         pldtypes.Bytes32          `docstruct:"Schema" json:"id"          gorm:"primaryKey"`
-	Created    pldtypes.Timestamp        `docstruct:"Schema" json:"created"     gorm:"autoCreateTime:false"` // we calculate the created time ourselves due to complex in-memory caching
+	ID         pldtypes.Bytes32          `docstruct:"Schema" json:"id"`
+	Created    pldtypes.Timestamp        `docstruct:"Schema" json:"created"`
 	DomainName string                    `docstruct:"Schema" json:"domain"`
 	Type       pldtypes.Enum[SchemaType] `docstruct:"Schema" json:"type"`
 	Signature  string                    `docstruct:"Schema" json:"signature"`
 	Definition pldtypes.RawJSON          `docstruct:"Schema" json:"definition"`
-	Labels     []string                  `docstruct:"Schema" json:"labels"      gorm:"type:text[]; serializer:json"`
+	Labels     []string                  `docstruct:"Schema" json:"labels"`
 }
 
 type StateBase struct {
-	ID              pldtypes.HexBytes    `docstruct:"State" json:"id"                  gorm:"primaryKey"`
-	Created         pldtypes.Timestamp   `docstruct:"State" json:"created"             gorm:"autoCreateTime:nano"`
-	DomainName      string               `docstruct:"State" json:"domain"              gorm:"primaryKey"`
+	ID              pldtypes.HexBytes    `docstruct:"State" json:"id"`
+	Created         pldtypes.Timestamp   `docstruct:"State" json:"created"`
+	DomainName      string               `docstruct:"State" json:"domain"`
 	Schema          pldtypes.Bytes32     `docstruct:"State" json:"schema"`
 	ContractAddress *pldtypes.EthAddress `docstruct:"State" json:"contractAddress"` // nil used for states like privacy group genesis that exists before state creation
 	Data            pldtypes.RawJSON     `docstruct:"State" json:"data"`
@@ -113,31 +113,10 @@ type StateEncoded struct {
 
 type State struct {
 	StateBase
-	Labels      []*StateLabel       `docstruct:"State" json:"-"                   gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
-	Int64Labels []*StateInt64Label  `docstruct:"State" json:"-"                   gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
-	Confirmed   *StateConfirmRecord `docstruct:"State" json:"confirmed,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
-	Read        *StateReadRecord    `docstruct:"State" json:"read,omitempty"      gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
-	Spent       *StateSpendRecord   `docstruct:"State" json:"spent,omitempty"     gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
-	Nullifier   *StateNullifier     `docstruct:"State" json:"nullifier,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
-}
-
-// TODO: Separate the GORM DTO from the external pldapi external type definition for States
-func (StateBase) TableName() string {
-	return "states"
-}
-
-type StateLabel struct {
-	DomainName string            `gorm:"primaryKey"`
-	State      pldtypes.HexBytes `gorm:"primaryKey"`
-	Label      string
-	Value      string
-}
-
-type StateInt64Label struct {
-	DomainName string            `gorm:"primaryKey"`
-	State      pldtypes.HexBytes `gorm:"primaryKey"`
-	Label      string
-	Value      int64
+	Confirmed *StateConfirmRecord `docstruct:"State" json:"confirmed,omitempty"`
+	Read      *StateReadRecord    `docstruct:"State" json:"read,omitempty"`
+	Spent     *StateSpendRecord   `docstruct:"State" json:"spent,omitempty"`
+	Nullifier *StateNullifier     `docstruct:"State" json:"nullifier,omitempty"`
 }
 
 type TransactionStates struct {
@@ -187,10 +166,10 @@ type UnavailableStates struct {
 // states all in a single block. In that case the state will only be "available" within
 // the in-memory domain context being managed by the sequencer for that smart contract.
 type StateConfirmRecord struct {
-	DomainName  string            `json:"-"                 gorm:"primaryKey"`
-	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
+	DomainName  string            `json:"-"`
+	State       pldtypes.HexBytes `json:"-"`
 	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction"`
-	Index       int               `json:"-"                 gorm:"column:idx"`
+	Index       int               `json:"-"`
 }
 
 // A spend record is written when indexing the blockchain, and can be written regardless
@@ -205,30 +184,30 @@ type StateConfirmRecord struct {
 // the transaction, to avoid us attempting to double-spend states (which of course will
 // be rejected by the blockchain).
 type StateSpendRecord struct {
-	DomainName  string            `json:"-"                 gorm:"primaryKey"`
-	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
+	DomainName  string            `json:"-"`
+	State       pldtypes.HexBytes `json:"-"`
 	Transaction uuid.UUID         `docstruct:"StateSpend" json:"transaction"`
-	Index       int               `json:"-"                 gorm:"column:idx"`
+	Index       int               `json:"-"`
 }
 
 // We also record when we simply read a state during a transaction, without creating or
 // spending it. This is important for being able to re-execute the transaction in the future
 // against the exact state of the blockchain. We use this in receipt generation.
 type StateReadRecord struct {
-	DomainName  string            `json:"-"                 gorm:"primaryKey"`
-	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
-	Transaction uuid.UUID         `docstruct:"StateRead"    json:"transaction" gorm:"primaryKey"`
-	Index       int               `json:"-"                 gorm:"column:idx"`
+	DomainName  string            `json:"-"`
+	State       pldtypes.HexBytes `json:"-"`
+	Transaction uuid.UUID         `docstruct:"StateRead"    json:"transaction"`
+	Index       int               `json:"-"`
 }
 
 // Transactions can also refer to state that never exists before or after the transaction.
 // It is part of the transaction that is required to fully process the transaction,
 // but it originated exclusively within that transaction
 type StateInfoRecord struct {
-	DomainName  string            `json:"-"                 gorm:"primaryKey"`
-	State       pldtypes.HexBytes `json:"-"                 gorm:"primaryKey"`
-	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction" gorm:"primaryKey"`
-	Index       int               `json:"-"                 gorm:"column:idx"`
+	DomainName  string            `json:"-"`
+	State       pldtypes.HexBytes `json:"-"`
+	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction"`
+	Index       int               `json:"-"`
 }
 
 // State nullifiers are used when a domain chooses to use a separate identifier
@@ -238,8 +217,8 @@ type StateInfoRecord struct {
 // nullifier (not for the state) when it is spent.
 // Immutable once written
 type StateNullifier struct {
-	DomainName string            `json:"-"               gorm:"primaryKey"`
+	DomainName string            `json:"-"`
 	State      pldtypes.HexBytes `json:"-"`
-	ID         pldtypes.HexBytes `json:"id"              gorm:"primaryKey"`
-	Spent      *StateSpendRecord `json:"spent,omitempty" gorm:"foreignKey:state;references:id;"`
+	ID         pldtypes.HexBytes `json:"id"`
+	Spent      *StateSpendRecord `json:"spent,omitempty"`
 }

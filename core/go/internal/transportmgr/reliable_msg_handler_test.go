@@ -1042,7 +1042,7 @@ func TestBuildPrivacyGroupDistributionMsgGetStatesError(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false).
+			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false).
 				Return(nil, fmt.Errorf("pop")).Once()
 
 			mc.db.Mock.ExpectBegin()
@@ -1075,7 +1075,7 @@ func TestBuildPrivacyGroupDistributionMsgGetStatesNotFound(t *testing.T) {
 
 	ctx, tm, _, done := newTestTransport(t, false,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false).
+			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false).
 				Return(nil, nil).Once()
 
 			mc.db.Mock.ExpectBegin()

@@ -155,7 +155,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 		err = dbTX.DB(ctx).
 			Table("state_spend_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
-			Create(spends).
+			Create(newPersistedStateSpendRecords(spends)).
 			Error
 		if err == nil {
 			err = setStatesSpent(ctx, dbTX, spends)
@@ -166,7 +166,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 		err = dbTX.DB(ctx).
 			Table("state_read_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
-			Create(reads).
+			Create(newPersistedStateReadRecords(reads)).
 			Error
 	}
 	if err == nil && len(confirms) > 0 {
@@ -174,7 +174,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 		err = dbTX.DB(ctx).
 			Table("state_confirm_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
-			Create(confirms).
+			Create(newPersistedStateConfirmRecords(confirms)).
 			Error
 		if err == nil {
 			err = setStatesConfirmed(ctx, dbTX, confirms)
@@ -185,7 +185,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 		err = dbTX.DB(ctx).
 			Table("state_info_records").
 			Clauses(clause.OnConflict{DoNothing: true}).
-			Create(infoRecords).
+			Create(newPersistedStateInfoRecords(infoRecords)).
 			Error
 	}
 	return err
@@ -240,11 +240,12 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 	}
 	split := func(typeRecords []*transactionStateRecord) (available []*pldapi.StateBase, unavailableIDs []pldtypes.HexBytes) {
 		for _, s := range typeRecords {
-			if s.ID == nil {
+			if s.Base.ID == nil {
 				hasUnavailable = true
 				unavailableIDs = append(unavailableIDs, s.State)
 			} else {
-				available = append(available, &s.StateBase)
+				stateBase := s.Base.mapToAPI()
+				available = append(available, &stateBase)
 			}
 		}
 		return available, unavailableIDs

@@ -193,7 +193,7 @@ func (as *abiSchema) getLabelType(ctx context.Context, fieldName string, tc abi.
 	}
 }
 
-func (as *abiSchema) buildLabel(ctx context.Context, fieldName string, f *abi.ComponentValue) (*pldapi.StateLabel, *pldapi.StateInt64Label, error) {
+func (as *abiSchema) buildLabel(ctx context.Context, fieldName string, f *abi.ComponentValue) (*components.StateLabel, *components.StateInt64Label, error) {
 	labelType, err := as.getLabelType(ctx, fieldName, f.Component)
 	if err != nil {
 		return nil, nil, err
@@ -201,14 +201,14 @@ func (as *abiSchema) buildLabel(ctx context.Context, fieldName string, f *abi.Co
 	return as.mapValueToLabel(ctx, fieldName, labelType, f)
 }
 
-func (as *abiSchema) mapValueToLabel(ctx context.Context, fieldName string, labelType labelType, f *abi.ComponentValue) (*pldapi.StateLabel, *pldapi.StateInt64Label, error) {
+func (as *abiSchema) mapValueToLabel(ctx context.Context, fieldName string, labelType labelType, f *abi.ComponentValue) (*components.StateLabel, *components.StateInt64Label, error) {
 	switch labelType {
 	case labelTypeInt64:
 		bigIntVal, ok := f.Value.(*big.Int)
 		if !ok {
 			return nil, nil, i18n.NewError(ctx, msgs.MsgStateLabelFieldUnexpectedValue, fieldName, f.Value, new(big.Int))
 		}
-		return nil, &pldapi.StateInt64Label{Label: fieldName, Value: bigIntVal.Int64()}, nil
+		return nil, &components.StateInt64Label{Label: fieldName, Value: bigIntVal.Int64()}, nil
 	case labelTypeInt256:
 		bigIntVal, ok := f.Value.(*big.Int)
 		if !ok {
@@ -216,7 +216,7 @@ func (as *abiSchema) mapValueToLabel(ctx context.Context, fieldName string, labe
 		}
 		// Otherwise we fall back to encoding as a fixed-width hex string - with a leading sign character
 		filterString := pldtypes.Int256To65CharDBSafeSortableString(bigIntVal)
-		return &pldapi.StateLabel{Label: fieldName, Value: filterString}, nil, nil
+		return &components.StateLabel{Label: fieldName, Value: filterString}, nil, nil
 	case labelTypeUint256:
 		bigIntVal, ok := f.Value.(*big.Int)
 		if !ok {
@@ -224,26 +224,26 @@ func (as *abiSchema) mapValueToLabel(ctx context.Context, fieldName string, labe
 		}
 		bigIntVal = bigIntVal.Abs(bigIntVal)
 		filterString := filters.Uint256ToFilterString(ctx, bigIntVal)
-		return &pldapi.StateLabel{Label: fieldName, Value: filterString}, nil, nil
+		return &components.StateLabel{Label: fieldName, Value: filterString}, nil, nil
 	case labelTypeBytes:
 		byteValue, ok := f.Value.([]byte)
 		if !ok {
 			return nil, nil, i18n.NewError(ctx, msgs.MsgStateLabelFieldUnexpectedValue, fieldName, f.Value, []byte{})
 		}
 		// We do NOT use an 0x prefix on bytes types
-		return &pldapi.StateLabel{Label: fieldName, Value: hex.EncodeToString(byteValue)}, nil, nil
+		return &components.StateLabel{Label: fieldName, Value: hex.EncodeToString(byteValue)}, nil, nil
 	case labelTypeString:
 		strValue, ok := f.Value.(string)
 		if !ok {
 			return nil, nil, i18n.NewError(ctx, msgs.MsgStateLabelFieldUnexpectedValue, fieldName, f.Value, "")
 		}
-		return &pldapi.StateLabel{Label: fieldName, Value: strValue}, nil, nil
+		return &components.StateLabel{Label: fieldName, Value: strValue}, nil, nil
 	case labelTypeBool:
 		bValue, ok := f.Value.(*big.Int)
 		if !ok {
 			return nil, nil, i18n.NewError(ctx, msgs.MsgStateLabelFieldUnexpectedValue, fieldName, f.Value, new(big.Int))
 		}
-		return nil, &pldapi.StateInt64Label{Label: fieldName, Value: bValue.Int64()}, nil
+		return nil, &components.StateInt64Label{Label: fieldName, Value: bValue.Int64()}, nil
 	default:
 		// Should not get here - if covered all the types above
 		return nil, nil, i18n.NewError(ctx, msgs.MsgStateInvalidSchemaType, f.Component.String())
@@ -282,8 +282,8 @@ func (as *abiSchema) mapLabelResolver(ctx context.Context, sqlColumn string, lab
 type parsedStateData struct {
 	jsonTree    interface{}
 	cv          *abi.ComponentValue
-	labels      []*pldapi.StateLabel
-	int64Labels []*pldapi.StateInt64Label
+	labels      []*components.StateLabel
+	int64Labels []*components.StateInt64Label
 	labelValues filters.PassthroughValueSet
 }
 
@@ -412,46 +412,18 @@ func (as *abiSchema) ProcessStateWithLabels(ctx context.Context, contractAddress
 	if err != nil {
 		return nil, err
 	}
-	// The labels can only be stamped with the identity of the state once its ID is resolved.
-	for i := range psd.labels {
-		psd.labels[i].DomainName = as.DomainName
-		psd.labels[i].State = state.ID
-	}
-	for i := range psd.int64Labels {
-		psd.int64Labels[i].DomainName = as.DomainName
-		psd.int64Labels[i].State = state.ID
-	}
 	psd.labelValues[".id"] = state.ID.HexString()
 
-	state.Labels = psd.labels
-	state.Int64Labels = psd.int64Labels
 	return &components.StateWithLabels{
 		State:       state,
+		Labels:      psd.labels,
+		Int64Labels: psd.int64Labels,
 		LabelValues: psd.labelValues,
 	}, nil
 }
 
-// RecoverLabels rebuilds the label value set for an already-persisted state. When the state's label
-// rows have been preloaded it uses them directly, avoiding an ABI/JSON re-parse of the state data
-// (the values are identical to those the ABI parse would produce). The schema declares its full
-// label set in as.Labels, and each declared field persists exactly one row across s.Labels /
-// s.Int64Labels, so the rows are complete iff their combined count equals len(as.Labels). When they
-// are absent (not preloaded) it falls back to re-parsing the state data.
+// RecoverLabels rebuilds the label value set for an already-persisted state by re-parsing its data.
 func (as *abiSchema) RecoverLabels(ctx context.Context, s *pldapi.State) (*components.StateWithLabels, error) {
-	if len(s.Labels)+len(s.Int64Labels) == len(as.Labels) {
-		labelValues := make(filters.PassthroughValueSet, len(s.Labels)+len(s.Int64Labels))
-		for _, l := range s.Labels {
-			labelValues[l.Label] = l.Value
-		}
-		for _, l := range s.Int64Labels {
-			labelValues[l.Label] = l.Value
-		}
-		return &components.StateWithLabels{
-			State:       s,
-			LabelValues: addStateBaseLabels(labelValues, s.ID, s.Created),
-		}, nil
-	}
-
 	psd, err := as.parseStateData(ctx, s.Data)
 	if err != nil {
 		return nil, err
