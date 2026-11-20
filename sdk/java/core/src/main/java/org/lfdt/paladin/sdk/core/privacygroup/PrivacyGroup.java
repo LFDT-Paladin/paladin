@@ -208,6 +208,30 @@ public final class PrivacyGroup {
     return contractAddress;
   }
 
+  /**
+   * Returns a copy of this privacy group with the deployed base-ledger contract address set.
+   *
+   * @param contractAddress the contract address; may be {@code null}
+   * @return a new privacy group with the contract address set, or {@code this} if unchanged
+   */
+  public PrivacyGroup withContractAddress(final EthAddress contractAddress) {
+    if (Objects.equals(this.contractAddress, contractAddress)) {
+      return this;
+    }
+    return new PrivacyGroup(
+        id,
+        domain,
+        created,
+        name,
+        members,
+        properties,
+        configuration,
+        genesisSalt,
+        genesisSchema,
+        genesisTransaction,
+        contractAddress);
+  }
+
   @Override
   public boolean equals(final Object o) {
     if (this == o) {
