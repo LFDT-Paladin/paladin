@@ -140,6 +140,11 @@ func (s *notoPenteTrackerSuite) Setup() error {
 		}
 	}
 
+	notaryAddress, err := notaryNode.HTTPClient.PTX().ResolveVerifier(s.ctx, s.notary, notoResolveAlgorithm, notoResolveVerifierType)
+	if err != nil {
+		return fmt.Errorf("failed to resolve verifier for %s: %w", s.notary, err)
+	}
+
 	log.Info("Deploying NotoTrackerERC20 to privacy group...")
 	trackerDeployTxID, err := notaryNode.HTTPClient.PrivacyGroups().SendTransaction(s.ctx, &pldapi.PrivacyGroupEVMTXInput{
 		Domain: "pente",
@@ -148,7 +153,7 @@ func (s *notoPenteTrackerSuite) Setup() error {
 			From:     "member",
 			Bytecode: notoTracker.Bytecode,
 			Function: trackerConstructor,
-			Input:    pldtypes.RawJSON(`{"name":"NOTO","symbol":"NOTO"}`),
+			Input:    pldtypes.RawJSON(fmt.Sprintf(`{"name":"NOTO","symbol":"NOTO","notary":%q}`, notaryAddress)),
 		},
 	})
 	if err != nil {

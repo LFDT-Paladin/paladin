@@ -38,7 +38,7 @@ contract BondTracker is NotoTrackerERC20 {
         string memory symbol,
         address custodian,
         address publicTracker
-    ) NotoTrackerERC20(name, symbol) {
+    ) NotoTrackerERC20(name, symbol, custodian) {
         _status = Status.INITIALIZED;
         _publicTracker = publicTracker;
         _issuer = msg.sender;
