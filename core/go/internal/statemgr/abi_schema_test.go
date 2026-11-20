@@ -159,26 +159,39 @@ func TestStoreRetrieveABISchema(t *testing.T) {
 	var int64Labels []*persistedStateInt64Label
 	err = ss.p.DB(ctx).Where("state = ?", state1.ID).Order("label").Find(&int64Labels).Error
 	require.NoError(t, err)
+	// every label row denormalizes the state's identity columns
+	label := func(name, value string) *persistedStateLabel {
+		return &persistedStateLabel{
+			DomainName: "domain1", State: state1.ID, Label: name, Value: value,
+			Schema: schemaID, ContractAddress: contractAddress, Created: state1.Created,
+		}
+	}
+	int64Label := func(name string, value int64) *persistedStateInt64Label {
+		return &persistedStateInt64Label{
+			DomainName: "domain1", State: state1.ID, Label: name, Value: value,
+			Schema: schemaID, ContractAddress: contractAddress, Created: state1.Created,
+		}
+	}
 	assert.Equal(t, []*persistedStateLabel{
 		// uint256 written as zero padded string
-		{DomainName: "domain1", State: state1.ID, Label: "field1", Value: "0000000000000000000000000123456789012345678901234567890123456789"},
+		label("field1", "0000000000000000000000000123456789012345678901234567890123456789"),
 		// string written as it is
-		{DomainName: "domain1", State: state1.ID, Label: "field2", Value: "hello world"},
+		label("field2", "hello world"),
 		// address is really a uint160, so that's how we handle it
-		{DomainName: "domain1", State: state1.ID, Label: "field5", Value: "000000000000000000000000687414c0b8b4182b823aec5436965cf19b197386"},
+		label("field5", "000000000000000000000000687414c0b8b4182b823aec5436965cf19b197386"),
 		// int256 needs an extra byte ahead of the zero-padded string to say it's negative,
 		// and is two's complement for that negative number so less negative number are string "higher"
-		{DomainName: "domain1", State: state1.ID, Label: "field6", Value: "0ffffffffffffffffffffffffffffffffffffffffffffffffffdbc0638301b8e7"},
+		label("field6", "0ffffffffffffffffffffffffffffffffffffffffffffffffffdbc0638301b8e7"),
 		// bytes are just bytes
-		{DomainName: "domain1", State: state1.ID, Label: "field7", Value: "feedbeef"},
+		label("field7", "feedbeef"),
 	}, labels)
 	assert.Equal(t, []*persistedStateInt64Label{
 		// int64 can just be stored directly in a numeric index
-		{DomainName: "domain1", State: state1.ID, Label: "field3", Value: 42},
+		int64Label("field3", 42),
 		// bool also gets an efficient numeric index - we don't attempt to allocate anything smaller than int64 to this
-		{DomainName: "domain1", State: state1.ID, Label: "field4", Value: 1},
+		int64Label("field4", 1),
 		// uint32 also
-		{DomainName: "domain1", State: state1.ID, Label: "field8", Value: 12345},
+		int64Label("field8", 12345),
 	}, int64Labels)
 	assert.Equal(t, "0x90c1f63e32a708ef59b3708c57d165a87bddf758709313c57448e85a10c59544", state1.ID.String())
 
