@@ -64,6 +64,11 @@ jobs:
       - name: Build the Paladin and operator images
         run: ../gradlew --no-daemon buildPaladinImage buildOperatorImage
 
+      # config/samples lists generated smart-contract CRs that are not checked in.
+      # Generate them before the Gradle cache is deleted.
+      - name: Generate smart contract deployment samples
+        run: ../gradlew --no-daemon :operator:buildContractSamples
+
       # The image build leaves Gradle and BuildKit caches that Kind cannot spare.
       - name: Drop build caches before starting Kind
         working-directory: .

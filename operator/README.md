@@ -165,9 +165,10 @@ paladin-operator-xxxxxxxxxx-xxxxx   1/1     Running   0          XXm
 
 Now that the operator is running, you can create the Paladin nodes.
 
-Create 3 nodes (3 Besu nodes and 3 Paladin nodes):
+Generate the smart contract deployment samples that `config/samples` applies, then create 3 nodes (3 Besu nodes and 3 Paladin nodes):
 
 ```sh
+../gradlew :operator:buildContractSamples
 make create-node
 ```
 
