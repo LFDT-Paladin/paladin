@@ -97,7 +97,7 @@ jobs:
       - name: Verify the operator is running
         run: kubectl get pods -n "${NAMESPACE}" -o wide
 
-      # operator/README.md steps 7-8. create-node waits for node1 to reach Completed.
+      # operator/README.md steps 7-8. create-node waits for the nodes to reach Ready.
       - name: Create Paladin nodes and verify they are running
         run: |
           make create-node NAMESPACE="${NAMESPACE}"

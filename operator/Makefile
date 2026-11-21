@@ -304,7 +304,7 @@ generate-reference-docs: crd-ref-docs ## Generate API reference documentation.
 .PHONY: create-node
 create-node: # TODO: more complete startup check
 	kubectl apply -n ${NAMESPACE} -k config/samples; \
-	kubectl wait paladins.core.paladin.io/node1 --for jsonpath='{.status.phase}=Completed' --namespace ${NAMESPACE} --timeout 5m
+	kubectl wait paladins.core.paladin.io/node1 paladins.core.paladin.io/node2 paladins.core.paladin.io/node3 --for jsonpath='{.status.phase}=Ready' --namespace ${NAMESPACE} --timeout 5m
 
 .PHONY: delete-node
 delete-node:
