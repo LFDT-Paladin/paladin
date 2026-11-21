@@ -2,13 +2,18 @@
 
 ## Description
 
-The **Paladin Operator** is a Kubernetes operator designed to manage Paladin nodes within a Kubernetes cluster. It automates the deployment, configuration, and management of Paladin instances, providing a seamless experience for operators and developers.
+The **Paladin Operator** is a Kubernetes operator that deploys and manages Paladin nodes. It creates the Besu and Paladin workloads, wires each Paladin node to its Besu node, and applies the smart-contract resources those nodes need.
+
+**This file is the from-source path for operator and node development.** The commands below build the Paladin and operator images from this repository and load them into a local [Kind](https://kind.sigs.k8s.io/) cluster. Use them when you are changing the operator, the node, or the sample manifests.
+
+If you only want a running 3-node Besu network and 3-node Paladin network from published images, use the [installation guide](https://LFDT-Paladin.github.io/paladin/head/getting-started/installation/). That guide is the complete install (Kind, CRDs, cert-manager, and the Helm chart in `devnet` mode). This README stays the short entry point for a source build so the two do not drift.
 
 ---
 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
+- [Hardware, Docker, and architecture](#hardware-docker-and-architecture)
 - [Getting Started](#getting-started)
   - [One-Click Installation with Gradle](#one-click-installation-with-gradle)
   - [Manual Installation Steps](#manual-installation-steps)
@@ -33,13 +38,39 @@ The **Paladin Operator** is a Kubernetes operator designed to manage Paladin nod
 
 Before you begin, ensure you have the following installed:
 
-- **Go** version **v1.22+**
+- **Go** version **v1.26+** (matches `operator/go.mod` and the operator image)
 - **Docker** version **17.03+**
 - **Gradle** version **6.0+**
 - **kubectl** version **v1.11.3+**
 - **Kind** (Kubernetes in Docker) installed
 - **Helm** version **v3+**
 - **GNU Make**
+
+The [troubleshooting guide](https://LFDT-Paladin.github.io/paladin/head/getting-started/troubleshooting/) calls for **Docker 27.0.0+** and **Kind 0.24.0+** when node ports on a local Kind cluster fail to connect. Older Docker and Kind combinations are a common cause of that failure.
+
+---
+
+## Hardware, Docker, and architecture
+
+`make kind-start` creates the cluster in [`paladin-kind.yaml`](paladin-kind.yaml): one control-plane node and one worker. The sample in this guide then runs, in the `paladin` namespace:
+
+- 1 operator pod. The chart limits that container to **500m CPU** and **128Mi** memory.
+- 3 Besu pods.
+- 3 Paladin pods. Each Paladin pod also runs a Postgres sidecar (`database.mode: sidecarPostgres` in the node samples).
+
+Kind does not set memory limits on the Besu or Paladin containers, so they share the Docker VM with the image build. A from-source run compiles the Paladin image (JDK, Go, Node, and protoc) before the cluster starts, and the manual-install workflow deletes the Gradle cache and the Docker build cache before `kind` because those caches and the cluster compete for disk.
+
+Practical allocation for this path on a laptop:
+
+| Resource | Allocation |
+| --- | --- |
+| CPU | 4 cores available to Docker |
+| Memory | 8 GiB is the low end and is easy to exhaust during the image build together with the 3+3 node sample. **16 GiB** for the Docker VM leaves headroom for both. |
+| Disk | Room for the Paladin and operator images, the Kind node images, and Besu and Postgres. Build caches are large; prune them (`docker builder prune`) if Kind fails to start after a successful image build. |
+
+**CPU architecture.** The Paladin and operator Dockerfiles build `linux/amd64` and `linux/arm64` (`TARGETARCH`). A local `../gradlew buildPaladinImage buildOperatorImage` produces the architecture of the Docker daemon: arm64 on Apple Silicon, amd64 on Intel and on the default CI runners. `make kind-promote` loads those images into Kind, so each image has to match the Kind node architecture.
+
+Published images on GHCR are built for both architectures. The [installation guide](https://LFDT-Paladin.github.io/paladin/head/getting-started/installation/) pulls those and does not compile from this tree.
 
 ---
 
@@ -165,9 +196,10 @@ paladin-operator-xxxxxxxxxx-xxxxx   1/1     Running   0          XXm
 
 Now that the operator is running, you can create the Paladin nodes.
 
-Create 3 nodes (3 Besu nodes and 3 Paladin nodes):
+Generate the smart contract deployment samples that `config/samples` applies, then create 3 nodes (3 Besu nodes and 3 Paladin nodes):
 
 ```sh
+../gradlew :operator:buildContractSamples
 make create-node
 ```
 
