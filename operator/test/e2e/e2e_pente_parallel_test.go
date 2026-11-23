@@ -100,7 +100,7 @@ var _ = Describe("pente - parallelism on a single contract", Ordered, func() {
 				Domain:  "pente",
 				Members: []string{fmt.Sprintf("tara@%s1", paladinPrefix), fmt.Sprintf("hoshi@%s2", paladinPrefix), fmt.Sprintf("seren@%s3", paladinPrefix)},
 				Configuration: map[string]string{
-					"evmVersion":           "shanghai",
+					"evmVersion":           "osaka",
 					"endorsementType":      ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES,
 					"externalCallsEnabled": "true",
 				},

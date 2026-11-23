@@ -111,7 +111,7 @@ async function main(): Promise<boolean> {
   const issuerGroup = await penteFactory
     .newPrivacyGroup({
       members: [assetIssuer],
-      evmVersion: "shanghai",
+      evmVersion: "osaka",
       externalCallsEnabled: true,
     })
     .waitForDeploy(DEFAULT_POLL_TIMEOUT);

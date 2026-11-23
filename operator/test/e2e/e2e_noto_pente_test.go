@@ -334,7 +334,7 @@ var _ = Describe("noto/pente - simple", Ordered, func() {
 				Domain:  "pente",
 				Members: []string{fmt.Sprintf("bob@%s1", paladinPrefix), fmt.Sprintf("sally@%s2", paladinPrefix)}, // these will be salted to establish the endorsement key identifiers
 				Configuration: map[string]string{
-					"evmVersion":           "shanghai",
+					"evmVersion":           "osaka",
 					"endorsementType":      ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES,
 					"externalCallsEnabled": "true",
 				},

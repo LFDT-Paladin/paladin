@@ -95,7 +95,7 @@ async function main(): Promise<boolean> {
   const issuerCustodianGroup = await penteFactory
     .newPrivacyGroup({
       members: [bondIssuer, bondCustodian],
-      evmVersion: "shanghai",
+      evmVersion: "osaka",
       externalCallsEnabled: true,
     })
     .waitForDeploy(DEFAULT_POLL_TIMEOUT);
@@ -223,7 +223,7 @@ async function main(): Promise<boolean> {
     .using(paladin3)
     .newPrivacyGroup({
       members: [investor, bondCustodian],
-      evmVersion: "shanghai",
+      evmVersion: "osaka",
       externalCallsEnabled: true,
     })
     .waitForDeploy(DEFAULT_POLL_TIMEOUT);

@@ -46,7 +46,7 @@
      private static final Logger LOGGER = PaladinLogging.getLogger(PenteConfiguration.class);
 
      public static String ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES = "group_scoped_identities";
-     public static final String DEFAULT_EVM_VERSION = "shanghai";
+     public static final String DEFAULT_EVM_VERSION = "osaka";
      public static final String DEFAULT_ENDORSEMENT_TYPE = ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES;
 
      public static final String transferSignature = "event PenteTransition(bytes32 txId, bytes32[] inputs, bytes32[] reads, bytes32[] outputs, bytes32[] info)";

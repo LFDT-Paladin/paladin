@@ -16,8 +16,10 @@
 package io.kaleido.paladin.pente.domain;
 
 import java.io.IOException;
+import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -615,5 +617,72 @@ public class PenteDomainTests {
                                         });
                         assertEquals("true", result.output());
                 }
+        }
+        // Besu's precompiles load their native libraries from pente.jar through the plugin class loader. Most fall
+        // back to Java when their native library is missing, but BLS12-381 and KZG point evaluation have no Java
+        // implementation, so these calls only succeed if the native libraries load. KZG point evaluation also only
+        // works once Pente has loaded its trusted setup.
+        @Test
+        void testNativePrecompileLibrariesLoadFromPenteJar() throws Exception {
+                JsonHex.Address address = deployFactory();
+                try (Testbed testbed = new Testbed(testbedSetup, new Testbed.ConfigDomain(
+                                "pente", address,
+                                TestbedHelper.pentePlugin(),
+                                new HashMap<>()))) {
+                        PenteConfiguration.GroupTupleJSON groupInfo = new PenteConfiguration.GroupTupleJSON(
+                                        JsonHex.randomBytes32(),
+                                        new String[] { "member1", "member2" });
+                        var pente = PenteHelper.newPrivacyGroup("pente", "member1", testbed, groupInfo, "osaka", false);
+
+                        String callerBytecode = ResourceLoader.jsonResourceEntryText(
+                                        this.getClass().getClassLoader(),
+                                        "contracts/testcontracts/PrecompileCaller.sol/PrecompileCaller.json",
+                                        "bytecode");
+                        var callerAddress = pente.deploy("member1", callerBytecode, JsonABI.newParameters(),
+                                        new HashMap<>());
+
+                        // Adding the point at infinity to the BLS12-381 G1 generator gives back the generator
+                        var g1Generator = "0x00000000000000000000000000000000"
+                                        + "17f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb"
+                                        + "00000000000000000000000000000000"
+                                        + "08b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1";
+                        assertEquals(g1Generator, callPrecompile(pente, callerAddress,
+                                        "0x000000000000000000000000000000000000000b",
+                                        g1Generator + "00".repeat(128)));
+
+                        // The zero polynomial commits to the point at infinity, evaluates to zero everywhere, and its
+                        // proof is also the point at infinity
+                        var commitment = new byte[48];
+                        commitment[0] = (byte) 0xc0;
+                        var versionedHash = MessageDigest.getInstance("SHA-256").digest(commitment);
+                        versionedHash[0] = 0x01;
+                        var commitmentHex = HexFormat.of().formatHex(commitment);
+                        // A valid proof returns the number of field elements in a blob (4096) and the BLS modulus
+                        assertEquals("0x" + "00".repeat(30) + "1000"
+                                        + "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001",
+                                        callPrecompile(pente, callerAddress,
+                                                        "0x000000000000000000000000000000000000000a",
+                                                        "0x" + HexFormat.of().formatHex(versionedHash) + "00".repeat(64)
+                                                                        + commitmentHex + commitmentHex));
+                }
+        }
+
+        private String callPrecompile(PenteHelper pente, JsonHex.Address callerAddress, String precompile, String input) throws IOException {
+                return pente.call(
+                                "callPrecompile",
+                                JsonABI.newParameters(
+                                                JsonABI.newParameter("precompile", "address"),
+                                                JsonABI.newParameter("input", "bytes")),
+                                JsonABI.newParameters(
+                                                JsonABI.newParameter("success", "bool"),
+                                                JsonABI.newParameter("output", "bytes")),
+                                "member1",
+                                callerAddress,
+                                new HashMap<>() {
+                                        {
+                                                put("precompile", precompile);
+                                                put("input", input);
+                                        }
+                                }).output();
         }
 }

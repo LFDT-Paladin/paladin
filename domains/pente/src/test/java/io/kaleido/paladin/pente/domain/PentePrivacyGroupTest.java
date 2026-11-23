@@ -48,7 +48,7 @@ public class PentePrivacyGroupTest {
         // Check the resulting state
         var expected = new ObjectMapper().readValue("""
                 {
-                    "evmVersion":"shanghai",
+                    "evmVersion":"osaka",
                     "endorsementType":"group_scoped_identities",
                     "externalCallsEnabled":"false"
                  }
@@ -94,33 +94,73 @@ public class PentePrivacyGroupTest {
     }
 
     @Test
+    void testConfigurePrivacyGroupUnknownEVMVersion() {
+
+        var pente = new PenteDomain("", "");
+
+        var reqBuilder = ConfigurePrivacyGroupRequest.newBuilder()
+                .putInputConfiguration("evmVersion", "bogus");
+
+        var e = assertThrows(ExecutionException.class, () -> pente.configurePrivacyGroup(reqBuilder.build()).get());
+        assertEquals("unknown EVM version 'bogus'", e.getCause().getMessage());
+    }
+
+    @Test
+    void testPrepareDeployUnknownEVMVersion() {
+
+        var pente = new PenteDomain("", "");
+
+        var reqBuilder = PrepareDeployRequest.newBuilder()
+                .setTransaction(DeployTransactionSpecification.newBuilder()
+                        .setConstructorParamsJson("""
+                                {
+                                    "group": {
+                                        "salt": "0x33219f6966a20f20bdbf06d3039349a4959c68208fbcda636568e766070a7d4d",
+                                        "members": ["me@node1","you@node2"]
+                                    },
+                                    "evmVersion": "bogus",
+                                    "endorsementType": "group_scoped_identities",
+                                    "externalCallsEnabled": false
+                                }
+                                """));
+
+        var e = assertThrows(ExecutionException.class, () -> pente.prepareDeploy(reqBuilder.build()).get());
+        assertEquals("unknown EVM version 'bogus'", e.getCause().getMessage());
+    }
+
+    @Test
     void testInitPrivacyGroupDefaults() throws Exception {
 
         var pente = new PenteDomain("", "");
+
+        // Paladin initializes a privacy group with the configuration Pente returned when it was configured
+        var defaults = pente.configurePrivacyGroup(ConfigurePrivacyGroupRequest.newBuilder().build()).get();
 
         var salt = JsonHex.randomBytes32();
         var reqBuilder = InitPrivacyGroupRequest.newBuilder()
                 .setPrivacyGroup(PrivacyGroup.newBuilder()
                         .setId(salt.toString())
                         .addAllMembers(Arrays.asList("me@node1","you@node2"))
+                        .putAllConfiguration(defaults.getConfigurationMap())
                         .build());
 
         // Run it
         var res = pente.initPrivacyGroup(reqBuilder.build()).get();
 
-        // Check the resulting state
+        // Check the resulting transaction parameters
         var expected = new ObjectMapper().readValue("""
                 {
-                    "name":"bob",
-                    "salt":"REPLACE",
-                    "pente": {
-                        "members":["me@node1","you@node2"],
-                        "evmVersion":"shanghai",
-                        "endorsementType":"group_scoped_identities",
-                        "externalCallsEnabled":false
-                    }
-                 }
-                """, new TypeReference<Map<Object, Object>>() {});
+                    "group": {
+                       "salt": "%s",
+                       "members": ["me@node1","you@node2"]
+                    },
+                    "evmVersion": "osaka",
+                    "endorsementType": "group_scoped_identities",
+                    "externalCallsEnabled": false
+                }
+                """.formatted(salt), new TypeReference<>() {});
+        var received = new ObjectMapper().readValue(res.getTransaction().getParamsJson(), new TypeReference<>() {});
+        assertEquals(expected, received);
 
         // Check the resulting transaction ABI
         expected = new ObjectMapper().readValue("""
@@ -142,7 +182,7 @@ public class PentePrivacyGroupTest {
                     ]
                 }
                 """, new TypeReference<>() {});
-        var received = new ObjectMapper().readValue(res.getTransaction().getFunctionAbiJson(), new TypeReference<>() {});
+        received = new ObjectMapper().readValue(res.getTransaction().getFunctionAbiJson(), new TypeReference<>() {});
         assertEquals(expected, received);
 
     }

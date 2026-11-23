@@ -65,7 +65,7 @@ const penteFactory = new PenteFactory(paladin1, "pente");
 const issuerGroup = await penteFactory
   .newPrivacyGroup({
     members: [assetIssuer],
-    evmVersion: "shanghai",
+    evmVersion: "osaka",
     externalCallsEnabled: true,
   })
   .waitForDeploy();
