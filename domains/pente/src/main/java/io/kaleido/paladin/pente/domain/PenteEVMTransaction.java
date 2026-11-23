@@ -208,13 +208,7 @@
      }
  
      EVMRunner getEVM(long chainId, long blockNumber, long blockTimestamp, AccountLoader accountLoader) throws ClassNotFoundException {
-         var evmConfig = EvmConfiguration.DEFAULT;
-         EVMVersion evmVersion = switch (this.evmVersion) {
-             case "london" -> EVMVersion.London(chainId, evmConfig);
-             case "paris" -> EVMVersion.Paris(chainId, evmConfig);
-             case "shanghai" -> EVMVersion.Shanghai(chainId, evmConfig);
-             default -> throw new IllegalArgumentException("unknown EVM version '%s'".formatted(this.evmVersion));
-         };
+         var evmVersion = EVMVersion.forName(this.evmVersion, chainId, EvmConfiguration.DEFAULT);
          return new EVMRunner(evmVersion, accountLoader, blockNumber, blockTimestamp);
      }
  

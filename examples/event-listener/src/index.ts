@@ -45,7 +45,7 @@ async function main(): Promise<boolean> {
   const memberPrivacyGroup = await penteFactory
     .newPrivacyGroup({
       members: [verifierNode1],
-      evmVersion: "shanghai",
+      evmVersion: "osaka",
       externalCallsEnabled: true,
     })
     .waitForDeploy(DEFAULT_POLL_TIMEOUT);

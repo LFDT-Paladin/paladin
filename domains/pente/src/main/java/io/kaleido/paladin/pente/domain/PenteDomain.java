@@ -24,6 +24,7 @@
 
  import io.kaleido.paladin.logging.PaladinLogging;
  import io.kaleido.paladin.pente.evmrunner.EVMRunner;
+ import io.kaleido.paladin.pente.evmrunner.EVMVersion;
  import io.kaleido.paladin.pente.evmstate.AccountLoader;
  import io.kaleido.paladin.pente.evmstate.DynamicLoadWorldState;
  import io.kaleido.paladin.pente.evmstate.PersistedAccount;
@@ -87,6 +88,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      protected CompletableFuture<InitDomainResponse> initDomain(InitDomainRequest request) {
          // Store our state schema
          config.schemasInitialized(request.getAbiStateSchemasList());
+         EVMVersion.loadKZG();
          return CompletableFuture.completedFuture(InitDomainResponse.getDefaultInstance());
      }
 
@@ -157,6 +159,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          try {
              var params = new ObjectMapper().readValue(request.getTransaction().getConstructorParamsJson(),
                      PenteConfiguration.PrivacyGroupConstructorParamsJSON.class);
+             EVMVersion.validateName(params.evmVersion());
 
              var resolvedVerifiers = getResolvedEndorsers(params.group().salt(), params.group().members(), request.getResolvedVerifiersList());
              var onchainConfBuilder = new ByteArrayOutputStream();
@@ -698,7 +701,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
              for (var key : inputConf.keySet()) {
                  var val = inputConf.get(key);
                  switch (key) {
-                     case "evmVersion" -> resBuilder.putConfiguration("evmVersion", val);
+                     case "evmVersion" -> {
+                         EVMVersion.validateName(val);
+                         resBuilder.putConfiguration("evmVersion", val);
+                     }
                      case "endorsementType" -> resBuilder.putConfiguration("endorsementType", val);
                      case "externalCallsEnabled" -> resBuilder.putConfiguration("externalCallsEnabled", Boolean.valueOf(val).toString());
                      default -> throw new IllegalArgumentException("Unknown configuration option '%s'".formatted(key));

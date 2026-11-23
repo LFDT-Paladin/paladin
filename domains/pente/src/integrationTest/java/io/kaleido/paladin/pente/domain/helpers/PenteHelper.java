@@ -74,11 +74,15 @@ public class PenteHelper {
     }
 
     public static PenteHelper newPrivacyGroup(String domainName, String from, Testbed testbed, PenteConfiguration.GroupTupleJSON groupInfo, boolean externalCallsEnabled) throws IOException {
+        return newPrivacyGroup(domainName, from, testbed, groupInfo, "shanghai", externalCallsEnabled);
+    }
+
+    public static PenteHelper newPrivacyGroup(String domainName, String from, Testbed testbed, PenteConfiguration.GroupTupleJSON groupInfo, String evmVersion, boolean externalCallsEnabled) throws IOException {
         String address = testbed.getRpcClient().request("testbed_deploy",
                 domainName, from,
                 new PenteConfiguration.PrivacyGroupConstructorParamsJSON(
                         groupInfo,
-                        "shanghai",
+                        evmVersion,
                         PenteConfiguration.ENDORSEMENT_TYPE__GROUP_SCOPED_IDENTITIES,
                         externalCallsEnabled
                 ));

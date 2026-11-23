@@ -47,7 +47,7 @@ logger.log("Creating a privacy group for Node1 and Node2...");
 const penteFactory = new PenteFactory(paladinNode1, "pente");
 const memberPrivacyGroup = await penteFactory.newPrivacyGroup({
   members: [verifierNode1, verifierNode2],
-  evmVersion: "shanghai",
+  evmVersion: "osaka",
   externalCallsEnabled: true,
 }).waitForDeploy();
 ```
