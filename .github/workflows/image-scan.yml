@@ -1,0 +1,48 @@
+name: Image Vulnerability Scan
+
+on:
+  schedule:
+    - cron: '10 5 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to scan'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [paladin, paladin-operator]
+    steps:
+      - name: Image reference
+        id: ref
+        env:
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ matrix.image }}
+          TAG: ${{ inputs.tag || 'main' }}
+        run: echo "image=ghcr.io/${OWNER,,}/${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.ref.outputs.image }}
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload results
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: image-${{ matrix.image }}
