@@ -173,10 +173,12 @@ func TestReliableMessageResendRealDB(t *testing.T) {
 		}
 	}
 
-	// From this point on we just drain
+	// From this point on we just drain, each peer separately as either can still be resending while the other closes
 	go func() {
 		for range sentMessagesNode2 {
 		}
+	}()
+	go func() {
 		for range sentMessagesNode3 {
 		}
 	}()
