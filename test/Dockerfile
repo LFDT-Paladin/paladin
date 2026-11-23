@@ -1,5 +1,5 @@
 # Stage 1: Compile Solidity contracts to generate ABI artefacts
-FROM node:20-bookworm-slim AS solidity-builder
+FROM node:26-bookworm-slim AS solidity-builder
 WORKDIR /workspace
 COPY solidity/package.json solidity/package-lock.json solidity/
 COPY solidity/contracts solidity/contracts
