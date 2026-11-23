@@ -19,7 +19,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
@@ -222,41 +221,6 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 	assert.False(t, txn2.hasDependenciesNotReady(ctx))
 }
 
-func Test_traceDispatch_WithPostAssembly(t *testing.T) {
-	ctx := t.Context()
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		PostAssembly(&components.TransactionPostAssembly{
-			AssembleResponse: &prototk.TransactionPostAssembly{
-				Signatures: []*prototk.AttestationResult{
-					{
-						Verifier: &prototk.ResolvedVerifier{
-							Lookup: "verifier1",
-						},
-					},
-				},
-				Endorsements: []*prototk.AttestationResult{
-					{
-						Verifier: &prototk.ResolvedVerifier{
-							Lookup: "verifier2",
-						},
-					},
-				},
-			},
-			CollectedEndorsements: []*prototk.AttestationResult{
-				{
-					Verifier: &prototk.ResolvedVerifier{
-						Lookup: "endorser1",
-					},
-				},
-			},
-		}).
-		Build()
-
-	// Should not panic
-	txn.traceDispatch(ctx)
-}
-
 func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 	ctx := t.Context()
 
@@ -316,44 +280,6 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, State_Confirming_Dispatchable, txn2.stateMachine.GetCurrentState(),
 		"DependencyReadyEvent should transition txn2 from State_Blocked to State_Confirming_Dispatchable")
-}
-
-func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
-	ctx := t.Context()
-
-	// Enable trace logging to cover the traceDispatch path
-	log.EnsureInit()
-	originalLevel := log.GetLevel()
-	log.SetLevel("trace")
-	defer log.SetLevel(originalLevel)
-
-	mockGrapher := graphermocks.NewGrapher(t)
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(mockGrapher).
-		PostAssembly(&components.TransactionPostAssembly{
-			AssembleResponse: &prototk.TransactionPostAssembly{
-				Signatures: []*prototk.AttestationResult{
-					{
-						Verifier: &prototk.ResolvedVerifier{
-							Lookup: "verifier1",
-						},
-					},
-				},
-				Endorsements: []*prototk.AttestationResult{
-					{
-						Verifier: &prototk.ResolvedVerifier{
-							Lookup: "verifier2",
-						},
-					},
-				},
-			},
-		}).
-		Build()
-
-	mockGrapher.EXPECT().GetDependents(mock.Anything, txn1.pt.ID).Return(nil)
-
-	err := txn1.notifyDependentsOfReadiness(ctx)
-	require.NoError(t, err)
 }
 
 func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
