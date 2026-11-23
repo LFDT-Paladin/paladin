@@ -54,6 +54,12 @@ def protobufVersion = '4.29+'
 def protocVersion = protobufVersion
 
 dependencies {
+    constraints {
+        implementation('com.google.guava:guava:33.8.0-jre') {
+            because 'CVE-2026-102554: earlier Guava versions allow a denial of service through deserialization'
+        }
+    }
+
     // GRPC and Protobuf dependencies
     implementation "io.grpc:grpc-protobuf:${grpcVersion}"
     implementation "io.grpc:grpc-services:${grpcVersion}"
