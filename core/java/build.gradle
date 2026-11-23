@@ -1,16 +1,26 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
+buildscript {
+    dependencyLocking {
+        lockAllConfigurations()
+        lockMode = LockMode.STRICT
+    }
+}
+
 plugins {
     id 'java'
     id 'application'
+    alias(coreLibs.plugins.shadow)
 }
 
 group = 'io.kaleido'
 
-// Set the main class for the JAR
 jar {
-    dependsOn 'classes'  // Ensure the classes are compiled before creating the JAR
+    destinationDirectory = layout.buildDirectory.dir('thin-libs')
+}
 
+// Set the main class for the JAR
+shadowJar {
     manifest {
         attributes(
             'Main-Class': 'io.kaleido.paladin.Main'
@@ -24,22 +34,14 @@ jar {
     }
 
     archiveBaseName = 'paladin'  // Base name of the JAR, the version will be added to this
+    archiveClassifier = ''
 
-    from {
-        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
-    }
-
-    from sourceSets.main.output
-
-    // Exclude signature files from dependencies
-    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
-
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    mergeServiceFiles()
 }
 
 task wrapper(type: Wrapper){}
 
-assemble.dependsOn jar
+assemble.dependsOn shadowJar
 
 application {
     mainClass.set('io.kaleido.paladin.Main')
@@ -65,8 +67,26 @@ repositories {
     mavenCentral()
 }
 
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode = LockMode.STRICT
+}
+
+sourceSets {
+    testPlugin
+}
+
+// A plugin jar whose contents conflict with core's test classpath, for tests of plugin class loading
+def testPluginJar = tasks.register('testPluginJar', Jar) {
+    from sourceSets.testPlugin.output
+    archiveFileName = 'test-plugin.jar'
+    destinationDirectory = layout.buildDirectory.dir('test-plugin')
+}
+
 test {
     dependsOn ':testinfra:startTestInfra'
+    dependsOn testPluginJar
+    systemProperty "paladin.testPluginJar", testPluginJar.get().archiveFile.get().asFile.absolutePath
     testLogging {
         showStandardStreams = true
         testLogging {
@@ -95,18 +115,21 @@ configurations {
     }
 }
 
-def grpcVersion = '1.69+'
-def protobufVersion = '4.29+'
-
 dependencies {
+    constraints {
+        implementation(coreLibs.guava) {
+            because 'CVE-2026-102554: earlier Guava versions allow a denial of service through deserialization'
+        }
+    }
 
-    implementation "io.grpc:grpc-all:${grpcVersion}"
+    implementation coreLibs.grpc.api
+    implementation coreLibs.grpc.stub
 
-    implementation 'org.bouncycastle:bcprov-jdk18on:1.78+'
-    implementation 'io.netty:netty-all:4.1+'
-    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.9'
+    implementation coreLibs.bcprov
+    implementation coreLibs.netty.all
+    implementation coreLibs.jackson.dataformat.yaml
 
-    implementation 'org.apache.logging.log4j:log4j-core:2.25.4'
+    implementation coreLibs.log4j.core
 
     toolkitProtoDefinitions project(path: ":toolkit:proto", configuration: "protoDefinitions")
 
@@ -114,15 +137,15 @@ dependencies {
     testImplementation project(path: ":toolkit:go", configuration: "libstarter")
     testImplementation project(path: ":solidity", configuration: "compiledContracts")
 
-    implementation 'net.java.dev.jna:jna-platform:5.14+'
-    implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
+    implementation coreLibs.jna.platform
+    implementation coreLibs.protobuf.java.util
 
-    compileOnly "org.apache.tomcat:annotations-api:6.0+"
+    compileOnly coreLibs.tomcat.annotations.api
 
-    testImplementation platform('org.junit:junit-bom:5.9+')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation platform(coreLibs.junit.bom)
+    testImplementation coreLibs.junit.jupiter
     testImplementation project(path: ':toolkit:go', configuration: 'libstarter')
-    testImplementation 'org.skyscreamer:jsonassert:1.5.3'
+    testImplementation coreLibs.jsonassert
 
     implementation project(path: ":toolkit_java")
 } 

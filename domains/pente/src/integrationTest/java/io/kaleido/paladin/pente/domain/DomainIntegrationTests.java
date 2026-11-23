@@ -31,6 +31,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.kaleido.paladin.pente.domain.PenteConfiguration.GroupTupleJSON;
+import io.kaleido.paladin.pente.domain.helpers.TestbedHelper;
 import io.kaleido.paladin.testbed.Testbed;
 import io.kaleido.paladin.toolkit.Algorithms;
 import io.kaleido.paladin.toolkit.JsonABI;
@@ -291,7 +292,7 @@ public class DomainIntegrationTests {
                 new Testbed.ConfigDomain(
                         "pente",
                         penteFactoryAddress,
-                        new Testbed.ConfigPlugin("jar", "", PenteDomainFactory.class.getName()),
+                        TestbedHelper.pentePlugin(),
                         new HashMap<>()
                 ),
                 new Testbed.ConfigDomain(

@@ -17,7 +17,6 @@ package io.kaleido.paladin.configlight;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.api.client.json.Json;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record YamlLogConfig(

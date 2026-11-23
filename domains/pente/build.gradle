@@ -1,12 +1,29 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
+buildscript {
+    dependencyLocking {
+        lockAllConfigurations()
+        lockMode = LockMode.STRICT
+    }
+}
+
 plugins {
     id 'java'
+    alias(penteLibs.plugins.shadow)
 }
 
 group = 'io.kaleido'
 
+sourceSets {
+    integrationTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
 configurations {
+    integrationTestImplementation.extendsFrom implementation
+
     // Resolvable configurations
     toolkitProtoDefinitions {
         canBeConsumed = false
@@ -23,7 +40,10 @@ configurations {
 }
 
 jar {
-    dependsOn 'classes'  // Ensure the classes are compiled before creating the JAR
+    destinationDirectory = layout.buildDirectory.dir('thin-libs')
+}
+
+shadowJar {
     dependsOn ':solidity:compile'
 
     if (project.hasProperty('jarVersion')) {
@@ -33,28 +53,39 @@ jar {
     }
 
     archiveBaseName = 'pente'  // Base name of the JAR, the version will be added to this
+    archiveClassifier = ''
 
-    from {
-        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
-    }
-    from(configurations.compiledContracts) {
+    from(project.configurations.compiledContracts) {
         include 'contracts/domains/pente/PenteFactory.sol/PenteFactory.json'
         include 'contracts/domains/pente/PentePrivacyGroup.sol/PentePrivacyGroup.json'
         include 'contracts/domains/interfaces/IPente.sol/IPente.json'
         include 'contracts/domains/interfaces/IPenteExternalCall.sol/IPenteExternalCall.json'
     }
 
-    from sourceSets.main.output
+    mergeServiceFiles()
 
-    // Exclude signature files from dependencies
-    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
-
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude 'io/kaleido/paladin/logging/**'
 }
 
-assemble.dependsOn jar
+assemble.dependsOn shadowJar
 
 test {
+    testLogging {
+        testLogging {
+            events("passed", "skipped", "failed")
+            showStackTraces = true
+            exceptionFormat = TestExceptionFormat.FULL
+        }
+    }
+    useJUnitPlatform()
+    finalizedBy 'integrationTest'
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs the testbed tests, with the Pente domain loaded from the built jar.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
     testLogging {
         testLogging {
             events("passed", "skipped", "failed")
@@ -69,6 +100,8 @@ test {
         new File(project(":domains:noto").buildDir, "libs").absolutePath
     ].join(File.pathSeparator)
     dependsOn ':testinfra:startTestInfra'
+    dependsOn shadowJar
+    systemProperty "pente.jar", shadowJar.archiveFile.get().asFile.absolutePath
 }
 
 repositories {
@@ -86,42 +119,56 @@ repositories {
     mavenCentral()
 }
 
-def grpcVersion = '1.65+'
-def protobufVersion = '3.25+'
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode = LockMode.STRICT
+}
 
 dependencies {
-    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
-    implementation "io.grpc:grpc-services:${grpcVersion}"
-    implementation "io.grpc:grpc-stub:${grpcVersion}"
-    implementation "io.grpc:grpc-netty:${grpcVersion}"
-    implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
-    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.9'
+    constraints {
+        implementation(penteLibs.guava) {
+            because 'CVE-2026-102554: earlier Guava versions allow a denial of service through deserialization'
+        }
+    }
 
-    implementation 'io.netty:netty-all:4.1+'
-    implementation 'org.apache.logging.log4j:log4j-core:2.25.4'
+    implementation penteLibs.grpc.protobuf
+    implementation penteLibs.grpc.services
+    implementation penteLibs.grpc.stub
+    implementation penteLibs.grpc.netty
+    implementation penteLibs.protobuf.java.util
+    implementation penteLibs.jackson.dataformat.yaml
 
-    testImplementation project(path: ":core:java")
+    implementation penteLibs.netty.all
+    compileOnly coreLibs.log4j.core
+
     testImplementation project(path: ":solidity", configuration: "compiledContracts")
-    testImplementation project(path: ":core:go", configuration: "libcore")
-    testImplementation project(path: ":domains:noto", configuration: "libnoto")
 
-    testImplementation platform('org.junit:junit-bom:5.9+')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testImplementation 'org.mockito:mockito-core:5.12+'
-    testImplementation 'org.slf4j:slf4j-reload4j:2.0+'
-    testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.18.9'
-    testImplementation 'org.skyscreamer:jsonassert:1.5.3'
+    testImplementation platform(penteLibs.junit.bom)
+    testImplementation penteLibs.junit.jupiter
+    testImplementation penteLibs.slf4j.reload4j
+    testImplementation penteLibs.jackson.databind
+    testImplementation penteLibs.jsonassert
+    testImplementation coreLibs.log4j.core
 
-    implementation 'org.hyperledger.besu:evm:24.5.4'
-    implementation 'org.hyperledger.besu:besu-datatypes:24.5.4'
-    implementation 'org.hyperledger.besu.internal:trie:24.5.4'
+    integrationTestImplementation project(path: ":core:java")
+    integrationTestImplementation project(path: ":solidity", configuration: "compiledContracts")
+    integrationTestImplementation project(path: ":core:go", configuration: "libcore")
+    integrationTestImplementation project(path: ":domains:noto", configuration: "libnoto")
 
-    implementation 'org.web3j:rlp:4+'
-    implementation 'org.web3j:core:4+'
+    integrationTestImplementation platform(penteLibs.junit.bom)
+    integrationTestImplementation penteLibs.junit.jupiter
+    integrationTestImplementation penteLibs.jackson.databind
 
-    implementation 'commons-io:commons-io:2.16.1'
-    implementation 'io.tmio:tuweni-bytes:2.4.2'
-    implementation 'io.tmio:tuweni-units:2.4.2'
+    implementation penteLibs.besu.evm
+    implementation penteLibs.besu.datatypes
+    implementation penteLibs.besu.trie
+
+    implementation penteLibs.web3j.rlp
+    implementation penteLibs.web3j.core
+
+    implementation penteLibs.commons.io
+    implementation penteLibs.tuweni.bytes
+    implementation penteLibs.tuweni.units
 
     implementation project(path: ":toolkit_java")
 
