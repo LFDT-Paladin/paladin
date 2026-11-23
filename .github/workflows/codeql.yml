@@ -1,0 +1,85 @@
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '20 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: go
+            build-mode: manual
+          - language: java-kotlin
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: ${{ matrix.language == 'go' && 'recursive' || 'false' }}
+
+      - name: Free up disk space on runner
+        if: matrix.language == 'go'
+        uses: ./.github/actions/free-up-disk-space
+
+      - name: Install pre-requisites
+        if: matrix.language == 'go'
+        uses: ./.github/actions/setup
+
+      - name: Checkout js-merkletree
+        if: matrix.language == 'go'
+        uses: actions/checkout@v4
+        with:
+          repository: kaleido-io/js-merkletree
+          path: solidity/js-merkletree
+          persist-credentials: false
+
+      - name: Build js-merkletree
+        if: matrix.language == 'go'
+        working-directory: solidity/js-merkletree
+        run: |
+          npm install
+          npm run build:node
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # The Go modules import generated protobuf code and contract ABIs, which Gradle produces before compiling them
+      - name: Build Go
+        if: matrix.language == 'go'
+        run: |
+          ./gradlew --no-daemon --parallel buildGo :core:go:buildSharedLibrary :operator:copySolidity :operator:copyZetoSolidity
+          cd operator && go build ./...
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
