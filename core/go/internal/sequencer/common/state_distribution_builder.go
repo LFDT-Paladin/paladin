@@ -63,6 +63,10 @@ func (sd *stateDistributionBuilder) processStateForDistribution(ctx context.Cont
 		instruction.DistributionList = append(instruction.DistributionList, originatorLocator)
 	}
 
+	// A remote node needs a state's data once whichever of its identities receive it. A distribution
+	// carrying a nullifier spec is sent regardless, because the receiving node builds the nullifier
+	// with that identity's key.
+	remoteNodesSent := make(map[string]bool)
 	remainingNullifiers := instruction.NullifierSpecs
 	for _, recipient := range instruction.DistributionList {
 		nodeName, err := pldtypes.PrivateIdentityLocator(recipient).Node(ctx, false)
@@ -106,8 +110,9 @@ func (sd *stateDistributionBuilder) processStateForDistribution(ctx context.Cont
 		if nodeName == sd.LocalNode {
 			log.L(ctx).Debugf("new state %s will be written locally for recipient %s hasNullifier=%t", fullState.GetId(), recipient, matchedNullifier != nil)
 			sd.Local = append(sd.Local, distribution)
-		} else {
+		} else if matchedNullifier != nil || !remoteNodesSent[nodeName] {
 			log.L(ctx).Debugf("new state %s will be distributed to recipient %s hasNullifier=%t", fullState.GetId(), recipient, matchedNullifier != nil)
+			remoteNodesSent[nodeName] = true
 			sd.Remote = append(sd.Remote, distribution)
 		}
 	}

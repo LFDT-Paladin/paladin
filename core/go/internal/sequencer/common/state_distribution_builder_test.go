@@ -217,6 +217,67 @@ func TestBuild_RemoteDistribution(t *testing.T) {
 	assert.Equal(t, "alice@node1", result.Local[0].IdentityLocator)
 }
 
+func TestBuild_RemoteDistributionOncePerNodeUnlessNullifier(t *testing.T) {
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	schemaID := pldtypes.Bytes32(pldtypes.RandBytes(32))
+	nullifierFor := func(party string) *prototk.NullifierSpec {
+		return &prototk.NullifierSpec{Party: party, Algorithm: "snark", VerifierType: "groth16", PayloadType: "json"}
+	}
+
+	tx := &components.PrivateTransaction{
+		Domain:  "test-domain",
+		Address: *pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890"),
+		PreAssembly: &prototk.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				From: "alice@node1",
+			},
+		},
+		PostAssembly: &components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				OutputStatesPotential: []*prototk.NewState{
+					{
+						DistributionList: []string{
+							"bob@node2", "carol@node2", "dave@node2",
+							"erin@node3", "frank@node3",
+							"alice@node1", "grace@node1",
+						},
+						NullifierSpecs: []*prototk.NullifierSpec{nullifierFor("dave@node2"), nullifierFor("erin@node3")},
+					},
+				},
+				InfoStatesPotential: []*prototk.NewState{},
+			},
+			OutputStates: []*prototk.EndorsableState{
+				{
+					Id:            stateID.String(),
+					SchemaId:      schemaID.String(),
+					StateDataJson: `{"key":"value"}`,
+				},
+			},
+			InfoStates: []*prototk.EndorsableState{},
+		},
+	}
+	builder := NewStateDistributionBuilder("node1", tx)
+
+	result, err := builder.Build(t.Context())
+	require.NoError(t, err)
+
+	remote := make([]string, len(result.Remote))
+	for i, r := range result.Remote {
+		remote[i] = r.IdentityLocator
+	}
+	assert.Equal(t, []string{"bob@node2", "dave@node2", "erin@node3"}, remote)
+	assert.Nil(t, result.Remote[0].NullifierAlgorithm)
+	assert.Equal(t, "snark", *result.Remote[1].NullifierAlgorithm)
+	assert.Equal(t, "snark", *result.Remote[2].NullifierAlgorithm)
+
+	// Local recipients are each still written.
+	local := make([]string, len(result.Local))
+	for i, l := range result.Local {
+		local[i] = l.IdentityLocator
+	}
+	assert.Equal(t, []string{"alice@node1", "grace@node1"}, local)
+}
+
 func TestBuild_OriginatorAddedToDistributionList(t *testing.T) {
 	ctx := context.Background()
 	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
