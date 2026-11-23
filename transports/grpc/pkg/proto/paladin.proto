@@ -30,4 +30,5 @@ message Message {
   int32 component = 4;
   string message_type = 6;
   bytes payload = 7;
+  uint32 transport_version = 8;
 }

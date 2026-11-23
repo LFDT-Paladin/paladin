@@ -18,7 +18,8 @@ title: PeerInfo
         "lastReceive": null,
         "reliableHighestSent": 0
     },
-    "activated": 0
+    "activated": 0,
+    "transportVersion": 0
 }
 ```
 
@@ -32,6 +33,7 @@ title: PeerInfo
 | `outboundTransport` | The name of the transport selected for outbound connection to the peer. Omitted if no attempt to send data has occurred for this peer | `string` |
 | `outbound` | Transport specific information about an established outbound connection to the peer. Omitted if the peer does not have an established outbound connection | `` |
 | `outboundError` | Contains an error if attempting to send data, and the transport connection failed | `error` |
+| `transportVersion` | The transport version on the latest message received from the peer, which sets the message formats sent to it. Zero until a message is received | `uint32` |
 
 ## PeerStats
 

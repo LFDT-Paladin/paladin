@@ -25,6 +25,7 @@ type PeerInfo struct {
 	OutboundTransport string             `docstruct:"PeerInfo" json:"outboundTransport,omitempty"`
 	Outbound          map[string]any     `docstruct:"PeerInfo" json:"outbound,omitempty"`
 	OutboundError     error              `docstruct:"PeerInfo" json:"outboundError,omitempty"`
+	TransportVersion  uint32             `docstruct:"PeerInfo" json:"transportVersion"`
 }
 
 type PeerStats struct {

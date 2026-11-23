@@ -378,6 +378,14 @@ func (p *peer) updateReceivedStats(msg *prototk.PaladinMsg) {
 	p.Stats.LastReceive = &now
 	p.Stats.ReceivedMsgs++
 	p.Stats.ReceivedBytes += uint64(len(msg.Payload))
+	// The latest rather than the highest, so a peer restarted on older code is sent formats it reads.
+	p.TransportVersion = msg.TransportVersion
+}
+
+func (p *peer) readsBatches() bool {
+	p.statsLock.Lock()
+	defer p.statsLock.Unlock()
+	return p.TransportVersion >= transportVersionBatching
 }
 
 func (p *peer) reliableMessageScan(checkNew bool) error {
@@ -482,13 +490,8 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 
 func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.ReliableMessage, isTriggeredScan bool) (err error) {
 
-	type paladinMsgWithSeq struct {
-		*prototk.PaladinMsg
-		seq uint64
-	}
-
 	// Build the messages
-	msgsToSend := make([]paladinMsgWithSeq, 0, len(page))
+	msgsToSend := make([]batchEntry, 0, len(page))
 	var errorAcks []*pldapi.ReliableMessageAck
 	for _, rm := range page {
 
@@ -537,9 +540,9 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 				Error:     errorAck.Error(),
 			})
 		case msg != nil:
-			msgsToSend = append(msgsToSend, paladinMsgWithSeq{
-				seq:        rm.Sequence,
-				PaladinMsg: msg,
+			msgsToSend = append(msgsToSend, batchEntry{
+				seq: &rm.Sequence,
+				msg: msg,
 			})
 		}
 	}
@@ -555,11 +558,11 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 		}
 	}
 
-	// Send the messages, with short retry.
+	// Send the messages batched, with short retry.
 	// We fail the whole page on error, so we don't thrash (the outer infinite retry
 	// gives a much longer maximum back-off).
-	for _, msg := range msgsToSend {
-		if err := p.send(msg.PaladinMsg, &msg.seq); err != nil {
+	for _, b := range p.tm.buildBatches(msgsToSend, p.readsBatches()) {
+		if err := p.send(b.msg, b.seq); err != nil {
 			return err
 		}
 	}
@@ -614,26 +617,58 @@ func (p *peer) sender() {
 				resendTimer.Stop()
 				return // we're done
 			case msg := <-p.sendQueue:
-				// send and spin straight round
-				if err := p.send(msg.PaladinMsg, nil); err != nil {
-					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
-					if msg.errorHandler != nil {
-						msg.errorHandler(p.ctx, err)
+				// Send everything already queued with it, and spin straight round. Nothing waits for a batch to
+				// fill: a batch timeout would delay every message whenever load is too light to reach the size
+				// limit, and senders wait on round trips through these messages. Under load, messages queue
+				// while a send is in progress, so batches form without waiting.
+				queued := []*msgWithErrChan{msg}
+				readsBatches := p.readsBatches()
+			drain:
+				for readsBatches && len(queued) < p.tm.sendBatchMaxSize {
+					select {
+					case m := <-p.sendQueue:
+						queued = append(queued, m)
+					default:
+						break drain
 					}
-					// Reset this sender loop after repeated send errors so
-					// the next send path re-runs peer activation.
-					if p.sendFailureThresholdExceeded() {
-						log.L(p.ctx).Warnf(
-							"peer '%s' send loop restarting after %d consecutive send errors",
-							p.Name,
-							p.consecutiveSendErrors,
-						)
-						return
-					}
+				}
+				if !p.sendFireAndForget(queued, readsBatches) {
+					return
 				}
 			}
 		}
 	}
+}
+
+// sendFireAndForget returns false when repeated send errors mean the sender loop must restart, so the
+// next send path re-runs peer activation.
+func (p *peer) sendFireAndForget(queued []*msgWithErrChan, readsBatches bool) bool {
+	entries := make([]batchEntry, len(queued))
+	for i, m := range queued {
+		entries[i] = batchEntry{msg: m.PaladinMsg}
+	}
+	next := 0
+	for _, b := range p.tm.buildBatches(entries, readsBatches) {
+		inBatch := queued[next : next+b.count]
+		next += b.count
+		if err := p.send(b.msg, nil); err != nil {
+			log.L(p.ctx).Errorf("failed to send %d messages after short retry (discarding): %s", len(inBatch), err)
+			for _, m := range inBatch {
+				if m.errorHandler != nil {
+					m.errorHandler(p.ctx, err)
+				}
+			}
+			if p.sendFailureThresholdExceeded() {
+				log.L(p.ctx).Warnf(
+					"peer '%s' send loop restarting after %d consecutive send errors",
+					p.Name,
+					p.consecutiveSendErrors,
+				)
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (p *peer) isInactive() bool {

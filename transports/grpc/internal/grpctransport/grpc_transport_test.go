@@ -187,6 +187,34 @@ func TestConnectFail(t *testing.T) {
 
 }
 
+func TestSendDeliversTransportVersion(t *testing.T) {
+
+	received := make(chan *prototk.ReceiveMessageRequest, 1)
+	plugin1, _, done := newSuccessfulVerifiedConnection(t, func(_, callbacks2 *testCallbacks) {
+		callbacks2.receiveMessage = func(ctx context.Context, rmr *prototk.ReceiveMessageRequest) (*prototk.ReceiveMessageResponse, error) {
+			received <- rmr
+			return &prototk.ReceiveMessageResponse{}, nil
+		}
+	})
+	defer done()
+
+	_, err := plugin1.SendMessage(t.Context(), &prototk.SendMessageRequest{
+		Node: "node2",
+		Message: &prototk.PaladinMsg{
+			MessageId:        "msg1",
+			Component:        prototk.PaladinMsg_RELIABLE_MESSAGE_HANDLER,
+			MessageType:      "batch",
+			Payload:          []byte("payload"),
+			TransportVersion: 1,
+		},
+	})
+	require.NoError(t, err)
+
+	rmr := <-received
+	assert.Equal(t, "node1", rmr.FromNode)
+	assert.Equal(t, uint32(1), rmr.Message.TransportVersion)
+}
+
 func TestSendNotActivated(t *testing.T) {
 
 	ctx := context.Background()

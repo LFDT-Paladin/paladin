@@ -76,4 +76,5 @@ message PaladinMsg {
     Component component = 3; // components are allocated here
     string message_type = 4; // message types are managed within each component
     bytes payload = 5; // arbitrary payload
+    uint32 transport_version = 6; // the sending node's transport manager version
 }

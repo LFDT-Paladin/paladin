@@ -98,8 +98,16 @@ func (t *transport) checkInit(ctx context.Context) error {
 	return nil
 }
 
+// transportVersion is stamped on every message this node sends, and tells a peer which message
+// formats this node reads. Each new format increments it.
+const transportVersion = transportVersionBatching
+
+// A node at transportVersionBatching or above reads RMHMessageTypeBatch messages.
+const transportVersionBatching = 1
+
 func (t *transport) send(ctx context.Context, nodeName string, msg *prototk.PaladinMsg) error {
 
+	msg.TransportVersion = transportVersion
 	_, err := t.api.SendMessage(ctx, &prototk.SendMessageRequest{
 		Node:    nodeName,
 		Message: msg,
@@ -194,6 +202,9 @@ func (t *transport) deliverMessage(ctx context.Context, p *peer, component proto
 
 	switch component {
 	case prototk.PaladinMsg_RELIABLE_MESSAGE_HANDLER:
+		if msg.MessageType == RMHMessageTypeBatch {
+			return t.deliverBatch(ctx, p, msg)
+		}
 		_ = t.tm.reliableMsgWriter.Queue(ctx, &reliableMsgOp{
 			p:   p,
 			msg: msg,
@@ -250,4 +261,21 @@ func (t *transport) close() {
 	// log.L(t.ctx).Infof("Closing the context for transport %s", t.name)
 	t.cancelCtx()
 	<-t.initDone
+}
+
+func (t *transport) deliverBatch(ctx context.Context, p *peer, batchMsg *components.ReceivedMessage) error {
+	batch, err := decodeBatch(ctx, batchMsg.Payload)
+	if err != nil {
+		return err
+	}
+	for _, m := range batch {
+		rMsg, err := parseReceivedMessage(ctx, batchMsg.FromNode, m)
+		if err != nil {
+			return err
+		}
+		if err := t.deliverMessage(ctx, p, m.Component, rMsg); err != nil {
+			return err
+		}
+	}
+	return nil
 }
