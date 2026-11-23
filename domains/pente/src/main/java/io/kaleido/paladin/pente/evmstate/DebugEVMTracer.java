@@ -18,17 +18,19 @@
  import io.kaleido.paladin.logging.PaladinLogging;
  import org.apache.logging.log4j.Logger;
  import org.apache.tuweni.bytes.Bytes;
+ import org.hyperledger.besu.datatypes.Address;
+ import org.hyperledger.besu.datatypes.Log;
  import org.hyperledger.besu.datatypes.Transaction;
  import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
  import org.hyperledger.besu.evm.frame.MessageFrame;
- import org.hyperledger.besu.evm.log.Log;
  import org.hyperledger.besu.evm.operation.Operation;
  import org.hyperledger.besu.evm.tracing.OperationTracer;
  import org.hyperledger.besu.evm.worldstate.WorldView;
  
  import java.util.List;
  import java.util.Optional;
- 
+ import java.util.Set;
+
  public class DebugEVMTracer implements OperationTracer {
  
      private static final Logger logger = PaladinLogging.getLogger(DebugEVMTracer.class);
@@ -64,8 +66,8 @@
      }
  
      @Override
-     public void traceEndTransaction(WorldView worldView, Transaction transaction, boolean status, Bytes output, List<Log> logs, long gasUsed, long timeNs) {
-         logger.trace("traceEndTransaction: worldView={} transaction={} status={} output={} logs={} gasUsed={} timens={}", worldView, transaction, status, output, logs, gasUsed, timeNs);
+     public void traceEndTransaction(WorldView worldView, Transaction transaction, boolean status, Bytes output, List<Log> logs, long gasUsed, Set<Address> selfDestructs, long timeNs) {
+         logger.trace("traceEndTransaction: worldView={} transaction={} status={} output={} logs={} gasUsed={} selfDestructs={} timens={}", worldView, transaction, status, output, logs, gasUsed, selfDestructs, timeNs);
      }
  
      @Override

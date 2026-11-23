@@ -100,7 +100,7 @@ public class SimpleStorageWrappedGetSetTest {
         // The Changed events from the constructor and set are emitted by the embedded contract
         assertEquals(2, logs.size());
         for (var log : logs) {
-            assertEquals(new JsonHex.Address(deployedContract.get().toArray()), log.address());
+            assertEquals(new JsonHex.Address(deployedContract.get().getBytes().toArray()), log.address());
         }
 
         // Get the nonce of the first contract, as that should now be incremented as the deployer of the second

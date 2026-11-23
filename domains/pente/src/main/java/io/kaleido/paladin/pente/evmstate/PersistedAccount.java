@@ -103,7 +103,7 @@ public class PersistedAccount implements Account {
 
     @Override
     public UInt256 getStorageValue(UInt256 k) {
-        Optional<Bytes> v = this.storageTrie.get(Hash.hash(k));
+        Optional<Bytes> v = this.storageTrie.get(storageTrieKey(k));
         return v.map(PersistedAccount::convertBytes32ToUInt256).orElse(UInt256.ZERO);
     }
 
@@ -111,6 +111,10 @@ public class PersistedAccount implements Account {
     public UInt256 getOriginalStorageValue(UInt256 k) {
         // This account is not used to store diffs - so there's no difference in the original
         return this.getStorageValue(k);
+    }
+
+    private static Bytes32 storageTrieKey(final UInt256 key) {
+        return Bytes32.wrap(Hash.hash(key).getBytes());
     }
 
     private static UInt256 convertBytes32ToUInt256(final Bytes value) {
@@ -150,9 +154,9 @@ public class PersistedAccount implements Account {
                 .forEach(
                     (key, value) -> {
                         if (value.isZero()) {
-                            this.storageTrie.remove(Hash.hash(key));
+                            this.storageTrie.remove(storageTrieKey(key));
                         } else {
-                            this.storageTrie.put(Hash.hash(key), convertToBytes32(value));
+                            this.storageTrie.put(storageTrieKey(key), convertToBytes32(value));
                         }
                     });
     }
@@ -198,14 +202,14 @@ public class PersistedAccount implements Account {
             JsonHex.Bytes jsonCode = new JsonHex.Bytes(new byte[0]);
             var codehash = this.getCodeHash();
             if (codehash != null) {
-                jsonCodeHash = new JsonHex.Bytes32(this.getCodeHash().toArray());
+                jsonCodeHash = new JsonHex.Bytes32(this.getCodeHash().getBytes().toArray());
                 jsonCode = new JsonHex.Bytes(this.code.toArray());
             }
             var storageTrieLeafs = new ArrayDeque<JsonHex.Bytes32[]>();
             var jsonAccount = new PersistedAccountJson(
                     "v24.9.0",
                     salt,
-                    new JsonHex.Address(this.address.toArray()),
+                    new JsonHex.Address(this.address.getBytes().toArray()),
                     this.nonce,
                     this.balance.getAsBigInteger(),
                     jsonCodeHash,
@@ -239,7 +243,7 @@ public class PersistedAccount implements Account {
             account.balance = Wei.of(jsonAccount.balance);
             if (!jsonAccount.codeHash.equals(JsonHex.Bytes32.ZERO)) {
                 account.code = Bytes.wrap(jsonAccount.code.getBytes());
-                if (!account.getCodeHash().equals(Bytes.wrap(jsonAccount.codeHash.getBytes()))) {
+                if (!account.getCodeHash().getBytes().equals(Bytes.wrap(jsonAccount.codeHash.getBytes()))) {
                     throw new IllegalArgumentException("code bytes hash mismatch");
                 }
             }

@@ -26,6 +26,7 @@ class PluginClassLoader extends URLClassLoader {
     // packages would log outside that configuration.
     private static final List<String> SHARED_PACKAGES = List.of(
             "org.apache.logging.log4j.",
+            "org.slf4j.",
             "io.kaleido.paladin.logging."
     );
 

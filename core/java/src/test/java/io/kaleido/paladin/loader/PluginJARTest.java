@@ -17,6 +17,7 @@ package io.kaleido.paladin.loader;
 import io.kaleido.paladin.logging.PaladinLogging;
 import org.apache.logging.log4j.LogManager;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.net.URL;
@@ -53,6 +54,7 @@ public class PluginJARTest {
         ClassLoader pluginLoader = PluginJAR.classLoaderFor(PLUGIN_JAR);
         assertSame(LogManager.class, pluginLoader.loadClass(LogManager.class.getName()));
         assertSame(PaladinLogging.class, pluginLoader.loadClass(PaladinLogging.class.getName()));
+        assertSame(LoggerFactory.class, pluginLoader.loadClass(LoggerFactory.class.getName()));
     }
 
     @Test

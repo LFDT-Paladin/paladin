@@ -258,7 +258,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      private String buildDomainData(PenteEVMTransaction.EVMExecutionResult execResult) throws JsonProcessingException, InterruptedException, ExecutionException {
          return new ObjectMapper().writeValueAsString(
                  new PenteConfiguration.DomainData(
-                         new Address(execResult.contractAddress().toArray()),
+                         new Address(execResult.contractAddress().getBytes().toArray()),
                          parseExternalCalls(execResult.logs())));
      }
 
