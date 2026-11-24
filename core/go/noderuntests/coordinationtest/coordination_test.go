@@ -186,7 +186,7 @@ func TestTransactionSuccessAfterStartStopSingleNode(t *testing.T) {
 		EndorsementMode: domains.SelfEndorsement,
 	}
 
-	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob)
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
@@ -290,7 +290,7 @@ func TestTransactionSuccessIfOneNodeStoppedButNotARequiredVerifier(t *testing.T)
 		EndorsementMode: domains.SelfEndorsement,
 	}
 
-	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob)
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
@@ -368,7 +368,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 		EndorsementMode: domains.SelfEndorsement,
 	}
 
-	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob)
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
@@ -462,7 +462,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 		EndorsementMode: domains.SelfEndorsement,
 	}
 
-	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob)
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
@@ -544,7 +544,7 @@ func TestTransactionResumesIfBothRequiredVerifiersAreStoppedBeforeCompletion(t *
 		EndorsementMode: domains.SelfEndorsement,
 	}
 
-	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob)
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
@@ -1962,7 +1962,7 @@ func TestCoordinatorFailover(t *testing.T) {
 		EndorsementSet:       []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
 		EndorsementThreshold: 1, // only one endorsement needed - allows transactions to succeed when one node is down
 	}
-	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob)
 
 	submitTx := func(party testutils.Party) pldclient.SentTransaction {
 		return party.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
