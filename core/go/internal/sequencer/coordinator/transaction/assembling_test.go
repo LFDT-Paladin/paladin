@@ -944,35 +944,37 @@ func Test_validator_IsAssembleRejection_NoMatch(t *testing.T) {
 	assert.False(t, match)
 }
 
-func Test_sendAssembleRequest_CarriesAssembleRequestIDOnly(t *testing.T) {
+func Test_sendAssembleRequest_CarriesCapturedSpentStateIDs(t *testing.T) {
 	ctx := t.Context()
+	mockProvider := coordinatorstateviewmocks.NewProvider(t)
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
+		StateViewProvider(mockProvider).
 		WithCurrentBlockHeight(100).
 		Build()
 
-	// No state data rides the request: the originator pulls candidates and spent state IDs on
-	// demand from the state view captured under the assemble request ID.
 	spentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
-	txn.grapher.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: spentStateID.String()}}, uuid.New())
+	mockProvider.EXPECT().SpentStateIDs(txn.assembleRequestID.String()).Return([]pldtypes.HexBytes{spentStateID}).Once()
 
-	var sentRequestIDs []string
+	var sent []*engineProto.AssembleRequest
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		mock.Anything, txn.originatorNode, mock.Anything,
 	).Run(func(_ context.Context, _ string, msg *engineProto.AssembleRequest) {
-		sentRequestIDs = append(sentRequestIDs, msg.GetAssembleRequestId())
+		sent = append(sent, msg)
 	}).Return(nil).Twice()
 
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
-	require.Len(t, sentRequestIDs, 1)
-	assert.Equal(t, txn.assembleRequestID.String(), sentRequestIDs[0])
+	require.Len(t, sent, 1)
+	assert.Equal(t, txn.assembleRequestID.String(), sent[0].GetAssembleRequestId())
+	assert.Equal(t, [][]byte{spentStateID}, sent[0].GetSpentStateIds())
 
-	// A nudge re-sends under the same assemble request ID, so the frozen view still serves it.
+	// A nudge re-sends the same request: same assemble request ID, same spent state IDs.
 	err = txn.nudgeAssembleRequest(ctx)
 	require.NoError(t, err)
-	require.Len(t, sentRequestIDs, 2)
-	assert.Equal(t, sentRequestIDs[0], sentRequestIDs[1])
+	require.Len(t, sent, 2)
+	assert.Equal(t, sent[0].GetAssembleRequestId(), sent[1].GetAssembleRequestId())
+	assert.Equal(t, [][]byte{spentStateID}, sent[1].GetSpentStateIds())
 }
 
 func Test_action_CaptureGrapherSnapshot_CapturesViewForOriginatorNode(t *testing.T) {

@@ -104,16 +104,13 @@ func (ss *stateManager) NewDomainQueryContextWithRemoteView(ctx context.Context,
 }
 
 // getRemoteSpentStateIDs returns the remote view's spend exclusion set. Returns nil for local-only contexts.
-func (dqc *domainQueryContext) getRemoteSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error) {
+func (dqc *domainQueryContext) getRemoteSpentStateIDs(ctx context.Context) []pldtypes.HexBytes {
 	if dqc.remoteStateView == nil {
-		return nil, nil
+		return nil
 	}
-	spendStateIDs, err := dqc.remoteStateView.GetSpentStateIDs(ctx)
-	if err != nil {
-		return nil, i18n.WrapError(ctx, err, msgs.MsgStateViewSpentIDsFailed)
-	}
+	spendStateIDs := dqc.remoteStateView.GetSpentStateIDs()
 	log.L(ctx).Debugf("Domain context %s applying %d spend exclusions", dqc.id, len(spendStateIDs))
-	return spendStateIDs, nil
+	return spendStateIDs
 }
 
 // ContractAddress returns the contract address this context was opened for.
@@ -368,10 +365,7 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 // availableStatesWithRemoteView reads available states alongside the attached remote view, running the
 // view query concurrently with the DB read and merging the two results.
 func (dqc *domainQueryContext) availableStatesWithRemoteView(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, q *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
-	spentStateIDs, err := dqc.getRemoteSpentStateIDs(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
+	spentStateIDs := dqc.getRemoteSpentStateIDs(ctx)
 	if log.IsTraceEnabled() {
 		log.L(ctx).Tracef("Remote view spend exclusions: %d", len(spentStateIDs))
 		for _, s := range spentStateIDs {
@@ -405,10 +399,7 @@ func (dqc *domainQueryContext) FindAvailableNullifierBackedStates(ctx context.Co
 	ctx = createLogContext(ctx, dqc.domainName, dqc.contractAddress, &schemaID)
 	log.L(ctx).Debugf("FindAvailableNullifierBackedStates query=%s", q)
 
-	spentStateIDs, err := dqc.getRemoteSpentStateIDs(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
+	spentStateIDs := dqc.getRemoteSpentStateIDs(ctx)
 	return dqc.ss.findNullifierBackedStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
 		pldapi.StateStatusConfirmed, spentStateIDs)
 }

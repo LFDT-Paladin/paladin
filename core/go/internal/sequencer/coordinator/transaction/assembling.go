@@ -141,8 +141,14 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// When we first send the request, we start a ticker to emit a requestTimeout event for each tick
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
+	spentStateIDs := t.stateViewProvider.SpentStateIDs(t.assembleRequestID.String())
+	spentIDBytes := make([][]byte, len(spentStateIDs))
+	for i, id := range spentStateIDs {
+		spentIDBytes[i] = id
+	}
 	t.pendingAssembleRequest = common.NewIdempotentRequestWithKey(ctx, t.clock, t.requestTimeout, t.assembleRequestID, func(ctx context.Context, idempotencyKey uuid.UUID) error {
 		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, &engineProto.AssembleRequest{
+			SpentStateIds:          spentIDBytes,
 			TransactionId:          t.pt.ID.String(),
 			AssembleRequestId:      idempotencyKey.String(),
 			ContractAddress:        t.pt.Address.HexString(),

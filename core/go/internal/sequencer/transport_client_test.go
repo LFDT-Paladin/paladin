@@ -144,8 +144,6 @@ func TestHandlePaladinMsg_Routing(t *testing.T) {
 		{"TransactionConfirmed", transport.MessageType_TransactionConfirmed},
 		{"QueryAvailableStatesRequest", transport.MessageType_QueryAvailableStatesRequest},
 		{"QueryAvailableStatesResponse", transport.MessageType_QueryAvailableStatesResponse},
-		{"GetSpentStateIDsRequest", transport.MessageType_GetSpentStateIDsRequest},
-		{"GetSpentStateIDsResponse", transport.MessageType_GetSpentStateIDsResponse},
 		{"StateViewError", transport.MessageType_StateViewError},
 		{"Unknown", "UnknownMessageType"},
 	}
@@ -170,7 +168,7 @@ func TestHandlePaladinMsg_Routing(t *testing.T) {
 }
 
 func TestHandleAssembleRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mocks := newTransportClientTestMocks(t)
 	sm := newSequencerManagerForTransportClientTesting(t, mocks)
 	contractAddr := pldtypes.RandAddress()
@@ -178,12 +176,14 @@ func TestHandleAssembleRequest_Success(t *testing.T) {
 	// Create test data
 	txID := uuid.New()
 	requestID := uuid.New()
+	spentStateID := pldtypes.RandBytes(32)
 
 	assembleRequest := &engineProto.AssembleRequest{
 		TransactionId:          txID.String(),
 		AssembleRequestId:      requestID.String(),
 		ContractAddress:        contractAddr.String(),
 		CoordinatorBlockHeight: 100,
+		SpentStateIds:          [][]byte{spentStateID},
 	}
 	payload, _ := proto.Marshal(assembleRequest)
 
@@ -200,7 +200,8 @@ func TestHandleAssembleRequest_Success(t *testing.T) {
 
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.AssembleRequestReceivedEvent)
-		return ok && event.TransactionID == txID && event.RequestID == requestID
+		return ok && event.TransactionID == txID && event.RequestID == requestID &&
+			assert.Equal(t, []pldtypes.HexBytes{spentStateID}, event.SpentStateIDs)
 	})).Once()
 
 	sm.handleAssembleRequest(ctx, message)
@@ -3013,122 +3014,6 @@ func TestHandleStateViewError_BadPayloadAndAddress(t *testing.T) {
 	})
 }
 
-func TestHandleGetSpentStateIDsRequest_RoutedToCoordinatorProvider(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	request := &engineProto.GetSpentStateIDsRequest{
-		ContractAddress:   contractAddr.String(),
-		RequestId:         "req1",
-		AssembleRequestId: "assemble-1",
-	}
-	payload, _ := proto.Marshal(request)
-	message := &components.ReceivedMessage{
-		FromNode:    "requesting-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_GetSpentStateIDsRequest,
-		Payload:     payload,
-	}
-
-	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
-	sm.sequencers[contractAddr.String()] = seq
-
-	provider := coordinatorstateviewmocks.NewProvider(t)
-	mocks.coordinator.EXPECT().StateViewProvider().Return(provider).Once()
-	provider.EXPECT().HandleGetSpentStateIDs(ctx, "requesting-node", mock.MatchedBy(func(req *engineProto.GetSpentStateIDsRequest) bool {
-		return req.GetRequestId() == "req1" && req.GetAssembleRequestId() == "assemble-1"
-	})).Once()
-
-	sm.handleGetSpentStateIDsRequest(ctx, message)
-}
-
-func TestHandleGetSpentStateIDsRequest_SequencerNotLoaded_BadPayloadAndAddress(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	// No sequencer registered: the message is dropped (never loads a sequencer).
-	payload, _ := proto.Marshal(&engineProto.GetSpentStateIDsRequest{ContractAddress: contractAddr.String(), RequestId: "req1"})
-	sm.handleGetSpentStateIDsRequest(ctx, &components.ReceivedMessage{
-		FromNode: "requesting-node", MessageID: uuid.New(),
-		MessageType: transport.MessageType_GetSpentStateIDsRequest, Payload: payload,
-	})
-
-	sm.handleGetSpentStateIDsRequest(ctx, &components.ReceivedMessage{
-		FromNode: "requesting-node", MessageID: uuid.New(),
-		MessageType: transport.MessageType_GetSpentStateIDsRequest, Payload: []byte("not-a-proto"),
-	})
-
-	payload, _ = proto.Marshal(&engineProto.GetSpentStateIDsRequest{ContractAddress: "not-an-address"})
-	sm.handleGetSpentStateIDsRequest(ctx, &components.ReceivedMessage{
-		FromNode: "requesting-node", MessageID: uuid.New(),
-		MessageType: transport.MessageType_GetSpentStateIDsRequest, Payload: payload,
-	})
-}
-
-func TestHandleGetSpentStateIDsResponse_RoutedToOriginatorReader(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	response := &engineProto.GetSpentStateIDsResponse{
-		ContractAddress: contractAddr.String(),
-		RequestId:       "req1",
-		SpentStateIds:   [][]byte{{0x01, 0x02}},
-	}
-	payload, _ := proto.Marshal(response)
-	message := &components.ReceivedMessage{
-		FromNode:    "coordinator-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_GetSpentStateIDsResponse,
-		Payload:     payload,
-	}
-
-	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
-	sm.sequencers[contractAddr.String()] = seq
-
-	reader := originatorstateviewmocks.NewReader(t)
-	mocks.originator.EXPECT().StateViewReader().Return(reader).Once()
-	reader.EXPECT().HandleGetSpentStateIDsResponse(ctx, "coordinator-node", mock.MatchedBy(func(resp *engineProto.GetSpentStateIDsResponse) bool {
-		return resp.GetRequestId() == "req1" && len(resp.GetSpentStateIds()) == 1
-	})).Once()
-
-	sm.handleGetSpentStateIDsResponse(ctx, message)
-}
-
-func TestHandleGetSpentStateIDsResponse_SequencerNotLoaded_BadPayloadAndAddress(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	payload, _ := proto.Marshal(&engineProto.GetSpentStateIDsResponse{ContractAddress: contractAddr.String(), RequestId: "req1"})
-	sm.handleGetSpentStateIDsResponse(ctx, &components.ReceivedMessage{
-		FromNode: "coordinator-node", MessageID: uuid.New(),
-		MessageType: transport.MessageType_GetSpentStateIDsResponse, Payload: payload,
-	})
-
-	sm.handleGetSpentStateIDsResponse(ctx, &components.ReceivedMessage{
-		FromNode: "coordinator-node", MessageID: uuid.New(),
-		MessageType: transport.MessageType_GetSpentStateIDsResponse, Payload: []byte("not-a-proto"),
-	})
-
-	payload, _ = proto.Marshal(&engineProto.GetSpentStateIDsResponse{ContractAddress: "not-an-address"})
-	sm.handleGetSpentStateIDsResponse(ctx, &components.ReceivedMessage{
-		FromNode: "coordinator-node", MessageID: uuid.New(),
-		MessageType: transport.MessageType_GetSpentStateIDsResponse, Payload: payload,
-	})
-}
-
-// Every ID in a sequencer message is a string a peer node filled in, so one that is not a UUID has to
-// be dropped rather than parsed with uuid.MustParse: these handlers run as bare goroutines with no
-// recover, so a single bad value from any peer would take the node down instead of losing one message.
-// The originator and coordinator mocks are strict and given no expectations, so the test fails if any
-// handler queues an event off a message it should have dropped.
 func TestHandleMessages_UnusableIDs_AreDroppedWithoutQueueingEvents(t *testing.T) {
 	postAssembly := func(result prototk.AssembleTransactionResponse_Result) *prototk.TransactionPostAssembly {
 		return &prototk.TransactionPostAssembly{AssemblyResult: result}

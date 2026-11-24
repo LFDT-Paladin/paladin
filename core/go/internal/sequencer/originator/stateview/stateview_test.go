@@ -88,26 +88,19 @@ func (c *fakeClock) fireTimers() {
 // channel, so tests can synchronise with the request goroutine (and optionally inject send errors).
 type signallingWriter struct {
 	*testutil.SentMessageRecorder
-	sent      chan *engineProto.QueryAvailableStatesRequest
-	sentSpent chan *engineProto.GetSpentStateIDsRequest
-	sendErr   error
+	sent    chan *engineProto.QueryAvailableStatesRequest
+	sendErr error
 }
 
 func newSignallingWriter() *signallingWriter {
 	return &signallingWriter{
 		SentMessageRecorder: testutil.NewSentMessageRecorder(),
 		sent:                make(chan *engineProto.QueryAvailableStatesRequest, 16),
-		sentSpent:           make(chan *engineProto.GetSpentStateIDsRequest, 16),
 	}
 }
 
 func (w *signallingWriter) SendQueryAvailableStatesRequest(_ context.Context, _ string, msg *engineProto.QueryAvailableStatesRequest) error {
 	w.sent <- msg
-	return w.sendErr
-}
-
-func (w *signallingWriter) SendGetSpentStateIDsRequest(_ context.Context, _ string, msg *engineProto.GetSpentStateIDsRequest) error {
-	w.sentSpent <- msg
 	return w.sendErr
 }
 
@@ -135,7 +128,7 @@ func newTestReader(t *testing.T) (Reader, *signallingWriter, *fakeClock) {
 func TestReader_QueryAvailableStates_Success(t *testing.T) {
 	ctx := t.Context()
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1")
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{"eq":[{"field":"amount","value":10}]}`)
 	req := <-writer.sent
@@ -163,7 +156,7 @@ func TestReader_QueryAvailableStates_Success(t *testing.T) {
 func TestReader_QueryAvailableStates_Error(t *testing.T) {
 	ctx := t.Context()
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1")
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req := <-writer.sent
@@ -182,7 +175,7 @@ func TestReader_QueryAvailableStates_Error(t *testing.T) {
 func TestReader_QueryAvailableStates_RetriesSameRequestID(t *testing.T) {
 	ctx := t.Context()
 	r, writer, clock := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1")
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req1 := <-writer.sent
@@ -206,7 +199,7 @@ func TestReader_QueryAvailableStates_SendErrorIsRetried(t *testing.T) {
 	ctx := t.Context()
 	r, writer, clock := newTestReader(t)
 	writer.sendErr = assert.AnError // every send "fails" — the query must keep waiting and retrying
-	querier := r.ForCoordinator("coordinator-node", "assemble-1")
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req1 := <-writer.sent
@@ -226,7 +219,7 @@ func TestReader_QueryAvailableStates_SendErrorIsRetried(t *testing.T) {
 func TestReader_HandleQueryAvailableStatesResponse_WrongNodeDropped(t *testing.T) {
 	ctx := t.Context()
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1")
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req := <-writer.sent
@@ -263,7 +256,7 @@ func TestReader_HandleQueryAvailableStatesResponse_UnknownRequestDropped(t *test
 func TestReader_HandleQueryAvailableStatesResponse_DuplicateDropped(t *testing.T) {
 	ctx := t.Context()
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1")
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req := <-writer.sent
@@ -291,7 +284,7 @@ func TestReader_HandleQueryAvailableStatesResponse_DuplicateDropped(t *testing.T
 func TestReader_QueryAvailableStates_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1")
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	<-writer.sent
@@ -327,131 +320,11 @@ func TestReader_Deliver_DuplicateWithFullBufferDropped(t *testing.T) {
 	}
 }
 
-type spentIDsOutcome struct {
-	ids []pldtypes.HexBytes
-	err error
-}
-
-// startGetSpentStateIDs runs GetSpentStateIDs on a goroutine and returns the channel its outcome
-// arrives on.
-func startGetSpentStateIDs(ctx context.Context, view components.RemoteStateView) chan spentIDsOutcome {
-	done := make(chan spentIDsOutcome, 1)
-	go func() {
-		ids, err := view.GetSpentStateIDs(ctx)
-		done <- spentIDsOutcome{ids: ids, err: err}
-	}()
-	return done
-}
-
-func TestReader_GetSpentStateIDs_Success(t *testing.T) {
-	ctx := t.Context()
+func TestReader_GetSpentStateIDs_FromAssembleRequest(t *testing.T) {
 	r, writer, _ := newTestReader(t)
-	view := r.ForCoordinator("coordinator-node", "assemble-1")
+	spent := []pldtypes.HexBytes{{0x01, 0x02}, {0x03, 0x04}}
+	view := r.ForCoordinator("coordinator-node", "assemble-1", spent)
 
-	done := startGetSpentStateIDs(ctx, view)
-	req := <-writer.sentSpent
-	assert.Equal(t, testContractAddress, req.GetContractAddress())
-	assert.Equal(t, "assemble-1", req.GetAssembleRequestId())
-
-	spentA := []byte{0x01, 0x02}
-	spentB := []byte{0x03, 0x04}
-	r.HandleGetSpentStateIDsResponse(ctx, "coordinator-node", &engineProto.GetSpentStateIDsResponse{
-		RequestId:     req.GetRequestId(),
-		SpentStateIds: [][]byte{spentA, spentB},
-	})
-
-	outcome := <-done
-	require.NoError(t, outcome.err)
-	require.Len(t, outcome.ids, 2)
-	assert.Equal(t, pldtypes.HexBytes(spentA), outcome.ids[0])
-	assert.Equal(t, pldtypes.HexBytes(spentB), outcome.ids[1])
-}
-
-func TestReader_GetSpentStateIDs_CachedAfterFirstFetch(t *testing.T) {
-	ctx := t.Context()
-	r, writer, _ := newTestReader(t)
-	view := r.ForCoordinator("coordinator-node", "assemble-1")
-
-	done := startGetSpentStateIDs(ctx, view)
-	req := <-writer.sentSpent
-
-	spentA := []byte{0x01, 0x02}
-	r.HandleGetSpentStateIDsResponse(ctx, "coordinator-node", &engineProto.GetSpentStateIDsResponse{
-		RequestId:     req.GetRequestId(),
-		SpentStateIds: [][]byte{spentA},
-	})
-	outcome := <-done
-	require.NoError(t, outcome.err)
-	require.Len(t, outcome.ids, 1)
-
-	// A second call returns the cached set synchronously, without sending another request.
-	ids, err := view.GetSpentStateIDs(ctx)
-	require.NoError(t, err)
-	require.Len(t, ids, 1)
-	assert.Equal(t, pldtypes.HexBytes(spentA), ids[0])
-	select {
-	case <-writer.sentSpent:
-		t.Fatal("second GetSpentStateIDs must not send another request")
-	default:
-	}
-}
-
-func TestReader_GetSpentStateIDs_ErrorFailsFast(t *testing.T) {
-	ctx := t.Context()
-	r, writer, _ := newTestReader(t)
-	view := r.ForCoordinator("coordinator-node", "assemble-1")
-
-	done := startGetSpentStateIDs(ctx, view)
-	req := <-writer.sentSpent
-
-	r.HandleError(ctx, "coordinator-node", &engineProto.StateViewError{
-		RequestId:    req.GetRequestId(),
-		ErrorMessage: "no such assemble",
-	})
-
-	outcome := <-done
-	require.ErrorContains(t, outcome.err, "PD012651")
-	require.ErrorContains(t, outcome.err, "no such assemble")
-}
-
-func TestReader_GetSpentStateIDs_ContextCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	r, writer, _ := newTestReader(t)
-	view := r.ForCoordinator("coordinator-node", "assemble-1")
-
-	done := startGetSpentStateIDs(ctx, view)
-	<-writer.sentSpent
-	cancel()
-
-	outcome := <-done
-	require.ErrorIs(t, outcome.err, context.Canceled)
-	assert.Nil(t, outcome.ids)
-}
-
-func TestReader_GetSpentStateIDs_WrongNodeResponseDropped(t *testing.T) {
-	ctx := t.Context()
-	r, writer, _ := newTestReader(t)
-	view := r.ForCoordinator("coordinator-node", "assemble-1")
-
-	done := startGetSpentStateIDs(ctx, view)
-	req := <-writer.sentSpent
-
-	// A response from any node other than the one the request was sent to is dropped; the
-	// request keeps waiting until the real coordinator answers.
-	r.HandleGetSpentStateIDsResponse(ctx, "impostor-node", &engineProto.GetSpentStateIDsResponse{
-		RequestId:     req.GetRequestId(),
-		SpentStateIds: [][]byte{{0xff}},
-	})
-	select {
-	case <-done:
-		t.Fatal("response from the wrong node must not complete the request")
-	default:
-	}
-
-	r.HandleGetSpentStateIDsResponse(ctx, "coordinator-node", &engineProto.GetSpentStateIDsResponse{
-		RequestId: req.GetRequestId(),
-	})
-	outcome := <-done
-	require.NoError(t, outcome.err)
-	assert.Empty(t, outcome.ids)
+	assert.Equal(t, spent, view.GetSpentStateIDs())
+	assert.Empty(t, writer.sent)
 }

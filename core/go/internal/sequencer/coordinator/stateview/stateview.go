@@ -17,9 +17,9 @@
 // Package stateview answers an assembling originator's on-demand reads of the coordinator's
 // ahead-of-chain view. Instead of shipping that view on the assemble request, the coordinator
 // opens a view when the request is sent, capturing a point in time: the candidate
-// states visible to the originator plus the IDs of the states already spend-locked. Two request
-// kinds are answered from that captured view — queries against the available created states, and
-// fetching the spent state ID list. Requests, responses and errors are routed directly between the
+// states visible to the originator plus the IDs of the states already spend-locked. The spent
+// state IDs travel on the assemble request; queries against the available created states are
+// answered from the captured view. Requests, responses and errors are routed directly between the
 // transport handler and here — entirely off both event loops. The originator side of the exchange
 // lives in sequencer/originator/stateview.
 package stateview
@@ -52,6 +52,9 @@ type Provider interface {
 	// node is the only node permitted to query against it.
 	CaptureSnapshot(ctx context.Context, assembleRequestID string, node string)
 
+	// SpentStateIDs returns the spent state IDs of the view captured for the assemble, or nil if absent.
+	SpentStateIDs(assembleRequestID string) []pldtypes.HexBytes
+
 	// DeleteSnapshot discards the captured view. No-op if absent.
 	DeleteSnapshot(ctx context.Context, assembleRequestID string)
 
@@ -60,11 +63,6 @@ type Provider interface {
 	// single StateViewError for the whole request. fromNode is the transport-authenticated sender and must
 	// be the node the view was captured for.
 	HandleQueryAvailableStates(ctx context.Context, fromNode string, req *engineProto.QueryAvailableStatesRequest)
-
-	// HandleGetSpentStateIDs serves the captured spent state ID list, replying with a
-	// GetSpentStateIDsResponse or a StateViewError. The same sender rules apply as
-	// HandleQueryAvailableStates.
-	HandleGetSpentStateIDs(ctx context.Context, fromNode string, req *engineProto.GetSpentStateIDsRequest)
 }
 
 type capturedView struct {
@@ -105,6 +103,15 @@ func (p *provider) CaptureSnapshot(ctx context.Context, assembleRequestID string
 	candidates, spentStateIDs := p.grapher.SnapshotView(ctx, node)
 	log.L(ctx).Debugf("stateview provider: open view for assemble request %s for node %s with %d candidate states and %d spent state IDs", assembleRequestID, node, len(candidates), len(spentStateIDs))
 	p.views[assembleRequestID] = &capturedView{node: node, candidates: candidates, spentStateIDs: spentStateIDs}
+}
+
+func (p *provider) SpentStateIDs(assembleRequestID string) []pldtypes.HexBytes {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if v := p.views[assembleRequestID]; v != nil {
+		return v.spentStateIDs
+	}
+	return nil
 }
 
 func (p *provider) DeleteSnapshot(ctx context.Context, assembleRequestID string) {
@@ -164,29 +171,6 @@ func (p *provider) HandleQueryAvailableStates(ctx context.Context, fromNode stri
 	}); err != nil {
 		// Fire-and-forget: the reader re-sends the same request ID until it gets a response.
 		log.L(ctx).Warnf("stateview provider: failed to send query available states response to %s: %s", fromNode, err)
-	}
-}
-
-func (p *provider) HandleGetSpentStateIDs(ctx context.Context, fromNode string, req *engineProto.GetSpentStateIDsRequest) {
-	view, err := p.lookupView(ctx, fromNode, req.GetAssembleRequestId())
-	if err != nil {
-		p.sendError(ctx, fromNode, req.GetRequestId(), err)
-		return
-	}
-
-	spentStateIDs := make([][]byte, len(view.spentStateIDs))
-	for i, id := range view.spentStateIDs {
-		spentStateIDs[i] = id
-	}
-
-	log.L(ctx).Debugf("stateview provider: serving %d spent state IDs for request %s from %s", len(spentStateIDs), req.GetRequestId(), fromNode)
-	if err := p.transportWriter.SendGetSpentStateIDsResponse(ctx, fromNode, &engineProto.GetSpentStateIDsResponse{
-		ContractAddress: p.contractAddress,
-		RequestId:       req.GetRequestId(),
-		SpentStateIds:   spentStateIDs,
-	}); err != nil {
-		// Fire-and-forget: the reader re-sends the same request ID until it gets a response.
-		log.L(ctx).Warnf("stateview provider: failed to send get spent state IDs response to %s: %s", fromNode, err)
 	}
 }
 

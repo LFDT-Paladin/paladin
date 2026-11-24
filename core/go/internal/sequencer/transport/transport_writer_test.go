@@ -3486,51 +3486,6 @@ func TestSendQueryAvailableStatesResponse_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestSendGetSpentStateIDsRequest_Success(t *testing.T) {
-	ctx := context.Background()
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-
-	mockTM := componentsmocks.NewTransportManager(t)
-	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
-	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
-		if msg.MessageType != MessageType_GetSpentStateIDsRequest || msg.Node != "coordinator-node" {
-			return false
-		}
-		var req engineProto.GetSpentStateIDsRequest
-		return proto.Unmarshal(msg.Payload, &req) == nil && req.RequestId == "req1" && req.AssembleRequestId == "assemble-1"
-	})).Return(nil)
-
-	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
-
-	err := tw.SendGetSpentStateIDsRequest(ctx, "coordinator-node", &engineProto.GetSpentStateIDsRequest{RequestId: "req1", AssembleRequestId: "assemble-1"})
-	require.NoError(t, err)
-}
-
-func TestSendGetSpentStateIDsResponse_Success(t *testing.T) {
-	ctx := context.Background()
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-
-	mockTM := componentsmocks.NewTransportManager(t)
-	mockLT := sequencertransportmocks.NewLoopbackTransportManager(t)
-	mockTM.On("LocalNodeName").Return("local-node").Maybe()
-	mockTM.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
-		if msg.MessageType != MessageType_GetSpentStateIDsResponse || msg.Node != "originator-node" {
-			return false
-		}
-		var resp engineProto.GetSpentStateIDsResponse
-		return proto.Unmarshal(msg.Payload, &resp) == nil && resp.RequestId == "req1" && len(resp.SpentStateIds) == 1
-	})).Return(nil)
-
-	tw := &transportWriter{ctx: ctx, nodeID: "local-node", transportManager: mockTM, loopbackTransport: mockLT, contractAddress: contractAddress}
-
-	err := tw.SendGetSpentStateIDsResponse(ctx, "originator-node", &engineProto.GetSpentStateIDsResponse{
-		RequestId:     "req1",
-		SpentStateIds: [][]byte{{0x01, 0x02}},
-	})
-	require.NoError(t, err)
-}
-
 func TestSendStateViewError_Success(t *testing.T) {
 	ctx := context.Background()
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")

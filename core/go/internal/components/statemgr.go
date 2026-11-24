@@ -91,7 +91,7 @@ type StateManager interface {
 // returned by QueryAvailableStates against the claimed state IDs — the source is not trusted.
 type RemoteStateView interface {
 	QueryAvailableStates(ctx context.Context, schemaID string, queryJSON string) ([]*prototk.QueriedState, error)
-	GetSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error)
+	GetSpentStateIDs() []pldtypes.HexBytes
 }
 
 type PendingPrivateStateDataEntry struct {
