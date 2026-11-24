@@ -177,7 +177,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 			Function: "mint",
 			Data: toJSON(t, &types.MintParams{
 				To:     notaryName,
-				Amount: pldtypes.Int64ToInt256(100),
+				Amount: pldtypes.Uint64ToUint256(100),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -211,7 +211,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 			Function: "mint",
 			Data: toJSON(t, &types.MintParams{
 				To:     recipient1Name,
-				Amount: pldtypes.Int64ToInt256(100),
+				Amount: pldtypes.Uint64ToUint256(100),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -230,7 +230,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 			Function: "transfer",
 			Data: toJSON(t, &types.TransferParams{
 				To:     recipient1Name,
-				Amount: pldtypes.Int64ToInt256(150),
+				Amount: pldtypes.Uint64ToUint256(150),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -249,7 +249,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 			Function: "transfer",
 			Data: toJSON(t, &types.TransferParams{
 				To:     recipient1Name,
-				Amount: pldtypes.Int64ToInt256(50),
+				Amount: pldtypes.Uint64ToUint256(50),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -283,7 +283,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 			Function: "transfer",
 			Data: toJSON(t, &types.TransferParams{
 				To:     recipient2Name,
-				Amount: pldtypes.Int64ToInt256(50),
+				Amount: pldtypes.Uint64ToUint256(50),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -316,7 +316,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 			To:       noto.Address,
 			Function: "burn",
 			Data: toJSON(t, &types.BurnParams{
-				Amount: pldtypes.Int64ToInt256(25),
+				Amount: pldtypes.Uint64ToUint256(25),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -391,7 +391,7 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 			Function: "mint",
 			Data: toJSON(t, &types.MintParams{
 				To:     recipient1Name,
-				Amount: pldtypes.Int64ToInt256(100),
+				Amount: pldtypes.Uint64ToUint256(100),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -423,7 +423,7 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 			To:       noto.Address,
 			Function: "lock",
 			Data: toJSON(t, &types.LockParams{
-				Amount: pldtypes.Int64ToInt256(50),
+				Amount: pldtypes.Uint64ToUint256(50),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -454,7 +454,7 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 			Function: "transfer",
 			Data: toJSON(t, &types.TransferParams{
 				To:     recipient2Name,
-				Amount: pldtypes.Int64ToInt256(50),
+				Amount: pldtypes.Uint64ToUint256(50),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -492,7 +492,7 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 					From:   recipient1Name,
 					Recipients: []*types.UnlockRecipient{{
 						To:     recipient2Name,
-						Amount: pldtypes.Int64ToInt256(50),
+						Amount: pldtypes.Uint64ToUint256(50),
 					}},
 					Data: prepareTxData,
 				},
@@ -736,7 +736,7 @@ func (s *notoTestSuite) TestNotoCreateMintLock() {
 				Recipients: []*types.UnlockRecipient{
 					{
 						To:     recipient1Name,
-						Amount: pldtypes.Int64ToInt256(50),
+						Amount: pldtypes.Uint64ToUint256(50),
 					},
 				},
 				Data: pldtypes.HexBytes{},
@@ -822,7 +822,7 @@ func (s *notoTestSuite) TestNotoCreateBurnLock() {
 			Function: "mint",
 			Data: toJSON(t, &types.MintParams{
 				To:     recipient1Name,
-				Amount: pldtypes.Int64ToInt256(100),
+				Amount: pldtypes.Uint64ToUint256(100),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -844,7 +844,7 @@ func (s *notoTestSuite) TestNotoCreateBurnLock() {
 			Function: "createBurnLock",
 			Data: toJSON(t, &types.CreateBurnLockParams{
 				From:   recipient1Name,
-				Amount: pldtypes.Int64ToInt256(50),
+				Amount: pldtypes.Uint64ToUint256(50),
 				Data:   pldtypes.HexBytes{},
 			}),
 		},
@@ -941,7 +941,7 @@ func (s *notoTestSuite) TestNotoPrepareMintUnlock() {
 			To:       noto.Address,
 			Function: "lock",
 			Data: toJSON(t, &types.LockParams{
-				Amount: pldtypes.Int64ToInt256(0),
+				Amount: pldtypes.Uint64ToUint256(0),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -971,7 +971,7 @@ func (s *notoTestSuite) TestNotoPrepareMintUnlock() {
 				Recipients: []*types.UnlockRecipient{
 					{
 						To:     recipient1Name,
-						Amount: pldtypes.Int64ToInt256(50),
+						Amount: pldtypes.Uint64ToUint256(50),
 					},
 				},
 				Data: pldtypes.HexBytes{},
@@ -1065,7 +1065,7 @@ func (s *notoTestSuite) TestNotoPrepareBurnUnlock() {
 			Function: "mint",
 			Data: toJSON(t, &types.MintParams{
 				To:     recipient1Name,
-				Amount: pldtypes.Int64ToInt256(100),
+				Amount: pldtypes.Uint64ToUint256(100),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -1083,7 +1083,7 @@ func (s *notoTestSuite) TestNotoPrepareBurnUnlock() {
 			To:       noto.Address,
 			Function: "lock",
 			Data: toJSON(t, &types.LockParams{
-				Amount: pldtypes.Int64ToInt256(50),
+				Amount: pldtypes.Uint64ToUint256(50),
 			}),
 		},
 		ABI: types.NotoABI,
@@ -1117,7 +1117,7 @@ func (s *notoTestSuite) TestNotoPrepareBurnUnlock() {
 			Data: toJSON(t, &types.PrepareBurnUnlockParams{
 				LockID: lockReceipt.LockInfo.LockID,
 				From:   recipient1Name,
-				Amount: pldtypes.Int64ToInt256(50),
+				Amount: pldtypes.Uint64ToUint256(50),
 				Data:   pldtypes.HexBytes{},
 			}),
 		},
