@@ -1241,6 +1241,55 @@ func TestSnapshotView_ImportedLocks(t *testing.T) {
 	assert.Equal(t, []pldtypes.HexBytes{spent}, spentStateIDs)
 }
 
+func TestSnapshotView_SpentStateIDsOnlyForNodesThatMayHoldThem(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	minterID := uuid.New()
+	consumerID := uuid.New()
+	shared := pldtypes.MustParseHexBytes("0x" + strings.Repeat("61", 32))
+	node1Only := pldtypes.MustParseHexBytes("0x" + strings.Repeat("62", 32))
+	undistributed := pldtypes.MustParseHexBytes("0x" + strings.Repeat("63", 32))
+
+	seedLabelledState(g, shared, "node1", "node2")
+	seedLabelledState(g, node1Only, "node1")
+	g.LockMintsOnCreate(ctx, endorsable(shared, node1Only), minterID)
+	g.LockMintsOnReadAndSpend(ctx, nil, endorsable(shared, node1Only, undistributed), consumerID)
+
+	_, node1Spent := g.SnapshotView(ctx, "node1")
+	assert.ElementsMatch(t, []pldtypes.HexBytes{shared, node1Only, undistributed}, node1Spent)
+	_, node2Spent := g.SnapshotView(ctx, "node2")
+	assert.ElementsMatch(t, []pldtypes.HexBytes{shared, undistributed}, node2Spent, "a state not distributed to node2 needs no exclusion there")
+
+	g.ForgetTransactionAndLocks(ctx, consumerID)
+	_, node1Spent = g.SnapshotView(ctx, "node1")
+	assert.Empty(t, node1Spent)
+	_, node2Spent = g.SnapshotView(ctx, "node2")
+	assert.Empty(t, node2Spent)
+}
+
+func TestSnapshotView_ImportedSpendLockFiledUnderImportedStateNodes(t *testing.T) {
+	ctx := t.Context()
+	g := testGrapherUnlocked(t)
+	spent := pldtypes.MustParseHexBytes("0x" + strings.Repeat("64", 32))
+	confirmedAt := uint64(100)
+
+	g.ImportStatesAndLocks(ctx, &prototk.StateSnapshot{
+		States: []*prototk.SnapshotState{{
+			State:        &prototk.EndorsableState{Id: spent.String()},
+			AllowedNodes: []string{"node1"},
+		}},
+		Locks: []*prototk.SnapshotStateLock{
+			{StateId: spent.String(), Type: prototk.SnapshotStateLock_SPEND, ConfirmedAtBlock: &confirmedAt},
+			{StateId: spent.String(), Type: prototk.SnapshotStateLock_CREATE, ConfirmedAtBlock: &confirmedAt},
+		},
+	})
+
+	_, node1Spent := g.SnapshotView(ctx, "node1")
+	assert.Equal(t, []pldtypes.HexBytes{spent}, node1Spent)
+	_, node2Spent := g.SnapshotView(ctx, "node2")
+	assert.Empty(t, node2Spent)
+}
+
 func TestUnlabelledStateNeverAdvertised(t *testing.T) {
 	ctx := t.Context()
 	g := testGrapherUnlocked(t)

@@ -54,6 +54,10 @@ type StateVisibilityStore interface {
 	// GetByIDForNode returns the state with this ID if GetForNode would include it, or nil.
 	GetByIDForNode(stateID string, node string) *prototk.SnapshotState
 
+	// AllowedNodes returns the nodes the state's private data is distributed to, or nil when the store holds no
+	// known distribution for it.
+	AllowedNodes(stateID string) []string
+
 	// ImportIfAbsent records state only if no entry already exists for stateID.
 	// Existing entries always take precedence — a coordinator's own knowledge must never be
 	// overwritten by a handover import. Returns true if the state was stored.
@@ -124,6 +128,12 @@ func (s *store) GetByIDForNode(stateID string, node string) *prototk.SnapshotSta
 		return snapshot
 	}
 	return nil
+}
+
+func (s *store) AllowedNodes(stateID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.statesByID[stateID].GetAllowedNodes()
 }
 
 func (s *store) ImportIfAbsent(stateID string, state *prototk.SnapshotState) bool {

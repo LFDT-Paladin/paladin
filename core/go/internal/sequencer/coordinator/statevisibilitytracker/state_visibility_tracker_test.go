@@ -336,6 +336,22 @@ func TestGetByIDForNode_FiltersByNodeAndLabelPresence(t *testing.T) {
 	assert.Nil(t, s.GetByIDForNode(testStateID("bb").String(), "node1"), "an unknown state is not visible")
 }
 
+func TestAllowedNodes_DistributionOrNilWhenUnknown(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore()
+	distributed := testStateID("bc")
+	undistributed := testStateID("bd")
+
+	record(ctx, s,
+		output(endorsableState(distributed), []string{"alice@node1", "bob@node2"}, nil),
+		output(endorsableState(undistributed), nil, nil),
+	)
+
+	assert.ElementsMatch(t, []string{"node1", "node2"}, s.AllowedNodes(distributed.String()))
+	assert.Nil(t, s.AllowedNodes(undistributed.String()))
+	assert.Nil(t, s.AllowedNodes(testStateID("be").String()), "an unknown state has no known distribution")
+}
+
 // --- ImportIfAbsent — coordinator handover safety ---
 
 func TestImportIfAbsent_StoresWhenAbsent(t *testing.T) {
