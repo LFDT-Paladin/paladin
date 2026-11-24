@@ -8,7 +8,7 @@ import {IERC8316} from "../domains/interfaces/IERC8316.sol";
 
 /**
  * @title AtomicLockSettler
- * @dev Atomically spends or cancels a set of IERC8316 locks.
+ * @dev Atomically spends or cancels a set of ERC-8316 locks.
  */
 contract AtomicLockSettler is
     Initializable,

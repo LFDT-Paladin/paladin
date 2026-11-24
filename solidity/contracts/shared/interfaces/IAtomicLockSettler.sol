@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
  * @title IAtomicLockSettler
  * @dev Interface for an atomic lock settler.
  *      An atomic lock settler is a contract that can spend or cancel a set
- *      of IERC8316 locks atomically. All locks can be delegated
+ *      of ERC-8316 locks atomically. All locks can be delegated
  *      to the atomic lock settler, which will then spend or cancel them
  *      together.
  */
