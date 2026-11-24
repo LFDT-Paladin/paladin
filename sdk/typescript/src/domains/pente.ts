@@ -1,5 +1,4 @@
 import { ethers } from "ethers";
-import { TransactionType } from "../interfaces";
 import {
   IPrivacyGroup,
   IPrivacyGroupEVMCall,
@@ -55,17 +54,21 @@ export interface PenteApproveTransitionParams {
 
 // Represents an in-flight Pente privacy group deployment
 export class PentePrivacyGroupFuture {
-  public tx: Promise<TransactionFuture | undefined>;
+  private _tx?: Promise<TransactionFuture | undefined>;
 
   constructor(
     private paladin: PaladinClient,
-    private group: IPrivacyGroup | Promise<IPrivacyGroup>
-  ) {
-    this.tx = Promise.resolve(group).then((group) =>
+    private group: IPrivacyGroup | Promise<IPrivacyGroup>,
+  ) {}
+
+  get tx(): Promise<TransactionFuture | undefined> {
+    // Lazy getter (don't wait on group unless tx is requested)
+    this._tx ??= Promise.resolve(this.group).then((group) =>
       group.genesisTransaction
-        ? new TransactionFuture(paladin, group.genesisTransaction)
-        : undefined
+        ? new TransactionFuture(this.paladin, group.genesisTransaction)
+        : undefined,
     );
+    return this._tx;
   }
 
   async waitForReceipt(waitMs?: number, full = false) {
@@ -84,7 +87,10 @@ export class PentePrivacyGroupFuture {
 }
 
 export class PenteFactory {
-  constructor(private paladin: PaladinClient, public readonly domain: string) {}
+  constructor(
+    private paladin: PaladinClient,
+    public readonly domain: string,
+  ) {}
 
   using(paladin: PaladinClient) {
     return new PenteFactory(paladin, this.domain);
@@ -104,17 +110,17 @@ export class PenteFactory {
             input.externalCallsEnabled === true
               ? "true"
               : input.externalCallsEnabled === false
-              ? "false"
-              : undefined,
+                ? "false"
+                : undefined,
         },
-      })
+      }),
     );
   }
 
   async resumePrivacyGroup(input: IPrivacyGroupResume) {
     const existingGroup = await this.paladin.pgroup.getGroupById(
       this.domain,
-      input.id
+      input.id,
     );
     return existingGroup?.contractAddress
       ? new PentePrivacyGroup(this.paladin, existingGroup)
@@ -129,11 +135,11 @@ export class PentePrivacyGroup {
 
   constructor(
     private paladin: PaladinClient,
-    public readonly group: IPrivacyGroup
+    public readonly group: IPrivacyGroup,
   ) {
     if (group.contractAddress === undefined) {
       throw new Error(
-        `Supplied group '${group.id}' is missing a contract address. Check transaction ${group.genesisTransaction}`
+        `Supplied group '${group.id}' is missing a contract address. Check transaction ${group.genesisTransaction}`,
       );
     }
     this.address = group.contractAddress;
@@ -148,7 +154,7 @@ export class PentePrivacyGroup {
   deploy(params: PenteDeploy, txOptions?: Partial<IPrivacyGroupEVMTXInput>) {
     // Find the constructor in the ABI
     const constructor: ethers.JsonFragment = params.abi.find(
-      (entry) => entry.type === "constructor"
+      (entry) => entry.type === "constructor",
     ) || { type: "constructor", inputs: [] };
 
     const transaction: IPrivacyGroupEVMTXInput = {
@@ -163,14 +169,14 @@ export class PentePrivacyGroup {
 
     return new PentePrivateDeployFuture(
       this.paladin,
-      this.paladin.pgroup.sendTransaction(transaction)
+      this.paladin.pgroup.sendTransaction(transaction),
     );
   }
 
   // sendTransaction functions in the contract (write)
   sendTransaction(
     transaction: PenteGroupTransactionInput,
-    txOptions?: Partial<IPrivacyGroupEVMTXInput>
+    txOptions?: Partial<IPrivacyGroupEVMTXInput>,
   ) {
     return new TransactionFuture(
       this.paladin,
@@ -182,14 +188,14 @@ export class PentePrivacyGroup {
         to: transaction.to,
         input: transaction.data,
         function: transaction.methodAbi,
-      })
+      }),
     );
   }
 
   // call functions in the contract (read-only)
   async call(
     transaction: PenteGroupTransactionInput,
-    txOptions?: Partial<IPrivacyGroupEVMCall>
+    txOptions?: Partial<IPrivacyGroupEVMCall>,
   ) {
     return this.paladin.pgroup.call({
       ...txOptions,
@@ -218,19 +224,19 @@ export abstract class PentePrivateContract<ConstructorParams> {
   constructor(
     protected evm: PentePrivacyGroup,
     protected abi: ReadonlyArray<ethers.JsonFragment>,
-    public readonly address: string
+    public readonly address: string,
   ) {}
 
   abstract using(
-    paladin: PaladinClient
+    paladin: PaladinClient,
   ): PentePrivateContract<ConstructorParams>;
 
   sendTransaction(
     transaction: PenteContractTransactionInput,
-    txOptions?: Partial<IPrivacyGroupEVMTXInput>
+    txOptions?: Partial<IPrivacyGroupEVMTXInput>,
   ) {
     const method = this.abi.find(
-      (entry) => entry.name === transaction.function
+      (entry) => entry.name === transaction.function,
     );
     if (method === undefined) {
       throw new Error(`Method '${transaction.function}' not found`);
@@ -242,16 +248,16 @@ export abstract class PentePrivateContract<ConstructorParams> {
         methodAbi: method,
         data: transaction.data ?? [],
       },
-      txOptions
+      txOptions,
     );
   }
 
   call(
     transaction: PenteContractTransactionInput,
-    txOptions?: Partial<IPrivacyGroupEVMCall>
+    txOptions?: Partial<IPrivacyGroupEVMCall>,
   ) {
     const method = this.abi.find(
-      (entry) => entry.name === transaction.function
+      (entry) => entry.name === transaction.function,
     );
     if (method === undefined) {
       throw new Error(`Method '${transaction.function}' not found`);
@@ -263,7 +269,7 @@ export abstract class PentePrivateContract<ConstructorParams> {
         methodAbi: method,
         data: transaction.data ?? [],
       },
-      txOptions
+      txOptions,
     );
   }
 }

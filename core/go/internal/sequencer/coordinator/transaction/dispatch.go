@@ -100,9 +100,24 @@ func action_QueuePreparedDispatch(ctx context.Context, t *coordinatorTransaction
 		}
 	}
 	t.enqueueForDispatch(ctx, t, e.PendingDispatch)
+	if log.IsTraceEnabled() {
+		t.traceDispatch(ctx)
+	}
 	// post assembly data is large and no longer needed once the dispatch is prepared
 	t.pt.CleanUpPostAssemblyData()
 	return nil
+}
+
+func (t *coordinatorTransaction) traceDispatch(ctx context.Context) {
+	// Log transaction signatures
+	for _, signature := range t.pt.PostAssembly.AssembleResponse.GetSignatures() {
+		log.L(ctx).Tracef("Transaction %s has signature %+v", t.pt.ID.String(), signature)
+	}
+
+	// Log transaction endorsements
+	for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
+		log.L(ctx).Tracef("Transaction %s has endorsement %+v", t.pt.ID.String(), endorsement)
+	}
 }
 
 // prepareAndBuildDispatch runs off the coordinator event loop. The private transaction is only ever read:

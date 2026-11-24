@@ -590,6 +590,56 @@ func (s *notoTestSuite) testNotoLock(version, variant string) {
 	assert.Equal(t, recipient2Key, coins[0].Data.Owner.String())
 	assert.Equal(t, int64(50), coins[1].Data.Amount.Int().Int64())
 	assert.Equal(t, recipient2Key, coins[1].Data.Owner.String())
+
+	log.L(ctx).Infof("Lock 30 from recipient2")
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			From:     recipient2Name,
+			To:       noto.Address,
+			Function: "lock",
+			Data: toJSON(t, &types.LockParams{
+				Amount: pldtypes.Int64ToInt256(30),
+			}),
+		},
+		ABI: types.NotoABI,
+	}, false)
+	require.NoError(t, rpcerr)
+
+	lock2Receipt := <-notoReceipts
+	require.NotNil(t, lock2Receipt.LockInfo)
+
+	log.L(ctx).Infof("Unlock 30 directly from recipient2 to recipient1")
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			From:     recipient2Name,
+			To:       noto.Address,
+			Function: "unlock",
+			Data: toJSON(t, &types.UnlockParams{
+				LockID: lock2Receipt.LockInfo.LockID,
+				From:   recipient2Name,
+				Recipients: []*types.UnlockRecipient{{
+					To:     recipient1Name,
+					Amount: pldtypes.Int64ToInt256(30),
+				}},
+				Data: pldtypes.RandBytes(16),
+			}),
+		},
+		ABI: types.NotoABI,
+	}, false)
+	require.NoError(t, rpcerr)
+
+	directUnlockReceipt := <-notoReceipts
+	require.Len(t, directUnlockReceipt.Transfers, 1)
+	assert.Equal(t, int64(30), directUnlockReceipt.Transfers[0].Amount.Int().Int64())
+	assert.Equal(t, recipient1Key, directUnlockReceipt.Transfers[0].To.String())
+
+	findAvailableCoins(t, ctx, paladinClient, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil, func(coins []*types.NotoLockedCoinState) bool {
+		return len(coins) == 0
+	})
+	balanceOfResult = noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient1Name}).SignAndCall(notaryName).Wait()
+	assert.Equal(t, "30", balanceOfResult["totalBalance"].(string), "Balance of recipient1 should be 30")
+	balanceOfResult = noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient2Name}).SignAndCall(notaryName).Wait()
+	assert.Equal(t, "70", balanceOfResult["totalBalance"].(string), "Balance of recipient2 should be 70")
 }
 
 type notoReceiptWithTXID struct {

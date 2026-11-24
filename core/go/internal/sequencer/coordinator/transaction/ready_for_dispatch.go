@@ -84,23 +84,7 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	return false
 }
 
-func (t *coordinatorTransaction) traceDispatch(ctx context.Context) {
-	// Log transaction signatures
-	for _, signature := range t.pt.PostAssembly.AssembleResponse.GetSignatures() {
-		log.L(ctx).Tracef("Transaction %s has signature %+v", t.pt.ID.String(), signature)
-	}
-
-	// Log transaction endorsements
-	for _, endorsement := range t.pt.PostAssembly.CollectedEndorsements {
-		log.L(ctx).Tracef("Transaction %s has endorsement %+v", t.pt.ID.String(), endorsement)
-	}
-}
-
 func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context) error {
-	if log.IsTraceEnabled() {
-		t.traceDispatch(ctx)
-	}
-
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
 	for _, dependentId := range append(t.grapher.GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)...) {

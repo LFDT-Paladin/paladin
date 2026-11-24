@@ -1,9 +1,9 @@
 name: Retag Images
 
+# packages:write is required for re-taggng images
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 on:
   workflow_call:
