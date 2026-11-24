@@ -22,7 +22,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 func Test_calculateCoordinatorPriorities_SingleNodeInPool_SetsPriorityList(t *testing.T) {
@@ -110,17 +109,15 @@ func Test_calculateCoordinatorPriorities_SenderMode_NoOp(t *testing.T) {
 	assert.Empty(t, c.coordinatorPriorityList, "SENDER mode must not compute a priority list")
 }
 
-func Test_refreshBlockHeight_SetsEffectiveBlockHeight(t *testing.T) {
-	ctx := context.Background()
-	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
+func Test_setBlockHeight_SetsEffectiveBlockHeight(t *testing.T) {
+	ctx := t.Context()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
 		EndorserCandidates("node1").
 		CoordinatorSelectionBlockRange(100).
 		CoordinatorSelectionMode(prototk.ContractConfig_COORDINATOR_ENDORSER).
 		Build()
 
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(1000))
-
-	c.refreshBlockHeight(ctx)
+	c.setBlockHeight(ctx, 1000)
 	assert.Equal(t, int64(1000), c.currentBlockHeight)
 	assert.Equal(t, uint64(1000), c.effectiveBlockHeight)
 }

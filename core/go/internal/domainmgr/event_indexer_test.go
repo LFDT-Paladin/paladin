@@ -291,7 +291,7 @@ func TestHandleEventBatch(t *testing.T) {
 			return true
 		})).Return(nil)
 
-		mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
+		mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, "test1", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
 			sequencerNotified <- struct{}{}
 		}).Return(nil)
 
@@ -392,6 +392,7 @@ func TestHandleEventBatch(t *testing.T) {
 		})
 	})
 	require.NoError(t, err)
+	d.enqueueCheckpoint(event2.BlockNumber)
 
 	_, err = req.Wait()
 	require.NoError(t, err)
@@ -1177,7 +1178,7 @@ func TestHandleEventBatchPendingPrivateStateData(t *testing.T) {
 		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		mc.stateStore.On("WritePendingPrivateStateDataBatch", mock.Anything, mock.Anything, "test1", mock.Anything).Return(nil)
 		mc.txManager.On("FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
+		mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, "test1", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
 			sequencerNotified <- struct{}{}
 		}).Return(nil)
 	})
@@ -1221,6 +1222,7 @@ func TestHandleEventBatchPendingPrivateStateData(t *testing.T) {
 		})
 	})
 	require.NoError(t, err)
+	td.d.enqueueCheckpoint(0)
 
 	<-sequencerNotified
 }
@@ -1376,8 +1378,8 @@ func newUpgradeTestDomain(t *testing.T, upgradeFails bool) (*upgradeTestDomain, 
 	}
 	td, done := newTestDomain(t, true, goodDomainConf(), func(mc *mockComponents) {
 		if !upgradeFails {
-			mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				utd.confirmed <- args[1].([]*components.TxCompletion)
+			mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, "test1", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+				utd.confirmed <- args[2].([]*components.TxCompletion)
 			}).Return()
 		}
 		mc.sequencerManager.On("HandleContractConfigChanged", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
@@ -1415,6 +1417,8 @@ func (utd *upgradeTestDomain) handleBatch(t *testing.T, events ...*pldapi.EventW
 		})
 	})
 	require.NoError(t, err)
+	// The event stream's checkpoint commit follows the batch
+	utd.d.enqueueCheckpoint(events[len(events)-1].BlockNumber)
 }
 
 func (utd *upgradeTestDomain) storedContract(t *testing.T, addr pldtypes.EthAddress) *PrivateSmartContract {

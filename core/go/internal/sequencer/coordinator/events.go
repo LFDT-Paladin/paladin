@@ -20,6 +20,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
@@ -131,4 +132,17 @@ type EpochBoundaryReachedEvent struct {
 func (*EpochBoundaryReachedEvent) Type() EventType { return Event_EpochBoundaryReached }
 func (*EpochBoundaryReachedEvent) TypeString() string {
 	return "Event_EpochBoundaryReached"
+}
+
+// TransactionsConfirmedEvent carries the confirmations for this contract up to BlockHeight, the domain event
+// stream's committed checkpoint. Batches arrive in commit order.
+type TransactionsConfirmedEvent struct {
+	common.BaseEvent
+	Confirmations []*transaction.ConfirmedSuccessEvent
+	BlockHeight   int64
+}
+
+func (*TransactionsConfirmedEvent) Type() EventType { return Event_TransactionsConfirmed }
+func (*TransactionsConfirmedEvent) TypeString() string {
+	return "Event_TransactionsConfirmed"
 }

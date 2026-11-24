@@ -257,20 +257,34 @@ func (c *coordinator) getCoordinatorSigningIdentity() string {
 	return c.signingIdentity.value
 }
 
-func action_RefreshBlockHeight(ctx context.Context, c *coordinator, _ common.Event) error {
-	c.refreshBlockHeight(ctx)
+// Every confirmation is applied before the block height moves to the batch's checkpoint. A transaction records its
+// confirmation in the grapher before any action that can fail, so an error from one transaction does not stop the rest.
+func action_TransactionsConfirmed(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*TransactionsConfirmedEvent)
+	for _, confirmation := range e.Confirmations {
+		txn := c.transactionsByID[confirmation.TransactionID]
+		if txn == nil {
+			continue
+		}
+		c.metrics.IncConfirmedTransactions()
+		if err := txn.HandleEvent(ctx, confirmation); err != nil {
+			log.L(ctx).Errorf("error handling confirmation of transaction %s: %s", confirmation.TransactionID, err)
+		}
+	}
+	c.setBlockHeight(ctx, e.BlockHeight)
 	return nil
 }
 
-// refreshBlockHeight queries the live block height, caches it in c.currentBlockHeight,
-// calls grapher.ForgetConfirmedLocks, recomputes the priority list, and queues an internal
-// EpochBoundaryReachedEvent when the effective block height advances to a new epoch.
-func (c *coordinator) refreshBlockHeight(ctx context.Context) {
-	liveHeight := c.engineIntegration.GetBlockHeight(ctx)
-	c.currentBlockHeight = liveHeight
-	c.grapher.ForgetConfirmedLocks(ctx, uint64(liveHeight))
+// setBlockHeight advances c.currentBlockHeight, calls grapher.ForgetConfirmedLocks, recomputes the priority list,
+// and queues an internal EpochBoundaryReachedEvent when the effective block height advances to a new epoch.
+func (c *coordinator) setBlockHeight(ctx context.Context, blockHeight int64) {
+	if blockHeight <= c.currentBlockHeight {
+		return
+	}
+	c.currentBlockHeight = blockHeight
+	c.grapher.ForgetConfirmedLocks(ctx, uint64(blockHeight))
 	c.calculateCoordinatorPriorities(ctx)
-	newEffective := common.ComputeEffectiveBlockHeight(uint64(liveHeight), c.coordinatorSelectionBlockRange)
+	newEffective := common.ComputeEffectiveBlockHeight(uint64(blockHeight), c.coordinatorSelectionBlockRange)
 	if newEffective != c.effectiveBlockHeight {
 		c.effectiveBlockHeight = newEffective
 		c.queueEventInternal(ctx, &EpochBoundaryReachedEvent{})
@@ -294,7 +308,6 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 		c.getCoordinatorTransactionState,
 		func(ctx context.Context, nodes ...string) { c.updateEndorserCandidates(ctx, nodes...) },
 		c.engineIntegration,
-		c.refreshBlockHeight,
 		func() int64 { return c.currentBlockHeight },
 		c.blockHeightTolerance,
 		c.syncPoints,

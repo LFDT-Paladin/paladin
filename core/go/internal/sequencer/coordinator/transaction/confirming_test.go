@@ -36,16 +36,16 @@ import (
 
 func Test_action_NotifyOriginatorOfConfirmation_Success(t *testing.T) {
 	ctx := t.Context()
+	nonce := uint64(42)
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
 		UseMockTransportWriter().
+		Nonce(&nonce).
 		Build()
 
-	nonce := pldtypes.HexUint64(42)
 	event := &ConfirmedSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txn.pt.ID,
 		},
-		Nonce: &nonce,
 	}
 
 	mocks.TransportWriter.EXPECT().
@@ -285,12 +285,10 @@ func Test_ConfirmedSuccess_DispatchedStates_TransitionsToConfirmed(t *testing.T)
 	for _, state := range dispatchedStates {
 		t.Run(state.String(), func(t *testing.T) {
 			txn, _ := NewTransactionBuilderForTesting(t, state).Build()
-			nonce := pldtypes.HexUint64(77)
 			event := &ConfirmedSuccessEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: txn.pt.ID,
 				},
-				Nonce: &nonce,
 			}
 
 			err := txn.HandleEvent(ctx, event)

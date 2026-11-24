@@ -41,8 +41,9 @@ func validator_IsPrivateStateDataPendingForEndorsement(ctx context.Context, c *c
 // coordinator will retry once the pending private state data has arrived.
 func action_RejectEndorsementPrivateStateDataPending(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestReceivedEvent)
+	endorserBlockHeight := c.engineIntegration.GetBlockHeight(ctx)
 	log.L(ctx).Warnf("rejecting endorsement request from %s due to pending private state data (coordinator=%d, endorser=%d, tolerance=%d)",
-		e.FromNode, e.CoordinatorBlockHeight, c.currentBlockHeight, e.BlockHeightTolerance)
+		e.FromNode, e.CoordinatorBlockHeight, endorserBlockHeight, e.BlockHeightTolerance)
 	return c.transportWriter.SendEndorsementRejection(ctx, e.FromNode, &engineProto.EndorsementRejection{
 		TransactionId:          e.TransactionId,
 		IdempotencyKey:         e.IdempotencyKey,
@@ -51,20 +52,19 @@ func action_RejectEndorsementPrivateStateDataPending(ctx context.Context, c *coo
 		Party:                  e.Party,
 		RejectionReason:        engineProto.RejectionReason_PRIVATE_STATE_DATA_PENDING,
 		CoordinatorBlockHeight: e.CoordinatorBlockHeight,
-		EndorserBlockHeight:    int64(c.currentBlockHeight),
+		EndorserBlockHeight:    endorserBlockHeight,
 		BlockHeightTolerance:   e.BlockHeightTolerance,
 	})
 }
 
-// validator_IsEndorsementBlockHeightToleranceExceeded returns true when the absolute difference
-// between this coordinator's stored block height (refreshed by action_RefreshBlockHeight)
-// and the requesting coordinator's block height exceeds the configured block height tolerance.
-func validator_IsEndorsementBlockHeightToleranceExceeded(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+// validator_IsEndorsementBlockHeightToleranceExceeded returns true when the block height this node has
+// indexed is more than the configured block height tolerance behind the requesting coordinator's block
+// height. The endorsement is checked against this node's state store, so the indexed height is the one
+// that matters, not this node's own coordinator height, which describes its grapher. An endorser ahead of
+// the coordinator holds everything the coordinator expects it to.
+func validator_IsEndorsementBlockHeightToleranceExceeded(ctx context.Context, c *coordinator, event common.Event) (bool, error) {
 	e := event.(*EndorsementRequestReceivedEvent)
-	localHeight := uint64(c.currentBlockHeight)
-	remoteHeight := uint64(e.CoordinatorBlockHeight)
-	diff := max(localHeight, remoteHeight) - min(localHeight, remoteHeight)
-	return diff > c.blockHeightTolerance, nil
+	return c.engineIntegration.GetBlockHeight(ctx)+int64(c.blockHeightTolerance) < e.CoordinatorBlockHeight, nil
 }
 
 // action_RejectEndorsementBlockHeight sends a dedicated EndorsementRejection message indicating
@@ -72,7 +72,8 @@ func validator_IsEndorsementBlockHeightToleranceExceeded(_ context.Context, c *c
 // does not call the domain.
 func action_RejectEndorsementBlockHeight(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestReceivedEvent)
-	log.L(ctx).Warnf("rejecting endorsement request from %s due to block height tolerance (coordinator=%d, endorser=%d, tolerance=%d)", e.FromNode, e.CoordinatorBlockHeight, c.currentBlockHeight, c.blockHeightTolerance)
+	endorserBlockHeight := c.engineIntegration.GetBlockHeight(ctx)
+	log.L(ctx).Warnf("rejecting endorsement request from %s due to block height tolerance (coordinator=%d, endorser=%d, tolerance=%d)", e.FromNode, e.CoordinatorBlockHeight, endorserBlockHeight, c.blockHeightTolerance)
 	return c.transportWriter.SendEndorsementRejection(ctx, e.FromNode, &engineProto.EndorsementRejection{
 		TransactionId:          e.TransactionId,
 		IdempotencyKey:         e.IdempotencyKey,
@@ -81,7 +82,7 @@ func action_RejectEndorsementBlockHeight(ctx context.Context, c *coordinator, ev
 		Party:                  e.Party,
 		RejectionReason:        engineProto.RejectionReason_BLOCK_HEIGHT_TOLERANCE,
 		CoordinatorBlockHeight: e.CoordinatorBlockHeight,
-		EndorserBlockHeight:    c.currentBlockHeight,
+		EndorserBlockHeight:    endorserBlockHeight,
 		BlockHeightTolerance:   int64(c.blockHeightTolerance),
 	})
 }

@@ -94,7 +94,7 @@ type coordinator struct {
 	pooledTransactions                 []transaction.CoordinatorTransaction
 	assemblyInFlight                   bool      // true while a transaction occupies the single assembly slot
 	assemblingTxID                     uuid.UUID // ID of the transaction currently in the assembly slot
-	currentBlockHeight                 int64
+	currentBlockHeight                 int64     // every confirmation up to here is applied to the grapher, so its snapshots reflect this height and the requests this coordinator sends carry it
 	effectiveBlockHeight               uint64
 	dependencyTracker                  dependencytracker.DependencyTracker
 	grapher                            grapher.Grapher

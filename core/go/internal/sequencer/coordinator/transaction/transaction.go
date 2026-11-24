@@ -106,7 +106,6 @@ type coordinatorTransaction struct {
 	stateVisibilityTracker            statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                 dependencytracker.DependencyTracker
 	engineIntegration                 common.EngineIntegration
-	refreshBlockHeight                func(context.Context)
 	getBlockHeight                    func() int64
 	syncPoints                        syncpoints.SyncPoints
 	components                        components.AllComponents
@@ -135,7 +134,6 @@ func NewTransaction(ctx context.Context,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
-	refreshBlockHeight func(context.Context),
 	getBlockHeight func() int64,
 	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
@@ -170,7 +168,6 @@ func NewTransaction(ctx context.Context,
 		getCoordinatorTransactionState,
 		notifyEndorserCandidates,
 		engineIntegration,
-		refreshBlockHeight,
 		getBlockHeight,
 		blockHeightTolerance,
 		syncPoints,
@@ -207,7 +204,6 @@ func newTransaction(
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
-	refreshBlockHeight func(context.Context),
 	getBlockHeight func() int64,
 	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
@@ -243,7 +239,6 @@ func newTransaction(
 		notifyEndorserCandidates:          notifyEndorserCandidates,
 		engineIntegration:                 engineIntegration,
 		getBlockHeight:                    getBlockHeight,
-		refreshBlockHeight:                refreshBlockHeight,
 		blockHeightTolerance:              blockHeightTolerance,
 		syncPoints:                        syncPoints,
 		components:                        allComponents,

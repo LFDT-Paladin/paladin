@@ -1762,16 +1762,14 @@ func TestCoordinatorTransaction_ToDispatched_WithPublicTx_MarksInFlight(t *testi
 // TestCoordinatorTransaction_LeavingDispatched_MarksNotInFlight verifies the state transition
 // callback clears the in-flight marker when a transaction leaves State_Dispatched.
 func TestCoordinatorTransaction_LeavingDispatched_MarksNotInFlight(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var inFlightCalls []bool
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		SetDispatchedInFlight(func(_ uuid.UUID, inFlight bool) { inFlightCalls = append(inFlightCalls, inFlight) }).
 		Build()
 
-	nonce := pldtypes.HexUint64(77)
 	err := txn.HandleEvent(ctx, &ConfirmedSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
-		Nonce:                &nonce,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Confirmed, txn.GetCurrentState())

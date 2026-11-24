@@ -72,6 +72,7 @@ type sequencer struct {
 
 	// Sequencer attributes
 	contractAddress string
+	domainName      string
 	lastTXTime      time.Time
 }
 
@@ -167,6 +168,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 			engineIntegration := common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, sMgr.metrics)
 			sequencer := &sequencer{
 				contractAddress: contractAddr.String(),
+				domainName:      domainAPI.Domain().Name(),
 				transportWriter: transportWriter,
 				cancelCtx:       cancelCtx,
 			}

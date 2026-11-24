@@ -227,3 +227,22 @@ func Test_validator_IsHeartbeatFromCurrentActiveCoordinator_FromNonCurrentNode_R
 	require.NoError(t, err)
 	assert.False(t, result)
 }
+
+func Test_validator_IsDelegationBlockHeightToleranceExceeded_OnlyWhenBehind(t *testing.T) {
+	for _, tc := range []struct {
+		coordinator int64
+		originator  uint64
+		exceeded    bool
+	}{
+		{coordinator: 100, originator: 89, exceeded: true},
+		{coordinator: 100, originator: 90, exceeded: false},
+		{coordinator: 100, originator: 500, exceeded: false},
+		{coordinator: -1, originator: 0, exceeded: false},
+	} {
+		c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).BlockHeightTolerance(10).Build()
+		c.currentBlockHeight = tc.coordinator
+		exceeded, err := validator_IsDelegationBlockHeightToleranceExceeded(t.Context(), c, &TransactionsDelegatedEvent{OriginatorsBlockHeight: tc.originator})
+		require.NoError(t, err)
+		assert.Equal(t, tc.exceeded, exceeded, "coordinator=%d originator=%d", tc.coordinator, tc.originator)
+	}
+}
