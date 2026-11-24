@@ -256,7 +256,7 @@ func (h *transferLockedHandler) Prepare(ctx context.Context, tx *types.ParsedTra
 		return nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalProvingRes, err)
 	}
 
-	inputSize := common.GetInputSize(len(req.InputStates))
+	inputSize := common.GetCircuitSize(len(req.InputStates), len(req.OutputStates))
 	inputs, err := utxosFromInputStates(ctx, req.InputStates, inputSize)
 	if err != nil {
 		return nil, err

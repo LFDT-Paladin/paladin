@@ -231,6 +231,145 @@ func TestGetTransactionStatesAvailable(t *testing.T) {
 	assert.Equal(t, widgets[3].ID, txStates.Info[0].ID)
 }
 
+func setupWidgetsForTxStates(t *testing.T, count int) (context.Context, *stateManager, []*pldapi.State, func()) {
+	ctx, ss, m, done := newDBTestStateManager(t)
+
+	_ = mockDomain(t, m, "domain1", false)
+	mockStateCallback(m)
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, widgetABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+
+	widgetJSON := make([]string, count)
+	for i := range widgetJSON {
+		widgetJSON[i] = fmt.Sprintf(`{"size": %d, "color": "red", "price": 100}`, i)
+	}
+	widgets := makeWidgets(t, ctx, ss, "domain1", pldtypes.RandAddress(), schema.ID(), widgetJSON)
+	return ctx, ss, widgets, done
+}
+
+func TestGetTransactionStatesOrdered(t *testing.T) {
+
+	ctx, ss, widgets, done := setupWidgetsForTxStates(t, 7)
+	defer done()
+
+	// One spend is by nullifier, which comes back through a different branch of the query
+	nullifier := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	err := ss.WriteNullifiersForReceivedStates(ctx, ss.p.NOTX(), "domain1", []*pldapi.StateNullifier{
+		{DomainName: "domain1", ID: nullifier, State: widgets[1].ID},
+	})
+	require.NoError(t, err)
+
+	missingRead := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingConfirm0 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingConfirm2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingInfo := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	txID := uuid.New()
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{
+			{DomainName: "domain1", State: widgets[0].ID, Transaction: txID, Index: 1},
+			{DomainName: "domain1", State: nullifier, Transaction: txID, Index: 0},
+		},
+		[]*pldapi.StateReadRecord{
+			{DomainName: "domain1", State: missingRead, Transaction: txID, Index: 1},
+			{DomainName: "domain1", State: widgets[2].ID, Transaction: txID, Index: 0},
+		},
+		[]*pldapi.StateConfirmRecord{
+			{DomainName: "domain1", State: missingConfirm2, Transaction: txID, Index: 2},
+			{DomainName: "domain1", State: widgets[3].ID, Transaction: txID, Index: 3},
+			{DomainName: "domain1", State: missingConfirm0, Transaction: txID, Index: 0},
+			{DomainName: "domain1", State: widgets[4].ID, Transaction: txID, Index: 1},
+		},
+		[]*pldapi.StateInfoRecord{
+			{DomainName: "domain1", State: widgets[5].ID, Transaction: txID, Index: 2},
+			{DomainName: "domain1", State: missingInfo, Transaction: txID, Index: 1},
+			{DomainName: "domain1", State: widgets[6].ID, Transaction: txID, Index: 0},
+		})
+	require.NoError(t, err)
+
+	txStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txID)
+	require.NoError(t, err)
+	ids := func(states []*pldapi.StateBase) (ids []pldtypes.HexBytes) {
+		for _, s := range states {
+			ids = append(ids, s.ID)
+		}
+		return ids
+	}
+	assert.Equal(t, []pldtypes.HexBytes{widgets[1].ID, widgets[0].ID}, ids(txStates.Spent))
+	assert.Equal(t, []pldtypes.HexBytes{widgets[2].ID}, ids(txStates.Read))
+	assert.Equal(t, []pldtypes.HexBytes{missingRead}, txStates.Unavailable.Read)
+	assert.Equal(t, []pldtypes.HexBytes{widgets[4].ID, widgets[3].ID}, ids(txStates.Confirmed))
+	assert.Equal(t, []pldtypes.HexBytes{missingConfirm0, missingConfirm2}, txStates.Unavailable.Confirmed)
+	assert.Equal(t, []pldtypes.HexBytes{widgets[6].ID, widgets[5].ID}, ids(txStates.Info))
+	assert.Equal(t, []pldtypes.HexBytes{missingInfo}, txStates.Unavailable.Info)
+}
+
+func TestGetTransactionStatesManifestUnavailable(t *testing.T) {
+
+	ctx, ss, widgets, done := setupWidgetsForTxStates(t, 2)
+	defer done()
+
+	manifest := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingInfo := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	txID := uuid.New()
+	err := ss.WriteStateFinalizations(ctx, ss.p.NOTX(), nil, nil, nil,
+		[]*pldapi.StateInfoRecord{
+			{DomainName: "domain1", State: widgets[0].ID, Transaction: txID, Index: 2},
+			{DomainName: "domain1", State: missingInfo, Transaction: txID, Index: 3},
+			{DomainName: "domain1", State: widgets[1].ID, Transaction: txID, Index: 1},
+			{DomainName: "domain1", State: manifest, Transaction: txID, Index: 0},
+		})
+	require.NoError(t, err)
+
+	txStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txID)
+	require.NoError(t, err)
+	require.Len(t, txStates.Info, 2)
+	assert.Equal(t, widgets[1].ID, txStates.Info[0].ID)
+	assert.Equal(t, widgets[0].ID, txStates.Info[1].ID)
+	// The missing manifest is the first unavailable info state, even though later info states are available
+	assert.Equal(t, []pldtypes.HexBytes{manifest, missingInfo}, txStates.Unavailable.Info)
+}
+
+func TestGetTransactionStatesUnindexedInfo(t *testing.T) {
+
+	ctx, ss, widgets, done := setupWidgetsForTxStates(t, 1)
+	defer done()
+
+	// Records written before indexes were recorded have none, and are returned in DB order
+	txID := uuid.New()
+	missing := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	for _, stateID := range []pldtypes.HexBytes{missing, widgets[0].ID} {
+		err := ss.p.DB(ctx).Exec(`INSERT INTO state_info_records ("domain_name", "state", "transaction") VALUES (?, ?, ?)`,
+			"domain1", stateID, txID).Error
+		require.NoError(t, err)
+	}
+	txStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txID)
+	require.NoError(t, err)
+	require.Len(t, txStates.Info, 1)
+	assert.Equal(t, widgets[0].ID, txStates.Info[0].ID)
+	assert.Equal(t, []pldtypes.HexBytes{missing}, txStates.Unavailable.Info)
+}
+
+func TestSortRecordsByIndex(t *testing.T) {
+	r := func(idx *int) *transactionStateRecord {
+		return &transactionStateRecord{State: pldtypes.HexBytes(pldtypes.RandBytes(32)), Index: idx}
+	}
+	ordered := []*transactionStateRecord{r(confutil.P(1)), r(confutil.P(0))}
+	expected := []*transactionStateRecord{ordered[1], ordered[0]}
+	sortRecordsByIndex(ordered)
+	assert.Equal(t, expected, ordered)
+
+	// Any record without an index leaves the whole group in the order given
+	mixed := []*transactionStateRecord{r(confutil.P(1)), r(nil), r(confutil.P(0))}
+	expected = []*transactionStateRecord{mixed[0], mixed[1], mixed[2]}
+	sortRecordsByIndex(mixed)
+	assert.Equal(t, expected, mixed)
+}
+
 func TestGetTransactionStatesReadInfoMultiTx(t *testing.T) {
 
 	ctx, ss, _, done := newDBTestStateManager(t)

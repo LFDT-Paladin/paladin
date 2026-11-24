@@ -75,7 +75,6 @@ func (c *coordinator) sendHeartbeat(ctx context.Context, includeLocks bool) erro
 			}
 		}
 		heartbeatMsg := &engineProto.CoordinatorHeartbeatNotification{
-			From:                c.nodeName,
 			ContractAddress:     c.contractAddress.HexString(),
 			CoordinatorSnapshot: snapshotProto,
 		}

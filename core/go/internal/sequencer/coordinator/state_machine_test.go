@@ -511,7 +511,6 @@ func TestCoordinator_WhenElectRequestTimeoutFires_NudgesHandoverRequest(t *testi
 	mocks.TransportWriter.EXPECT().SendHandoverRequest(mock.Anything, "node2", mock.Anything).Return(nil).Once()
 	c.pendingHandoverRequest = common.NewIdempotentRequest(ctx, c.clock, c.requestTimeout, func(ctx context.Context, _ uuid.UUID) error {
 		return c.transportWriter.SendHandoverRequest(ctx, c.currentActiveCoordinator, &engineProto.CoordinatorHandoverRequest{
-			FromNode:        c.nodeName,
 			ContractAddress: c.contractAddress.HexString(),
 		})
 	})

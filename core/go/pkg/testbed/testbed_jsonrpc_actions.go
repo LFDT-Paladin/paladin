@@ -165,9 +165,9 @@ func (tb *testbed) rpcTestbedDeploy() rpcserver.RPCHandler {
 		psc, err := tb.c.DomainManager().ExecDeployAndWait(ctx, tx.ID, func() error {
 			// Do the deploy - we wait for the transaction here to cover revert failures
 			if tx.DeployTransaction != nil && tx.InvokeTransaction == nil {
-				_, err = tb.execBaseLedgerDeployTransaction(ctx, tx.Signer, tx.DeployTransaction)
+				_, err = tb.execBaseLedgerDeployTransaction(ctx, tx.Signer, tx.DeployTransaction, tx.PublicTxOptions)
 			} else if tx.InvokeTransaction != nil && tx.DeployTransaction == nil {
-				_, err = tb.execBaseLedgerTransaction(ctx, tx.Signer, tx.InvokeTransaction)
+				_, err = tb.execBaseLedgerTransaction(ctx, tx.Signer, tx.InvokeTransaction, tx.PublicTxOptions)
 			} else {
 				err = fmt.Errorf("must return a transaction to invoke, or a transaction to deploy")
 			}

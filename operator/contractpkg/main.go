@@ -68,6 +68,7 @@ var snakeToCamelMap = map[string]string{
 	"zeto_g16_withdraw_batch":           "zetoG16WithdrawBatch",
 	"zeto_g16_withdraw_nullifier":       "zetoG16WithdrawNullifier",
 	"zeto_g16_withdraw_nullifier_batch": "zetoG16WithdrawNullifierBatch",
+	"zeto_g16_nf_anon":                  "zetoG16NfAnon",
 	"zeto_poseidon_unit2l":              "zetoPoseidonUnit2l",
 	"zeto_poseidon_unit3l":              "zetoPoseidonUnit3l",
 	"zeto_smt_lib":                      "zetoSmtLib",
@@ -75,6 +76,7 @@ var snakeToCamelMap = map[string]string{
 	"zeto_impl_anon_enc":                "zetoImplAnonEnc",
 	"zeto_impl_anon_nullifier":          "zetoImplAnonNullifier",
 	"zeto_impl_anon_nullifier_kyc":      "zetoImplAnonNullifierKyc",
+	"zeto_impl_nf_anon":                 "zetoImplNfAnon",
 	"zeto_factory":                      "zetoFactory",
 	"zeto_factory_proxy":                "zetoFactoryProxy",
 
@@ -83,6 +85,7 @@ var snakeToCamelMap = map[string]string{
 	"zeto_anon_enc":           "zetoAnonEnc",
 	"zeto_anon_nullifier":     "zetoAnonNullifier",
 	"zeto_anon_nullifier_kyc": "zetoAnonNullifierKyc",
+	"zeto_nf_anon":            "zetoNfAnon",
 }
 
 type ContractMap map[string]*ContractMapBuild

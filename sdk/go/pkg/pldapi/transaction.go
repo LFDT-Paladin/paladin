@@ -109,7 +109,7 @@ type Transaction struct {
 // The input structure, containing the base input/output fields, along with some convenience fields resolved on input
 type TransactionInput struct {
 	TransactionBase
-	DependsOn []uuid.UUID       `docstruct:"TransactionInput" json:"dependsOn,omitempty"` // these transactions must be mined on the blockchain successfully (or deleted) before this transaction submits. Failure of pre-reqs results in failure of this TX
+	DependsOn []uuid.UUID       `docstruct:"TransactionInput" json:"dependsOn,omitempty"` // private transactions only: these transactions must be mined on the blockchain successfully (or deleted) before this transaction submits. Failure of pre-reqs results in failure of this TX
 	ABI       abi.ABI           `docstruct:"TransactionInput" json:"abi,omitempty"`       // required if abiReference not supplied
 	Bytecode  pldtypes.HexBytes `docstruct:"TransactionInput" json:"bytecode,omitempty"`  // for deploy this is prepended to the encoded data inputs
 }

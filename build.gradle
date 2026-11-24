@@ -288,6 +288,10 @@ task copyZetoZKPFiles(type: Copy) {
         include 'withdraw_nullifier_batch.zkey'
         include 'withdraw_nullifier_batch-vkey.json'
         include 'withdraw_nullifier_batch_js/withdraw_nullifier_batch.wasm'
+        // nf_anon
+        include 'nf_anon.zkey'
+        include 'nf_anon-vkey.json'
+        include 'nf_anon_js/nf_anon.wasm'
     }
     into zetoZkpDir
 

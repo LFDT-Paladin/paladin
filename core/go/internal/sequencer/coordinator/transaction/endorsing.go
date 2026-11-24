@@ -208,7 +208,6 @@ func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempot
 	err = t.transportWriter.SendEndorsementRequest(ctx, partyNode, &engineProto.EndorsementRequest{
 		IdempotencyKey:           idempotencyKey.String(),
 		ContractAddress:          t.pt.Address.HexString(),
-		TransactionId:            t.pt.ID.String(),
 		AttestationRequest:       attRequest,
 		Party:                    party,
 		TransactionSpecification: t.pt.PreAssembly.TransactionSpecification,

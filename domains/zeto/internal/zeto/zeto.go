@@ -697,6 +697,22 @@ func (z *Zeto) validateDataState(ctx context.Context, state *prototk.EndorsableS
 	return z.validateStateHash(ctx, hash, state)
 }
 
+func (z *Zeto) validateNFTState(ctx context.Context, state *prototk.EndorsableState) (string, error) {
+	log.L(ctx).Debugf("validating nft state hash: %+v\n", state)
+	var nft types.ZetoNFToken
+	err := json.Unmarshal([]byte(state.StateDataJson), &nft)
+	if err != nil {
+		log.L(ctx).Errorf("Error unmarshalling nft state data: %s", err)
+		return "", i18n.NewError(ctx, msgs.MsgErrorUnmarshalStateData, err)
+	}
+	hash, err := nft.Hash(ctx)
+	if err != nil {
+		log.L(ctx).Errorf("Error hashing nft state data: %s", err)
+		return "", err
+	}
+	return z.validateStateHash(ctx, hash, state)
+}
+
 func (z *Zeto) validateStateHash(ctx context.Context, hash *pldtypes.HexUint256, state *prototk.EndorsableState) (string, error) {
 	hashString := common.HexUint256To32ByteHexString(hash)
 	if state.Id == "" {
@@ -724,6 +740,10 @@ func (z *Zeto) ValidateStateHashes(ctx context.Context, req *prototk.ValidateSta
 			}
 		case z.DataSchemaID():
 			if id, err = z.validateDataState(ctx, state); err != nil {
+				return nil, err
+			}
+		case z.NFTSchemaID():
+			if id, err = z.validateNFTState(ctx, state); err != nil {
 				return nil, err
 			}
 		}

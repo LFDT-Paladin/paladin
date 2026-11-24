@@ -736,6 +736,7 @@ func TestDomainPrepareDeployInvokeTX(t *testing.T) {
 	assert.Equal(t, abi.Function, tx.InvokeTransaction.FunctionABI.Type)
 	assert.NotNil(t, tx.InvokeTransaction.Inputs)
 	assert.Empty(t, tx.Signer) // to be assigned by private TX manager
+	assert.Equal(t, pldtypes.HexUint64(100000), *tx.PublicTxOptions.Gas)
 }
 
 func TestDomainPrepareDeployDeployTXWithSigner(t *testing.T) {
@@ -766,6 +767,7 @@ func TestDomainPrepareDeployDeployTXWithSigner(t *testing.T) {
 	assert.Equal(t, abi.Constructor, tx.DeployTransaction.ConstructorABI.Type)
 	assert.NotNil(t, tx.DeployTransaction.Inputs)
 	assert.Equal(t, "signer1", tx.Signer)
+	assert.Equal(t, pldtypes.HexUint64(100000), *tx.PublicTxOptions.Gas)
 }
 
 func TestDomainPrepareDeployMissingInput(t *testing.T) {

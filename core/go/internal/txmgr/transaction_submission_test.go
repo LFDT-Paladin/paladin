@@ -815,6 +815,78 @@ func TestParseInputsBadByteString(t *testing.T) {
 	assert.Regexp(t, "PD012208", err)
 }
 
+func TestParseInputsHexData(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, false, mockEmptyReceiptListeners)
+	defer done()
+
+	for _, tc := range []struct {
+		name     string
+		fn       *abi.Entry
+		jsonData string
+	}{
+		{
+			name: "static",
+			fn: &abi.Entry{Type: abi.Function, Name: "transfer", Inputs: abi.ParameterArray{
+				{Name: "to", Type: "address"},
+				{Name: "amount", Type: "uint256"},
+			}},
+			jsonData: `{"to":"0x1234567890abcdef1234567890abcdef12345678","amount":"1000000000000000000"}`,
+		},
+		{
+			name: "dynamic",
+			fn: &abi.Entry{Type: abi.Function, Name: "setInfo", Inputs: abi.ParameterArray{
+				{Name: "id", Type: "uint256"},
+				{Name: "name", Type: "string"},
+				{Name: "payload", Type: "bytes"},
+			}},
+			jsonData: `{"id":"42","name":"hello world","payload":"0xfeedbeef"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			txType := pldapi.TransactionTypePublic.Enum()
+
+			_, expectedJSON, err := txm.parseInputs(ctx, tc.fn, txType, pldtypes.RawJSON(tc.jsonData), nil)
+			require.NoError(t, err)
+
+			callData, err := tc.fn.EncodeCallDataJSON([]byte(tc.jsonData))
+			require.NoError(t, err)
+			paramData := callData[4:]
+
+			for _, input := range [][]byte{callData, paramData} {
+				cv, jsonData, err := txm.parseInputs(ctx, tc.fn, txType, pldtypes.JSONString(pldtypes.HexBytes(input)), nil)
+				require.NoError(t, err)
+				assert.JSONEq(t, expectedJSON.String(), jsonData.String())
+
+				publicTxData, err := txm.getPublicTxData(ctx, tc.fn, nil, cv)
+				require.NoError(t, err)
+				assert.Equal(t, pldtypes.HexBytes(callData), pldtypes.HexBytes(publicTxData))
+			}
+		})
+	}
+}
+
+func TestParseInputsHexDataWithSelectorBadParams(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, false, mockEmptyReceiptListeners)
+	defer done()
+
+	fn := &abi.Entry{Type: abi.Function, Name: "doIt", Inputs: abi.ParameterArray{
+		{Type: "uint256"},
+		{Type: "string"},
+	}}
+
+	// Valid parameters if read from offset 0, but after the selector the string offset is out of range
+	data := make([]byte, 100)
+	copy(data, fn.FunctionSelectorBytes())
+	data[63] = 0x40
+	_, err := fn.Inputs.DecodeABIDataCtx(ctx, data, 0)
+	require.NoError(t, err)
+	_, err = fn.Inputs.DecodeABIDataCtx(ctx, data, 4)
+	require.Error(t, err)
+
+	_, _, err = txm.parseInputs(ctx, fn, pldapi.TransactionTypePublic.Enum(), pldtypes.JSONString(pldtypes.HexBytes(data)), nil)
+	assert.Regexp(t, "PD012208", err)
+}
+
 func TestInsertTransactionFail(t *testing.T) {
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,

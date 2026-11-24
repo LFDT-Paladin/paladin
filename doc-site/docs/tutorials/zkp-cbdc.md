@@ -171,6 +171,6 @@ A participant like `bank1` who has unspent Zeto tokens can call `withdraw` on th
 
 ## Next Steps
 
-Next, explore Zeto tokens further to understand how compliant **KYC** processes can be integrated with zero-knowledge proof-backed tokens.
+Next, explore Zeto non-fungible tokens to see how unique assets can change hands privately between nodes.
 
-[Continue to the Private Stablecoin Tutorial →](./private-stablecoin.md)
+[Continue to the Non-Fungible Tokens Tutorial →](./zkp-nft.md)

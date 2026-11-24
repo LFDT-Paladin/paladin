@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
@@ -617,6 +618,62 @@ func Test_HandleEvent_PrepareSucceeded_QueuesDispatchAndTransitions(t *testing.T
 	require.Len(t, mocks.EnqueuedDispatches, 1)
 	assert.Nil(t, txn.pt.PostAssembly)
 	assert.NotNil(t, txn.pt.PreAssembly, "PreAssembly preserved for retryable reverts")
+}
+
+func Test_HandleEvent_PrepareSucceeded_WithTraceEnabled(t *testing.T) {
+	ctx := t.Context()
+	log.EnsureInit()
+	originalLevel := log.GetLevel()
+	log.SetLevel("trace")
+	defer log.SetLevel(originalLevel)
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Preparing).Build()
+
+	err := txn.HandleEvent(ctx, &PrepareSucceededEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		PrepareID:            txn.inFlightPrepareID,
+		PendingDispatch: &syncpoints.PendingDispatch{
+			TransactionID: txn.pt.ID,
+			Dispatch:      &syncpoints.TransactionDispatch{},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Ready_For_Dispatch, txn.GetCurrentState())
+}
+
+func Test_traceDispatch_WithPostAssembly(t *testing.T) {
+	ctx := t.Context()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PostAssembly(&components.TransactionPostAssembly{
+			AssembleResponse: &prototk.TransactionPostAssembly{
+				Signatures: []*prototk.AttestationResult{
+					{
+						Verifier: &prototk.ResolvedVerifier{
+							Lookup: "verifier1",
+						},
+					},
+				},
+				Endorsements: []*prototk.AttestationResult{
+					{
+						Verifier: &prototk.ResolvedVerifier{
+							Lookup: "verifier2",
+						},
+					},
+				},
+			},
+			CollectedEndorsements: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "endorser1",
+					},
+				},
+			},
+		}).
+		Build()
+
+	// Should not panic
+	txn.traceDispatch(ctx)
 }
 
 func Test_HandleEvent_PrepareSucceeded_RegistersChainedChild(t *testing.T) {

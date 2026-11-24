@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -225,7 +226,8 @@ func (r *SentMessageRecorder) SendEndorsementRequest(ctx context.Context, node s
 	defer r.lock.Unlock()
 	party := msg.Party
 	idempotencyKey, _ := uuid.Parse(msg.IdempotencyKey)
-	txID, _ := uuid.Parse(msg.TransactionId)
+	specTxID, _ := pldtypes.ParseBytes32(msg.GetTransactionSpecification().GetTransactionId())
+	txID := specTxID.UUIDFirst16()
 	r.numberOfSentEndorsementRequests++
 	if _, ok := r.numberOfEndorsementRequestsForParty[party]; ok {
 		r.numberOfEndorsementRequestsForParty[party]++
@@ -448,11 +450,11 @@ func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, node st
 	defer r.lock.Unlock()
 	r.hasSentDelegationRequest = true
 	for _, del := range msg.Transactions {
-		id, err := uuid.Parse(del.GetId())
+		specTxID, err := pldtypes.ParseBytes32(del.GetPreAssembly().GetTransactionSpecification().GetTransactionId())
 		if err != nil {
 			continue
 		}
-		r.delegatedTransactionIDs = append(r.delegatedTransactionIDs, id)
+		r.delegatedTransactionIDs = append(r.delegatedTransactionIDs, specTxID.UUIDFirst16())
 	}
 	return nil
 }

@@ -447,6 +447,7 @@ var (
 	MsgTxMgrDependencyLookupFailed                = pde("PD012254", "Failed to lookup dependency transaction %s: %s")
 	MsgTxMgrResumeTXFailed                        = pde("PD012255", "Failed to resume transaction %s: %s")
 	MsgTxMgrDependencyFailed                      = pde("PD012256", "Transaction dependency %s failed")
+	MsgTxMgrDependsOnPrivateOnly                  = pde("PD012257", "dependsOn is only supported for private transactions")
 
 	// FlushWriter module PD0123XX
 	MsgFlushWriterQuiescing      = pde("PD012300", "Writer shutting down")

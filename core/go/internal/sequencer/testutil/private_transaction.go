@@ -343,6 +343,9 @@ func (b *PrivateTransactionBuilderForTesting) BuildSparse() *components.PrivateT
 // Function BuildPreAssembly creates a new PreAssembly with all fields populated as per the builder's configuration using defaults unless explicitly set
 func (b *PrivateTransactionBuilderForTesting) BuildPreAssembly() *prototk.TransactionPreAssembly {
 	preAssembly := &prototk.TransactionPreAssembly{
+		TransactionSpecification: &prototk.TransactionSpecification{
+			TransactionId: pldtypes.Bytes32UUIDFirst16(b.id).String(),
+		},
 		RequiredVerifiers: make([]*prototk.ResolveVerifierRequest, b.numberOfEndorsers+1),
 	}
 

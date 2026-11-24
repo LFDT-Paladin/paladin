@@ -52,18 +52,20 @@ Your commit email address must match your GitHub email address. For more informa
 
 A pull request cannot merged until it has passed these status checks:
 
-* The build must pass all checks
-* The PR must be approved by at least two reviewers without any
+- The build must pass all checks
+- The PR must be approved by at least two reviewers without any
   outstanding requests for changes
 
 ## Backwards compatibility
 
 All changes must be backwards compatibile within a major version. This means that:
-* A plugin (e.g. a domain) developed against Paladin core `v1.x` must continue to work with Paladin core `v1.x+n` without any changes required in the domain
-* A node running Paladin core `v1.x` must be able to participate in a domain with a node running Paladin core `v1.x+n`
 
-There are some exceptions to this, where the amount of changes required has meant that maintaining backwards compatibility has not been achievable: 
-* `v1.0` -> `v1.1` includes a large refactor to use proto definitions more efficiently
+- A plugin (e.g. a domain) developed against Paladin core `v1.x` must continue to work with Paladin core `v1.x+n` without any changes required in the domain
+- A node running Paladin core `v1.x` must be able to participate in a domain with a node running Paladin core `v1.x+n`
+
+There are some exceptions to this, where the amount of changes required has meant that maintaining backwards compatibility has not been achievable:
+
+- `v1.0.0` -> `v1.0.1` includes a large refactor to use proto definitions more efficiently
 
 ## Inclusive Language
 

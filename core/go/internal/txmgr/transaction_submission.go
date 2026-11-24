@@ -216,16 +216,13 @@ func (tm *txManager) pickFunction(ctx context.Context, pa *pldapi.StoredABI, req
 	}, nil
 }
 
-func (tm *txManager) parseDataBytes(ctx context.Context, e *abi.Entry, dataBytes []byte) (cv *abi.ComponentValue, err error) {
-	// We might have the function selector
+func (tm *txManager) parseDataBytes(ctx context.Context, e *abi.Entry, dataBytes []byte) (*abi.ComponentValue, error) {
+	// ABI encoded parameters are a multiple of 32 bytes, so 4 extra bytes matching the selector can only be the selector
 	selector := e.FunctionSelectorBytes()
-	if len(dataBytes) >= len(selector) && len(dataBytes)%32 == 4 && bytes.Equal(selector, dataBytes[0:4]) {
-		cv, err = e.Inputs.DecodeABIDataCtx(ctx, selector, 4) // we will run out of data if this is not right, so safe to do first
+	if len(dataBytes)%32 == 4 && bytes.Equal(selector, dataBytes[0:4]) {
+		return e.Inputs.DecodeABIDataCtx(ctx, dataBytes, 4)
 	}
-	if cv == nil || err != nil {
-		cv, err = e.Inputs.DecodeABIDataCtx(ctx, dataBytes, 0)
-	}
-	return cv, err
+	return e.Inputs.DecodeABIDataCtx(ctx, dataBytes, 0)
 }
 
 func (tm *txManager) parseInputs(
@@ -626,6 +623,9 @@ func (tm *txManager) resolveNewTransaction(ctx context.Context, dbTX persistence
 	case pldapi.TransactionTypePublic:
 		if submitMode == pldapi.SubmitModeExternal {
 			return nil, i18n.NewError(ctx, msgs.MsgTxMgrPrivateOnlyForPrepare)
+		}
+		if len(tx.DependsOn) > 0 {
+			return nil, i18n.NewError(ctx, msgs.MsgTxMgrDependsOnPrivateOnly)
 		}
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgTxMgrInvalidTXType)

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
@@ -286,4 +287,138 @@ func testGetDomainReceipt(t *testing.T, n *Noto, req *prototk.BuildReceiptReques
 	require.NoError(t, err)
 
 	return &notoReceipt
+}
+
+func testDataState(t *testing.T, n *Noto, variant pldtypes.HexUint64, data string, from *pldtypes.EthAddress) *prototk.EndorsableState {
+	stateData, err := json.Marshal(&types.TransactionData{
+		Salt:    pldtypes.RandBytes32(),
+		Data:    pldtypes.MustParseHexBytes(data),
+		Variant: variant,
+		From:    from,
+	})
+	require.NoError(t, err)
+	return &prototk.EndorsableState{
+		Id:            pldtypes.RandBytes32().String(),
+		SchemaId:      n.dataSchemaV2.Id,
+		StateDataJson: string(stateData),
+	}
+}
+
+func testManifestState(t *testing.T, n *Noto, participant *pldtypes.EthAddress, states ...*prototk.EndorsableState) *prototk.EndorsableState {
+	manifest := &types.NotoManifest{Salt: pldtypes.RandBytes32()}
+	for _, s := range states {
+		manifest.States = append(manifest.States, &types.NotoManifestStateEntry{
+			ID:           pldtypes.MustParseBytes32(s.Id),
+			Participants: []*pldtypes.EthAddress{participant},
+		})
+	}
+	stateData, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	return &prototk.EndorsableState{
+		Id:            pldtypes.RandBytes32().String(),
+		SchemaId:      n.manifestSchema.Id,
+		StateDataJson: string(stateData),
+	}
+}
+
+func mockReverseKeyLookupOwns(mockCallbacks *domain.MockDomainCallbacks, owned *pldtypes.EthAddress) {
+	mockCallbacks.MockReverseKeyLookup = func(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
+		res := &prototk.ReverseKeyLookupResponse{}
+		for _, l := range req.Lookups {
+			result := &prototk.ReverseKeyLookupResult{Verifier: l.Verifier}
+			if l.Verifier == owned.String() {
+				result.Found = true
+				result.KeyIdentifier = confutil.P("key1")
+			}
+			res.Results = append(res.Results, result)
+		}
+		return res, nil
+	}
+}
+
+func buildTestReceipt(t *testing.T, n *Noto, req *prototk.BuildReceiptRequest) *types.NotoDomainReceipt {
+	res, err := n.BuildReceipt(t.Context(), req)
+	require.NoError(t, err)
+	var receipt types.NotoDomainReceipt
+	require.NoError(t, json.Unmarshal([]byte(res.ReceiptJson), &receipt))
+	return &receipt
+}
+
+func TestBuildReceiptDataWithRequiredStates(t *testing.T) {
+	_, mockCallbacks, n := newNotoFullSchemaSet(t)
+	me := pldtypes.RandAddress()
+	mockReverseKeyLookupOwns(mockCallbacks, me)
+
+	unlockData := testDataState(t, n, types.NotoVariantV2, "0x1111", me)
+	txData := testDataState(t, n, types.NotoVariantV2, "0x2222", me)
+	manifest := testManifestState(t, n, me, unlockData, txData)
+
+	// Something else in the transaction is unavailable, but not something we need
+	receipt := buildTestReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId:     uuid.New().String(),
+		UnavailableStates: true,
+		InfoStates:        []*prototk.EndorsableState{manifest, unlockData, txData},
+	})
+	assert.Equal(t, pldtypes.MustParseHexBytes("0x2222"), receipt.Data)
+	assert.Equal(t, me, receipt.Sender)
+}
+
+func TestBuildReceiptOmitsDataWhenRequiredStateUnavailable(t *testing.T) {
+	_, mockCallbacks, n := newNotoFullSchemaSet(t)
+	me := pldtypes.RandAddress()
+	mockReverseKeyLookupOwns(mockCallbacks, me)
+
+	unlockData := testDataState(t, n, types.NotoVariantV2, "0x1111", me)
+	txData := testDataState(t, n, types.NotoVariantV2, "0x2222", me)
+	manifest := testManifestState(t, n, me, unlockData, txData)
+
+	// The transaction's own data state is unavailable, so the last available data state is the unlock data
+	receipt := buildTestReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId:     uuid.New().String(),
+		UnavailableStates: true,
+		InfoStates:        []*prototk.EndorsableState{manifest, unlockData},
+	})
+	assert.Nil(t, receipt.Data)
+	assert.Equal(t, me, receipt.Sender)
+}
+
+func TestBuildReceiptOmitsDataWhenManifestUnavailable(t *testing.T) {
+	_, _, n := newNotoFullSchemaSet(t)
+	me := pldtypes.RandAddress()
+
+	receipt := buildTestReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId:     uuid.New().String(),
+		UnavailableStates: true,
+		InfoStates:        []*prototk.EndorsableState{testDataState(t, n, types.NotoVariantV2, "0x1111", me)},
+	})
+	assert.Nil(t, receipt.Data)
+	assert.Equal(t, me, receipt.Sender)
+}
+
+func TestBuildReceiptV0DataWithUnavailableStates(t *testing.T) {
+	_, _, n := newNotoFullSchemaSet(t)
+
+	// V0 has no manifest, so we keep the existing behavior
+	receipt := buildTestReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId:     uuid.New().String(),
+		UnavailableStates: true,
+		InfoStates:        []*prototk.EndorsableState{testDataState(t, n, types.NotoVariantV0, "0x1111", nil)},
+	})
+	assert.Equal(t, pldtypes.MustParseHexBytes("0x1111"), receipt.Data)
+}
+
+func TestBuildReceiptRequiredStatesLookupFail(t *testing.T) {
+	_, mockCallbacks, n := newNotoFullSchemaSet(t)
+	me := pldtypes.RandAddress()
+	mockCallbacks.MockReverseKeyLookup = func(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+
+	txData := testDataState(t, n, types.NotoVariantV2, "0x2222", me)
+	_, err := n.BuildReceipt(t.Context(), &prototk.BuildReceiptRequest{
+		TransactionId:     uuid.New().String(),
+		UnavailableStates: true,
+		InfoStates:        []*prototk.EndorsableState{testManifestState(t, n, me, txData), txData},
+	})
+	assert.Regexp(t, "pop", err)
 }
