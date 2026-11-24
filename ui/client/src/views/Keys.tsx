@@ -93,12 +93,15 @@ export const Keys: React.FC = () => {
   }, parent);
 
   useEffect(() => {
+    if ((searchParams.get('path') ?? '') === parent) {
+      return;
+    }
     let value: any = {};
     if (parent !== '') {
       value.path = parent;
     }
     setSearchParams(value);
-  }, [parent, page]);
+  }, [parent, searchParams]);
 
   useResetPaginationOnChange(() => {
     setPage(0);
