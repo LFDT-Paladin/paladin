@@ -1,8 +1,7 @@
 name: Build Project
+# Build and test only - no registry push, no release, no git write.
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 on:
   workflow_call:
