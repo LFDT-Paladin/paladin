@@ -153,7 +153,6 @@ func TestFinalizeTransactionsRedactFailureOverSuccessInBatch(t *testing.T) {
 			}).AddRow(txID, false))
 			mc.db.ExpectExec("DELETE.*transaction_receipts").WillReturnResult(driver.ResultNoRows)
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
 			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
@@ -186,7 +185,7 @@ func TestFinalizeTransactionsDoNotOverrideSuccessWithFailure(t *testing.T) {
 			mc.db.ExpectQuery("SELECT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{
 				"transaction", "success",
 			}).AddRow(txID, true /* do not override */))
-			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
+			// no chained_dispatches query: the discarded failure is not passed on as a chained outcome
 			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectCommit()
@@ -473,8 +472,6 @@ func TestFinalizeTransactionsInsertOkEvent(t *testing.T) {
 func TestFinalizeTransactionsInsertOkChained(t *testing.T) {
 
 	ctx, txm, done := newTestTransactionManager(t, true, mockDomainContractResolve(t, "domain1"), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-		mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-
 		mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, mock.Anything).Return(
 			&pldapi.TransactionStates{None: true}, nil,
 		)
@@ -1003,12 +1000,8 @@ func TestBuildFullReceiptFailDomainFindFail(t *testing.T) {
 	close(l.done)
 }
 
-func TestFinalizeTransactionsChainedReceiptPropagationSuccess(t *testing.T) {
+func TestFinalizeTransactionsChainedSuccessNotPropagated(t *testing.T) {
 	chainedTxID := uuid.New()
-	originalTxID := uuid.New()
-	originalSender := "sender1"
-	originalDomain := "domain1"
-	contractAddress := "0x1234567890123456789012345678901234567890"
 
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
@@ -1016,18 +1009,8 @@ func TestFinalizeTransactionsChainedReceiptPropagationSuccess(t *testing.T) {
 			mc.db.ExpectBegin()
 			// Mock the receipt insert (with RETURNING clause, so it's a Query)
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
-			// Mock the chaining records query - return a matching chaining record
-			mc.db.ExpectQuery(`SELECT.*chained_dispatches.*WHERE.*chained_transaction.*(IN|ANY)`).
-				WithArgs(sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
-					AddRow(chainedTxID, originalTxID, originalSender, originalDomain, contractAddress))
-			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
+			// The original transaction's success reaches its coordinator through its own domain, so chaining records are not read
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
-			// HandleChainedTransactionOutcome is called post-commit for A's coordinator notification
-			mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.MatchedBy(func(addr pldtypes.EthAddress) bool {
-				return addr == *pldtypes.MustEthAddress(contractAddress)
-			}), originalTxID, components.RT_Success, mock.Anything, mock.Anything, mock.Anything).Return()
-			// No mock for WriteOrDistributeChainedTransactionReceipts - it should not be called
 			mc.db.ExpectCommit()
 		})
 	defer done()
@@ -1042,6 +1025,7 @@ func TestFinalizeTransactionsChainedReceiptPropagationSuccess(t *testing.T) {
 		})
 	})
 	require.NoError(t, err)
+	txm.sequencerMgr.(*componentsmocks.SequencerManager).AssertNotCalled(t, "HandleChainedTransactionOutcome")
 }
 
 func TestFinalizeTransactionsChainedReceiptPropagationNoMatch(t *testing.T) {
@@ -1069,9 +1053,10 @@ func TestFinalizeTransactionsChainedReceiptPropagationNoMatch(t *testing.T) {
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
 			{
-				TransactionID: chainedTxID,
-				Domain:        "chainedDomain",
-				ReceiptType:   components.RT_Success,
+				TransactionID:  chainedTxID,
+				Domain:         "chainedDomain",
+				ReceiptType:    components.RT_FailedWithMessage,
+				FailureMessage: "assembly failed",
 			},
 		})
 	})
@@ -1098,9 +1083,10 @@ func TestFinalizeTransactionsChainedReceiptPropagationQueryError(t *testing.T) {
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
 			{
-				TransactionID: chainedTxID,
-				Domain:        "chainedDomain",
-				ReceiptType:   components.RT_Success,
+				TransactionID:  chainedTxID,
+				Domain:         "chainedDomain",
+				ReceiptType:    components.RT_FailedWithMessage,
+				FailureMessage: "assembly failed",
 			},
 		})
 	})
@@ -1132,9 +1118,10 @@ func TestFinalizeTransactionsChainedReceiptPropagationNoChainingRecords(t *testi
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
 			{
-				TransactionID: chainedTxID,
-				Domain:        "chainedDomain",
-				ReceiptType:   components.RT_Success,
+				TransactionID:  chainedTxID,
+				Domain:         "chainedDomain",
+				ReceiptType:    components.RT_FailedWithMessage,
+				FailureMessage: "assembly failed",
 			},
 		})
 	})
@@ -1248,9 +1235,10 @@ func TestFinalizeTransactionsChainedReceiptInvalidContractAddress(t *testing.T) 
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
 			{
-				TransactionID: chainedTxID,
-				Domain:        "chainedDomain",
-				ReceiptType:   components.RT_Success,
+				TransactionID:  chainedTxID,
+				Domain:         "chainedDomain",
+				ReceiptType:    components.RT_FailedWithMessage,
+				FailureMessage: "assembly failed",
 			},
 		})
 	})

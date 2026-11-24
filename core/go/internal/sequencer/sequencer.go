@@ -705,17 +705,6 @@ func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Contex
 	}
 
 	switch receiptType {
-	case components.RT_Success:
-		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedSuccessEvent for parent txID=%s on contract=%s", txID, contractAddress)
-		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedSuccessEvent{
-			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
-				BaseEvent: common.BaseEvent{
-					EventTime: time.Now(),
-				},
-				TransactionID: txID,
-			},
-			OnChain: onChain,
-		})
 	case components.RT_FailedOnChainWithRevertData:
 		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedRevertedEvent (on-chain) for parent txID=%s on contract=%s hasRevertData=%t", txID, contractAddress, len(revertData) > 0)
 		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedRevertedEvent{
