@@ -30,6 +30,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -90,7 +91,7 @@ type nodeConfiguration struct {
 }
 
 func NewNodeConfiguration(t *testing.T, nodeName string) *nodeConfiguration {
-	port, err := getFreePort()
+	port, err := getTransportPort()
 	require.NoError(t, err)
 	cert, key := buildTestCertificate(t, pkix.Name{CommonName: nodeName}, nil, nil)
 	return &nodeConfiguration{
@@ -482,6 +483,26 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 	initPostgres(t, t.Context(), conf.NodeName)
 
 	return *conf, wsConfig
+}
+
+// A node keeps its transport port across restarts, and while it is stopped an outbound connection can take
+// any free port in the kernel's ephemeral range as its source port, so these come from below that range on
+// both Linux (32768+) and macOS (49152+).
+const transportPortMin, transportPortMax = 20000, 32768
+
+var transportPortCounter atomic.Int32
+
+func getTransportPort() (int, error) {
+	span := transportPortMax - transportPortMin
+	for range span {
+		port := transportPortMin + (os.Getpid()+int(transportPortCounter.Add(1)))%span
+		listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err == nil {
+			_ = listener.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no free transport port in [%d,%d)", transportPortMin, transportPortMax)
 }
 
 // getFreePort finds an available TCP port and returns it.
