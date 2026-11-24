@@ -877,7 +877,7 @@ func TestCreateStateOnOneNodeSpendOnAnother(t *testing.T) {
 		EndorsementMode: domains.SelfEndorsement,
 	}
 
-	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob)
 
 	// Start a private transaction on alices node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bobs node
@@ -1461,7 +1461,7 @@ func TestPrivacyGroupEndorsement(t *testing.T) {
 		EndorsementMode: domains.PrivacyGroupEndorsement,
 	}
 	// send JSON RPC message to node 1 to deploy a private contract
-	contractAddress := alice.DeploySimpleStorageDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleStorageDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob)
 
 	// Start a private transaction on alice's node
 	// this should require endorsement from bob and carol
@@ -1558,7 +1558,7 @@ func TestPrivacyGroupEndorsementConcurrent(t *testing.T) {
 		EndorsementMode: domains.PrivacyGroupEndorsement,
 	}
 	// send JSON RPC message to node 1 to deploy a private contract
-	contractAddress := alice.DeploySimpleStorageDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+	contractAddress := alice.DeploySimpleStorageDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold, bob, carol)
 	initTx := alice.GetClient().ForABI(ctx, *domains.SimpleStorageInitABI()).
 		Private().
 		Domain("simpleStorageDomain").

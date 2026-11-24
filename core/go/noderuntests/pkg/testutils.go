@@ -44,6 +44,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
 	"github.com/LFDT-Paladin/paladin/core/pkg/config"
 	"github.com/LFDT-Paladin/paladin/registries/static/pkg/static"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -546,9 +547,9 @@ type Party interface {
 	GetIdentityLocator() string
 	ResolveEthereumAddress(identity string) string
 	DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters,
-		transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress
+		transactionLatencyThreshold func(t *testing.T) time.Duration, alsoIndexedBy ...Party) *pldtypes.EthAddress
 	DeploySimpleStorageDomainInstanceContract(t *testing.T, constructorParameters *domains.SimpleStorageConstructorParameters,
-		transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress
+		transactionLatencyThreshold func(t *testing.T) time.Duration, alsoIndexedBy ...Party) *pldtypes.EthAddress
 	OverrideSequencerConfig(config *pldconf.SequencerConfig)
 }
 
@@ -606,7 +607,7 @@ func mergeStructByPointerFields(base, override reflect.Value) {
 }
 
 func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters,
-	transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress {
+	transactionLatencyThreshold func(t *testing.T) time.Duration, alsoIndexedBy ...Party) *pldtypes.EthAddress {
 	dplyTx := p.client.ForABI(t.Context(), *domains.SimpleTokenConstructorABI(constructorParameters.EndorsementMode)).
 		Private().
 		Domain("domain1").
@@ -614,11 +615,13 @@ func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, const
 		Inputs(pldtypes.JSONString(constructorParameters)).
 		Send().Wait(transactionLatencyThreshold(t) + 5*time.Second) //TODO deploy transaction seems to take longer than expected
 	require.NoError(t, dplyTx.Error())
-	return dplyTx.Receipt().ContractAddress
+	contractAddress := dplyTx.Receipt().ContractAddress
+	waitForContractIndexed(t, contractAddress, transactionLatencyThreshold(t), alsoIndexedBy...)
+	return contractAddress
 }
 
 func (p *partyForTesting) DeploySimpleStorageDomainInstanceContract(t *testing.T, constructorParameters *domains.SimpleStorageConstructorParameters,
-	transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress {
+	transactionLatencyThreshold func(t *testing.T) time.Duration, alsoIndexedBy ...Party) *pldtypes.EthAddress {
 
 	dplyTx := p.client.ForABI(t.Context(), *domains.SimpleStorageConstructorABI(constructorParameters.EndorsementMode)).
 		Private().
@@ -628,7 +631,19 @@ func (p *partyForTesting) DeploySimpleStorageDomainInstanceContract(t *testing.T
 		Send().Wait(transactionLatencyThreshold(t) + 5*time.Second) //TODO deploy transaction seems to take longer than expected
 
 	require.NoError(t, dplyTx.Error())
-	return dplyTx.Receipt().ContractAddress
+	contractAddress := dplyTx.Receipt().ContractAddress
+	waitForContractIndexed(t, contractAddress, transactionLatencyThreshold(t), alsoIndexedBy...)
+	return contractAddress
+}
+
+// A node rejects a transaction for a contract until it has indexed the deploy, which each node does independently of the deployer's receipt.
+func waitForContractIndexed(t *testing.T, contractAddress *pldtypes.EthAddress, timeout time.Duration, parties ...Party) {
+	for _, party := range parties {
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			var sc *pldapi.DomainSmartContract
+			assert.NoError(c, party.GetClient().CallRPC(t.Context(), &sc, "domain_getSmartContractByAddress", contractAddress))
+		}, timeout, 100*time.Millisecond, "contract %s not indexed by %s", contractAddress, party.GetNodeName())
+	}
 }
 
 type partyForTesting struct {
