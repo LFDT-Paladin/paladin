@@ -1,6 +1,9 @@
 # run only when workflows are triggered by a push event
 name: Validate workflows
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     paths:

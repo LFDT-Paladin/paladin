@@ -2,8 +2,7 @@ name: Copy Images Between Registries
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
+  packages: read
 
 on:
   workflow_call:

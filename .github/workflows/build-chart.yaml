@@ -1,5 +1,8 @@
 name: Operator Build
 
+permissions:
+  contents: read
+
 on:
   workflow_call:
     inputs:
