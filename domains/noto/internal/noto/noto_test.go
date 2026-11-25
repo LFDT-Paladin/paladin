@@ -784,6 +784,27 @@ func TestInitContractLocalNodeNameFailed(t *testing.T) {
 	assert.Nil(t, res)
 }
 
+func TestInitContractUseNullifiers(t *testing.T) {
+	n := &Noto{Callbacks: newMockCallbacks()}
+	dataJSON, err := json.Marshal(&types.NotoConfigData_V0{NotaryLookup: "notary@node1"})
+	require.NoError(t, err)
+	for _, variant := range []pldtypes.HexUint64{types.NotoVariantV2, types.NotoVariantV2Nullifiers} {
+		encoded, err := types.NotoConfigABI_V0.EncodeABIDataJSON([]byte(fmt.Sprintf(`{
+			"notary": "0x138baffcdcc3543aad1afd81c71d2182cdf9c8cd",
+			"variant": "0x%064x",
+			"data": "%s"
+		}`, uint64(variant), pldtypes.HexBytes(dataJSON).String())))
+		require.NoError(t, err)
+		res, err := n.InitContract(t.Context(), &prototk.InitContractRequest{
+			ContractAddress: pldtypes.RandAddress().String(),
+			ContractConfig:  append(append([]byte{}, types.NotoConfigID_V0...), encoded...),
+		})
+		require.NoError(t, err)
+		require.True(t, res.Valid)
+		assert.Equal(t, variant == types.NotoVariantV2Nullifiers, res.ContractConfig.UseNullifiers)
+	}
+}
+
 func TestInitTransactionBadAbi(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}

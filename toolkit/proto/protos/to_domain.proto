@@ -332,6 +332,7 @@ message ContractConfig {
       SUBMITTER_SENDER = 1; // The sender submits the transaction            
   }
   SubmitterSelection submitter_selection = 30;
+  bool use_nullifiers = 40; // The contract's available-state queries use nullifiers
 
 }
 
