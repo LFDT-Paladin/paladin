@@ -799,7 +799,7 @@ func TestProcessReliableMsgPagePrivacyGroupMessage(t *testing.T) {
 	}
 	ctx, tm, tp, done := newTestTransport(t, false,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			mc.groupManager.On("GetMessageByID", mock.Anything, mock.Anything, origMsg.ID, false).
+			mc.groupManager.On("GetMessageForDistribution", mock.Anything, mock.Anything, origMsg.ID).
 				Return(origMsg, nil)
 
 			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)

@@ -26,4 +26,12 @@ title: PrivacyGroupInput
 
 ## PrivacyGroupTXOptions
 
+| Field Name | Description | Type |
+|------------|-------------|------|
+| `idempotencyKey` | Idempotency key for the genesis transaction of the privacy group, unique across all transactions on this node. The group is only created along with its genesis transaction, so re-submitting with a key already in use does not create a group, and returns a JSON-RPC error with code -32001 and the ID of the existing transaction | `string` |
+| `gas` | The gas limit for the transaction (optional) | [`HexUint64`](simpletypes.md#hexuint64) |
+| `value` | The value transferred in the transaction (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
+| `maxPriorityFeePerGas` | The maximum priority fee per gas (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
+| `maxFeePerGas` | The maximum fee per gas (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
+
 

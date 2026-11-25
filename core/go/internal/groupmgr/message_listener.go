@@ -105,7 +105,7 @@ func (gm *groupManager) messagesInit() {
 }
 
 func (pm *persistedMessage) mapToAPI() *pldapi.PrivacyGroupMessage {
-	return &pldapi.PrivacyGroupMessage{
+	msg := &pldapi.PrivacyGroupMessage{
 		LocalSequence: pm.LocalSeq,
 		Node:          pm.Node,
 		Sent:          pm.Sent,
@@ -119,6 +119,10 @@ func (pm *persistedMessage) mapToAPI() *pldapi.PrivacyGroupMessage {
 			Data:          pm.Data,
 		},
 	}
+	if pm.IdempotencyKey != nil {
+		msg.IdempotencyKey = *pm.IdempotencyKey
+	}
+	return msg
 }
 
 func (gm *groupManager) CreateMessageListener(ctx context.Context, spec *pldapi.PrivacyGroupMessageListener) error {

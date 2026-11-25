@@ -38,6 +38,7 @@ type PrivacyGroups interface {
 
 	SendMessage(ctx context.Context, msg *pldapi.PrivacyGroupMessageInput) (msgID uuid.UUID, err error)
 	GetMessageById(ctx context.Context, id uuid.UUID) (msg *pldapi.PrivacyGroupMessage, err error)
+	GetMessageByIdempotencyKey(ctx context.Context, idempotencyKey string) (msg *pldapi.PrivacyGroupMessage, err error)
 	QueryMessages(ctx context.Context, q *query.QueryJSON) (msgs []*pldapi.PrivacyGroupMessage, err error)
 
 	CreateMessageListener(ctx context.Context, listener *pldapi.PrivacyGroupMessageListener) (success bool, err error)
@@ -96,6 +97,10 @@ var privacyGroupsInfo = &rpcModuleInfo{
 		},
 		"pgroup_getMessageById": {
 			Inputs: []string{"id"},
+			Output: "msg",
+		},
+		"pgroup_getMessageByIdempotencyKey": {
+			Inputs: []string{"idempotencyKey"},
 			Output: "msg",
 		},
 		"pgroup_queryMessages": {
@@ -187,6 +192,11 @@ func (r *pgroup) SendMessage(ctx context.Context, msg *pldapi.PrivacyGroupMessag
 
 func (r *pgroup) GetMessageById(ctx context.Context, id uuid.UUID) (msg *pldapi.PrivacyGroupMessage, err error) {
 	err = r.c.CallRPC(ctx, &msg, "pgroup_getMessageById", id)
+	return
+}
+
+func (r *pgroup) GetMessageByIdempotencyKey(ctx context.Context, idempotencyKey string) (msg *pldapi.PrivacyGroupMessage, err error) {
+	err = r.c.CallRPC(ctx, &msg, "pgroup_getMessageByIdempotencyKey", idempotencyKey)
 	return
 }
 

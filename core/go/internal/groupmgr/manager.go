@@ -43,13 +43,14 @@ import (
 )
 
 var groupDBOnlyFilters = filters.FieldMap{
-	"id":              filters.HexBytesField("id"),
-	"name":            filters.StringField("name"),
-	"created":         filters.TimestampField("created"),
-	"domain":          filters.StringField(`"privacy_groups"."domain"`),
-	"contractAddress": filters.HexBytesField(`"Receipt"."contract_address"`),
-	"genesisSalt":     filters.HexBytesField("genesis_salt"),
-	"genesisSchema":   filters.HexBytesField("genesis_schema"),
+	"id":                 filters.HexBytesField("id"),
+	"name":               filters.StringField("name"),
+	"created":            filters.TimestampField("created"),
+	"domain":             filters.StringField(`"privacy_groups"."domain"`),
+	"contractAddress":    filters.HexBytesField(`"Receipt"."contract_address"`),
+	"genesisSalt":        filters.HexBytesField("genesis_salt"),
+	"genesisSchema":      filters.HexBytesField("genesis_schema"),
+	"genesisTransaction": filters.UUIDField("genesis_tx"),
 }
 
 type groupManager struct {
@@ -251,6 +252,21 @@ func (gm *groupManager) validateGroupGenesisSet(ctx context.Context, domainName 
 
 func (gm *groupManager) CreateGroup(ctx context.Context, dbTX persistence.DBTX, spec *pldapi.PrivacyGroupInput) (group *pldapi.PrivacyGroup, err error) {
 	ctx = log.WithComponent(ctx, log.Component("groupmanager"))
+
+	// An existing idempotencyKey takes precedence over any other failure, as re-validating a
+	// group that has already been created can fail where the original succeeded.
+	if spec.TransactionOptions != nil && spec.TransactionOptions.IdempotencyKey != "" {
+		idempotencyKey := spec.TransactionOptions.IdempotencyKey
+		defer func() {
+			if err != nil {
+				dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
+					// OUTSIDE of the rolled back transaction
+					return gm.txManager.CheckIdempotencyKeys(ctx, err, idempotencyKey)
+				})
+			}
+		}()
+	}
+
 	pgGenesis := &pldapi.PrivacyGroupGenesisState{
 		GenesisSalt: pldtypes.RandBytes32(),
 		Name:        spec.Name,
@@ -515,7 +531,20 @@ func (gm *groupManager) prepareTransaction(ctx context.Context, dbTX persistence
 
 }
 
-func (gm *groupManager) SendTransaction(ctx context.Context, dbTX persistence.DBTX, pgTX *pldapi.PrivacyGroupEVMTXInput) (*uuid.UUID, error) {
+func (gm *groupManager) SendTransaction(ctx context.Context, dbTX persistence.DBTX, pgTX *pldapi.PrivacyGroupEVMTXInput) (_ *uuid.UUID, err error) {
+
+	// An existing idempotencyKey takes precedence over any other failure, as re-validating a
+	// transaction that has already been submitted can fail where the original succeeded.
+	if pgTX.IdempotencyKey != "" {
+		defer func() {
+			if err != nil {
+				dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
+					// OUTSIDE of the rolled back transaction
+					return gm.txManager.CheckIdempotencyKeys(ctx, err, pgTX.IdempotencyKey)
+				})
+			}
+		}()
+	}
 
 	tx, err := gm.prepareTransaction(ctx, dbTX, pgTX.Domain, pgTX.Group, &pgTX.PrivacyGroupEVMTX)
 	if err != nil {

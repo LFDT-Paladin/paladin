@@ -488,10 +488,18 @@ func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistenc
 	// transaction that has already been submitted can fail where the original succeeded.
 	defer func() {
 		if err != nil {
-			dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
-				// OUTSIDE of the rolled back transaction
-				return tm.checkIdempotencyKeys(ctx, err, txs)
-			})
+			var idempotencyKeys []string
+			for _, tx := range txs {
+				if tx.IdempotencyKey != "" {
+					idempotencyKeys = append(idempotencyKeys, tx.IdempotencyKey)
+				}
+			}
+			if len(idempotencyKeys) > 0 {
+				dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
+					// OUTSIDE of the rolled back transaction
+					return tm.CheckIdempotencyKeys(ctx, err, idempotencyKeys...)
+				})
+			}
 		}
 	}()
 
@@ -571,28 +579,25 @@ func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistenc
 }
 
 // Will either return the original error, or will return a special idempotency key error that can be used by the caller
-// to determine that they need to ask for the existing transactions (rather than fail)
-func (tm *txManager) checkIdempotencyKeys(ctx context.Context, origErr error, txis []*pldapi.TransactionInput) error {
-	idempotencyKeys := make([]any, 0, len(txis))
-	for _, tx := range txis {
-		if tx.IdempotencyKey != "" {
-			idempotencyKeys = append(idempotencyKeys, tx.IdempotencyKey)
-		}
+// to determine that they need to ask for the existing transactions (rather than fail).
+// Requires at least one idempotency key, none of them empty.
+func (tm *txManager) CheckIdempotencyKeys(ctx context.Context, origErr error, idempotencyKeys ...string) error {
+	keyValues := make([]any, len(idempotencyKeys))
+	for i, idempotencyKey := range idempotencyKeys {
+		keyValues[i] = idempotencyKey
 	}
-	if len(idempotencyKeys) > 0 {
-		existingTxs, lookupErr := tm.QueryTransactions(ctx, query.NewQueryBuilder().In("idempotencyKey", idempotencyKeys).Limit(len(idempotencyKeys)).Query(),
-			tm.p.NOTX(), /* intentionally outside of any transaction that might just rolling back in caller */
-			false)
-		if lookupErr != nil {
-			log.L(ctx).Errorf("Failed to query for existing idempotencyKeys after insert error (returning original error): %s", lookupErr)
-		} else if (len(existingTxs)) > 0 {
-			msgInfo := make([]string, len(existingTxs))
-			for i, tx := range existingTxs {
-				msgInfo[i] = fmt.Sprintf("%s=%s", tx.IdempotencyKey, tx.ID)
-			}
-			log.L(ctx).Errorf("Overriding insertion error with idempotencyKey error. origErr: %s", origErr)
-			return i18n.NewError(ctx, msgs.MsgTxMgrIdempotencyKeyClash, strings.Join(msgInfo, ","))
+	existingTxs, lookupErr := tm.QueryTransactions(ctx, query.NewQueryBuilder().In("idempotencyKey", keyValues).Limit(len(keyValues)).Query(),
+		tm.p.NOTX(), /* intentionally outside of any transaction that might just rolling back in caller */
+		false)
+	if lookupErr != nil {
+		log.L(ctx).Errorf("Failed to query for existing idempotencyKeys after error (returning original error): %s", lookupErr)
+	} else if (len(existingTxs)) > 0 {
+		msgInfo := make([]string, len(existingTxs))
+		for i, tx := range existingTxs {
+			msgInfo[i] = fmt.Sprintf("%s=%s", tx.IdempotencyKey, tx.ID)
 		}
+		log.L(ctx).Errorf("Overriding error with idempotencyKey error. origErr: %s", origErr)
+		return i18n.NewError(ctx, msgs.MsgTxMgrIdempotencyKeyClash, strings.Join(msgInfo, ","))
 	}
 	return origErr
 }

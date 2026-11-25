@@ -19,6 +19,7 @@ import {
   IPrivacyGroupEVMCall,
   IPrivacyGroupEVMTXInput,
   IPrivacyGroupInput,
+  IPrivacyGroupMessage,
   IPrivacyGroupMessageInput,
   IPrivacyGroupMessageListener,
   IQuery,
@@ -1016,6 +1017,15 @@ export default class PaladinClient {
       const res = await this.post<JsonRpcResult<any>>(
         "pgroup_getMessageById",
         [id],
+        { validateStatus: (status) => status < 300 || status === 404 }
+      );
+      return res.status === 404 ? undefined : res.data.result;
+    },
+
+    getMessageByIdempotencyKey: async (idempotencyKey: string) => {
+      const res = await this.post<JsonRpcResult<IPrivacyGroupMessage>>(
+        "pgroup_getMessageByIdempotencyKey",
+        [idempotencyKey],
         { validateStatus: (status) => status < 300 || status === 404 }
       );
       return res.status === 404 ? undefined : res.data.result;

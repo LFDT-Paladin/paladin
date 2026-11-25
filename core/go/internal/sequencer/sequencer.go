@@ -212,7 +212,7 @@ func (sMgr *sequencerManager) resumeIncompleteTransactionsMatching(ctx context.C
 // Synchronous function to submit a deployment request which is asynchronously processed
 // Private transaction manager will receive a notification when the public transaction is confirmed
 // (same as for invokes)
-func (sMgr *sequencerManager) handleDeployTx(ctx context.Context, tx *components.PrivateContractDeploy) error {
+func (sMgr *sequencerManager) handleDeployTx(ctx context.Context, dbTX persistence.DBTX, tx *components.PrivateContractDeploy, resume bool) error {
 	log.L(ctx).Debugf("handling new private contract deploy transaction: %v", tx)
 	if tx.Domain == "" {
 		return i18n.NewError(ctx, msgs.MsgSequencerDomainNotProvided)
@@ -231,8 +231,16 @@ func (sMgr *sequencerManager) handleDeployTx(ctx context.Context, tx *components
 	// this is a transaction that will confirm just like invoke transactions
 	// unlike invoke transactions, we don't yet have the sequencer thread to dispatch to so we start a new go routine for each deployment
 	// TODO - should have a pool of deployment threads? Maybe size of pool should be one? Or at least one per domain?
-	sMgr.metrics.IncDispatchedTransactions()
-	go sMgr.deploymentLoop(log.WithLogField(sMgr.ctx, "role", "deploy-loop"), domain, tx)
+	startDeployment := func(_ context.Context) {
+		sMgr.metrics.IncDispatchedTransactions()
+		go sMgr.deploymentLoop(log.WithLogField(sMgr.ctx, "role", "deploy-loop"), domain, tx)
+	}
+	if !resume {
+		// The deployment acts on-chain, so must not start unless the transaction that records it commits
+		dbTX.AddPostCommit(startDeployment)
+	} else {
+		startDeployment(ctx)
+	}
 
 	return nil
 }
@@ -403,12 +411,12 @@ func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.
 			return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
 		}
 		log.L(sMgr.ctx).Infof("handling deploy transaction %s from signer %s", tx.ID, tx.From)
-		return sMgr.handleDeployTx(ctx, &components.PrivateContractDeploy{
+		return sMgr.handleDeployTx(ctx, dbTX, &components.PrivateContractDeploy{
 			ID:     *tx.ID,
 			Domain: tx.Domain,
 			From:   tx.From,
 			Inputs: tx.Data,
-		})
+		}, false)
 	}
 	intent := prototk.TransactionSpecification_SEND_TRANSACTION
 	if txi.Transaction.SubmitMode.V() == pldapi.SubmitModeExternal {
@@ -448,12 +456,12 @@ func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *component
 				return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
 			}
 			log.L(sMgr.ctx).Infof("resuming deploy transaction %s (from=%s)", txi.Transaction.ID, txi.Transaction.From)
-			return sMgr.handleDeployTx(ctx, &components.PrivateContractDeploy{
+			return sMgr.handleDeployTx(ctx, dbTX, &components.PrivateContractDeploy{
 				ID:     *tx.ID,
 				Domain: tx.Domain,
 				From:   tx.From,
 				Inputs: tx.Data,
-			})
+			}, true)
 		}
 		intent := prototk.TransactionSpecification_SEND_TRANSACTION
 		if txi.Transaction.SubmitMode.V() == pldapi.SubmitModeExternal {
