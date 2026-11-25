@@ -15,7 +15,7 @@ jobs:
       issues: write # apply the stale label and comment on issues
       pull-requests: write # apply the stale label and comment on PRs
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v11
         with:
           stale-issue-message: 'This issue is stale because it has been open 30 days with no activity.'
           stale-pr-message: 'This PR is stale because it has been open 30 days with no activity.'
