@@ -162,10 +162,10 @@ type TransactionReceiptBatch struct {
 }
 
 type TransactionReceiptDataOnchain struct {
-	TransactionHash  *pldtypes.Bytes32  `docstruct:"TransactionReceiptDataOnchain" json:"transactionHash,omitempty"`
-	BlockNumber      int64              `docstruct:"TransactionReceiptDataOnchain" json:"blockNumber,omitempty"`
-	BlockTimestamp   pldtypes.Timestamp `docstruct:"TransactionReceiptDataOnchain" json:"blockTimestamp,omitempty"` // the timestamp of the base ledger block (omitted for receipts indexed before this was recorded)
-	TransactionIndex int64              `docstruct:"TransactionReceiptDataOnchain" json:"transactionIndex"`
+	TransactionHash  *pldtypes.Bytes32   `docstruct:"TransactionReceiptDataOnchain" json:"transactionHash,omitempty"`
+	BlockNumber      int64               `docstruct:"TransactionReceiptDataOnchain" json:"blockNumber,omitempty"`
+	BlockTimestamp   *pldtypes.Timestamp `docstruct:"TransactionReceiptDataOnchain" json:"blockTimestamp,omitempty"` // the timestamp of the base ledger block (nil for receipts indexed before this was recorded)
+	TransactionIndex int64               `docstruct:"TransactionReceiptDataOnchain" json:"transactionIndex"`
 }
 
 type TransactionReceiptDataOnchainEvent struct {

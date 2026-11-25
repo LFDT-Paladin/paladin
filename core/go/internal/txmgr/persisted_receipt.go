@@ -69,7 +69,7 @@ func mapPersistedReceipt(receipt *transactionReceipt) *pldapi.TransactionReceipt
 		r.TransactionReceiptDataOnchain = &pldapi.TransactionReceiptDataOnchain{
 			TransactionHash:  receipt.TransactionHash,
 			BlockNumber:      int64OrZero(receipt.BlockNumber),
-			BlockTimestamp:   timestampOrZero(receipt.BlockTimestamp),
+			BlockTimestamp:   receipt.BlockTimestamp,
 			TransactionIndex: int64OrZero(receipt.TransactionIndex),
 		}
 	}
@@ -122,7 +122,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		if ri.OnChain.Type != pldtypes.NotOnChain {
 			receipt.TransactionHash = &ri.OnChain.TransactionHash
 			receipt.BlockNumber = &ri.OnChain.BlockNumber
-			if ri.OnChain.BlockTimestamp != 0 {
+			if ri.OnChain.BlockTimestamp != nil {
 				// Normalize to nanoseconds, as block timestamps arrive from the base ledger in seconds
 				blockTimestamp := pldtypes.TimestampFromUnix(ri.OnChain.BlockTimestamp.UnixNano())
 				receipt.BlockTimestamp = &blockTimestamp

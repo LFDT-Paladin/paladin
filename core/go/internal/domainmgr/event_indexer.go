@@ -305,12 +305,12 @@ func (d *domain) indexedSmartContract(ctx context.Context, dbTX persistence.DBTX
 	return dc, err
 }
 
-// eventBlockTimestamp returns the timestamp of the block containing the event, or zero if unavailable
-func eventBlockTimestamp(ev *pldapi.EventWithData) pldtypes.Timestamp {
+// eventBlockTimestamp returns the timestamp of the block containing the event, or nil if unavailable
+func eventBlockTimestamp(ev *pldapi.EventWithData) *pldtypes.Timestamp {
 	if ev.IndexedEvent == nil || ev.Block == nil {
-		return 0
+		return nil
 	}
-	return ev.Block.Timestamp
+	return &ev.Block.Timestamp
 }
 
 func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, batch *blockindexer.EventDeliveryBatch) error {
@@ -328,9 +328,9 @@ func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, ba
 	}
 	// The domain only passes us back the location of the completion event, so we need to
 	// correlate that back to the block timestamps of the events we delivered to it
-	blockTimestamps := make(map[int64]pldtypes.Timestamp)
+	blockTimestamps := make(map[int64]*pldtypes.Timestamp)
 	for _, ev := range batch.Events {
-		if ts := eventBlockTimestamp(ev); ts != 0 {
+		if ts := eventBlockTimestamp(ev); ts != nil {
 			blockTimestamps[ev.BlockNumber] = ts
 		}
 	}

@@ -440,7 +440,7 @@ func TestFinalizeTransactionsInsertOkEvent(t *testing.T) {
 					Type:             pldtypes.OnChainEvent,
 					TransactionHash:  pldtypes.MustParseBytes32("d0561b310b77e47bc16fb3c40d48b72255b1748efeecf7452373dfce8045af30"),
 					BlockNumber:      12345,
-					BlockTimestamp:   pldtypes.Timestamp(1764086400), // seconds, as delivered by the base ledger
+					BlockTimestamp:   confutil.P(pldtypes.Timestamp(1764086400)), // seconds, as delivered by the base ledger
 					TransactionIndex: 10,
 					LogIndex:         5,
 					Source:           pldtypes.MustEthAddress("0x3f9f796ff55589dd2358c458f185bbed357c0b6e"),

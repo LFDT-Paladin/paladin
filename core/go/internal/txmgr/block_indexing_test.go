@@ -58,11 +58,17 @@ func newTestConfirm(revertReason ...[]byte) *blockindexer.IndexedTransactionNoti
 
 func TestMapBlockchainReceiptBlockTimestamp(t *testing.T) {
 	txi := newTestConfirm()
-	txi.BlockTimestamp = pldtypes.TimestampNow()
+	blockTimestamp := pldtypes.TimestampNow()
+	txi.BlockTimestamp = &blockTimestamp
 	receipt := (&txManager{}).mapBlockchainReceipt(&components.PublicTxMatch{IndexedTransactionNotify: txi})
 	assert.Equal(t, pldtypes.OnChainTransaction, receipt.OnChain.Type)
 	assert.Equal(t, txi.BlockNumber, receipt.OnChain.BlockNumber)
-	assert.Equal(t, txi.BlockTimestamp, receipt.OnChain.BlockTimestamp)
+	assert.Equal(t, &blockTimestamp, receipt.OnChain.BlockTimestamp)
+
+	// Not available
+	txi.BlockTimestamp = nil
+	receipt = (&txManager{}).mapBlockchainReceipt(&components.PublicTxMatch{IndexedTransactionNotify: txi})
+	assert.Nil(t, receipt.OnChain.BlockTimestamp)
 }
 
 func TestPublicConfirmWithErrorDecodeRealDB(t *testing.T) {

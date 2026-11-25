@@ -57,6 +57,6 @@ var EventStreamFilters filters.FieldSet = filters.FieldMap{
 // and persist during PreCommitHandlers and PostCommitHandlers (no JSON serialization for these)
 type IndexedTransactionNotify struct {
 	pldapi.IndexedTransaction
-	BlockTimestamp pldtypes.Timestamp // the timestamp of the block containing the transaction
+	BlockTimestamp *pldtypes.Timestamp // the timestamp of the block containing the transaction
 	RevertReason   pldtypes.HexBytes
 }

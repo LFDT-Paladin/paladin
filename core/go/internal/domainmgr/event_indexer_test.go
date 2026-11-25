@@ -1148,9 +1148,9 @@ func TestHandleEventBatchUpsertStateFail(t *testing.T) {
 
 func TestEventBlockTimestamp(t *testing.T) {
 	ts := pldtypes.TimestampNow()
-	assert.Zero(t, eventBlockTimestamp(&pldapi.EventWithData{}))
-	assert.Zero(t, eventBlockTimestamp(&pldapi.EventWithData{IndexedEvent: &pldapi.IndexedEvent{}}))
-	assert.Equal(t, ts, eventBlockTimestamp(&pldapi.EventWithData{
+	assert.Nil(t, eventBlockTimestamp(&pldapi.EventWithData{}))
+	assert.Nil(t, eventBlockTimestamp(&pldapi.EventWithData{IndexedEvent: &pldapi.IndexedEvent{}}))
+	assert.Equal(t, &ts, eventBlockTimestamp(&pldapi.EventWithData{
 		IndexedEvent: &pldapi.IndexedEvent{Block: &pldapi.IndexedBlock{Number: 1000, Timestamp: ts}},
 	}))
 }
