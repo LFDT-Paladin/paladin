@@ -684,6 +684,7 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	transactionDelegatedEvent.FromNode = message.FromNode
 	transactionDelegatedEvent.OriginatorsBlockHeight = uint64(delegationRequest.OriginatorBlockHeight)
 	transactionDelegatedEvent.DelegationID = delegationRequest.DelegationId
+	transactionDelegatedEvent.SequencerVersion = delegationRequest.SequencerVersion
 	transactionDelegatedEvent.EventTime = time.Now()
 
 	contractAddress := sMgr.parseContractAddressString(ctx, delegationRequest.ContractAddress, message)

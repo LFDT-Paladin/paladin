@@ -183,7 +183,7 @@ func (c *coordinator) dropUnlabelledHandoverStates(ctx context.Context, stateSna
 func action_ProcessDelegatedTransactions(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
 	c.recordOriginatorActivity(e.FromNode)
-	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
+	return c.addToDelegatedTransactions(ctx, e.Originator, e.SequencerVersion, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
 }
 
 // recordOriginatorActivity records that an originator node has sent a delegation request,
@@ -291,11 +291,12 @@ func (c *coordinator) setBlockHeight(ctx context.Context, blockHeight int64) {
 	}
 }
 
-func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction) transaction.CoordinatorTransaction {
+func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, originatorSequencerVersion uint32, nodeName string, pt *components.PrivateTransaction) transaction.CoordinatorTransaction {
 	return transaction.NewTransaction(
 		ctx,
 		originator,
 		originatorNode,
+		originatorSequencerVersion,
 		nodeName,
 		pt,
 		c.getCoordinatorSigningIdentity,
@@ -332,12 +333,14 @@ func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator 
 func (c *coordinator) addToDelegatedTransactions(
 	ctx context.Context,
 	originator string,
+	originatorSequencerVersion uint32,
 	transactions []*components.PrivateTransaction,
 	delegationID string,
 	createTransaction func(
 		ctx context.Context,
 		originator string,
 		originatorNode string,
+		originatorSequencerVersion uint32,
 		nodeName string,
 		pt *components.PrivateTransaction) transaction.CoordinatorTransaction) error {
 
@@ -418,7 +421,7 @@ func (c *coordinator) addToDelegatedTransactions(
 			}
 		}
 
-		newTransaction := createTransaction(ctx, originator, originatorNode, c.nodeName, txn)
+		newTransaction := createTransaction(ctx, originator, originatorNode, originatorSequencerVersion, c.nodeName, txn)
 
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()

@@ -113,6 +113,7 @@ message DelegationRequest {
     int64 originator_block_height = 3; // the originator's block height upon which this delegation was calculated
     repeated PrivateTransactionDelegation transactions = 4; // typed delegation descriptors, one per delegated transaction
     string contract_address = 5; // hex EthAddress — all transactions in this request share the same contract
+    uint32 sequencer_version = 6; // the version of sequencer messaging the originator speaks; 0 from an originator that predates this field
 }
 
 // PrivateTransactionDelegation is the minimal wire descriptor sent when an originator

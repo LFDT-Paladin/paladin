@@ -411,6 +411,7 @@ func newDelegationRequestMessage(fromNode string, contractAddr *pldtypes.EthAddr
 		ContractAddress:       contractAddr.HexString(),
 		Transactions:          delegations,
 		OriginatorBlockHeight: blockHeight,
+		SequencerVersion:      common.SequencerVersion,
 	}
 	payload, _ := proto.Marshal(delegationRequest)
 	return &components.ReceivedMessage{

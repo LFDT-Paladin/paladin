@@ -56,6 +56,7 @@ type coordinatorTransaction struct {
 	// immutable properties of the transaction
 	originator                    string // The fully qualified identity of the originator e.g. "member1@node1"
 	originatorNode                string // The node the originator is running on e.g. "node1"
+	originatorSequencerVersion    uint32 // The version of sequencer messaging the originator speaks
 	nodeName                      string // The local node coordinating this transaction
 	domainSigningIdentity         string // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
 	getCoordinatorSigningIdentity func() string
@@ -122,6 +123,7 @@ type coordinatorTransaction struct {
 func NewTransaction(ctx context.Context,
 	originator string,
 	originatorNode string,
+	originatorSequencerVersion uint32,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	getCoordinatorSigningIdentity func() string,
@@ -156,6 +158,7 @@ func NewTransaction(ctx context.Context,
 		ctx,
 		originator,
 		originatorNode,
+		originatorSequencerVersion,
 		nodeName,
 		pt,
 		getCoordinatorSigningIdentity,
@@ -192,6 +195,7 @@ func newTransaction(
 	ctx context.Context,
 	originator string,
 	originatorNode string,
+	originatorSequencerVersion uint32,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	getCoordinatorSigningIdentity func() string,
@@ -227,6 +231,7 @@ func newTransaction(
 	txn := &coordinatorTransaction{
 		originator:                        originator,
 		originatorNode:                    originatorNode,
+		originatorSequencerVersion:        originatorSequencerVersion,
 		nodeName:                          nodeName,
 		pt:                                pt,
 		transportWriter:                   transportWriter,

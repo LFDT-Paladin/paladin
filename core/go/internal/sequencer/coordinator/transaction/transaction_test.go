@@ -260,6 +260,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		ctx,
 		"sender@node1",
 		"originator-node",
+		common.SequencerVersion,
 		"node1",
 		pt,
 		func() string { return "coordinator-signer" },
@@ -315,6 +316,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		ctx,
 		"sender@node1",
 		"originator-node",
+		common.SequencerVersion,
 		"node1",
 		pt,
 		func() string { return "coordinator-signer" },
@@ -347,6 +349,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 	)
 	require.NotNil(t, txn)
 	assert.Equal(t, pt.ID, txn.GetID())
+	assert.Equal(t, common.SequencerVersion, txn.(*coordinatorTransaction).originatorSequencerVersion)
 	assert.Equal(t, State_Initial, txn.GetCurrentState())
 }
 
@@ -479,6 +482,7 @@ func TestNewTransaction_ChainedDependsOn_InvalidUUIDIsSkipped(t *testing.T) {
 		ctx,
 		"sender@node1",
 		"originator-node",
+		common.SequencerVersion,
 		"node1",
 		pt,
 		func() string { return "coordinator-signer" },

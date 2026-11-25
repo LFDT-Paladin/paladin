@@ -47,6 +47,7 @@ type TransactionsDelegatedEvent struct {
 	Transactions           []*components.PrivateTransaction
 	OriginatorsBlockHeight uint64
 	DelegationID           string
+	SequencerVersion       uint32
 }
 
 func (*TransactionsDelegatedEvent) Type() EventType {

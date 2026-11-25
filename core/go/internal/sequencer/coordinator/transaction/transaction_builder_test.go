@@ -667,6 +667,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		ctx,
 		b.originator,
 		b.originatorNode,
+		common.SequencerVersion,
 		b.nodeName,
 		privateTransaction,
 		func() string { return b.coordinatorSigningIdentity },
