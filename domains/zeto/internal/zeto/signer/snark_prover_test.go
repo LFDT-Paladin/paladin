@@ -44,7 +44,7 @@ func TestNewProver(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 	assert.NotNil(t, prover.circuitsCache)
 	assert.NotNil(t, prover.provingKeysCache)
@@ -109,7 +109,7 @@ func TestConcurrentSnarkProofGeneration(t *testing.T) {
 		ProvingKeysDir:      "test",
 		MaxProverPerCircuit: confutil.P(50), // equal to the default cache size, so all provers can be cached at once
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	circuitLoadedTotal := 0
@@ -119,7 +119,7 @@ func TestConcurrentSnarkProofGeneration(t *testing.T) {
 	totalProvingRequestCount := 0
 	peakProverCountMutex := &sync.Mutex{}
 
-	testCircuitLoader := func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		circuitLoadedTotalMutex.Lock()
 		defer circuitLoadedTotalMutex.Unlock()
 		circuitLoadedTotal++
@@ -200,7 +200,7 @@ func TestConcurrentSnarkProofGeneration(t *testing.T) {
 
 	for i := 0; i < expectReqCount; i++ {
 		go func() {
-			proof, err := prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+			proof, err := prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 			require.NoError(t, err)
 			assert.Equal(t, 36, len(proof))
 			reqChan <- struct{}{}
@@ -223,7 +223,7 @@ func TestSnarkProveErrorCircuit(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	alice := common.NewTestKeypair()
@@ -254,7 +254,7 @@ func TestSnarkProveErrorCircuit(t *testing.T) {
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
 
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "circuit ID is required")
 }
 
@@ -263,7 +263,7 @@ func TestSnarkProveErrorInputs(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	alice := common.NewTestKeypair()
@@ -291,7 +291,7 @@ func TestSnarkProveErrorInputs(t *testing.T) {
 	}
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "anon.wasm: no such file or directory")
 }
 
@@ -300,10 +300,10 @@ func TestSnarkProveErrorLoadcircuits(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return nil, nil, fmt.Errorf("bang!")
 	}
 	prover.circuitLoader = testCircuitLoader
@@ -352,8 +352,8 @@ func TestSnarkProveErrorLoadcircuits(t *testing.T) {
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
 
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
-	assert.EqualError(t, err, "bang!")
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	assert.EqualError(t, err, "PD210163: Failed to load artifacts for circuit anon at Zeto variant V0: bang!")
 }
 
 func TestSnarkProveErrorGenerateProof(t *testing.T) {
@@ -361,10 +361,10 @@ func TestSnarkProveErrorGenerateProof(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return &testWitnessCalculator{}, []byte("proving key"), nil
 	}
 	prover.circuitLoader = testCircuitLoader
@@ -409,7 +409,7 @@ func TestSnarkProveErrorGenerateProof(t *testing.T) {
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
 
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "witness is empty")
 }
 
@@ -418,10 +418,10 @@ func TestSnarkProveErrorGenerateProof2(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
-	testCircuitLoader := func(ctx context.Context, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
+	testCircuitLoader := func(ctx context.Context, variantDir string, circuitID string, config *zetosignerapi.SnarkProverConfig) (witness.Calculator, []byte, error) {
 		return &testWitnessCalculator{}, []byte("proving key"), nil
 	}
 	prover.circuitLoader = testCircuitLoader
@@ -470,7 +470,7 @@ func TestSnarkProveErrorGenerateProof2(t *testing.T) {
 	}
 	payload, err := proto.Marshal(&req)
 	require.NoError(t, err)
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "PD210084: Failed to parse input commitment")
 
 	req = pb.ProvingRequest{
@@ -492,7 +492,7 @@ func TestSnarkProveErrorGenerateProof2(t *testing.T) {
 	}
 	payload, err = proto.Marshal(&req)
 	require.NoError(t, err)
-	_, err = prover.Sign(context.Background(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
+	_, err = prover.Sign(t.Context(), zetosignerapi.AlgoDomainZetoSnarkBJJ("zeto"), zetosignerapi.PAYLOAD_DOMAIN_ZETO_SNARK, alice.PrivateKey[:], payload)
 	assert.ErrorContains(t, err, "PD210082: Failed to parse input salt")
 }
 
@@ -517,6 +517,23 @@ func TestSerializeProofResponse(t *testing.T) {
 	bytes, err := serializeProofResponse(circuit, &snark)
 	assert.NoError(t, err)
 	assert.Equal(t, 118, len(bytes))
+
+	var provingRes pb.ProvingResponse
+	require.NoError(t, proto.Unmarshal(bytes, &provingRes))
+	assert.Equal(t, "15", provingRes.PublicInputs["encryptionNonce"])
+
+	circuit = &zetosignerapi.Circuit{
+		Name:           "anon_enc",
+		Type:           zetosignerapi.TransferLocked,
+		UsesNullifiers: false,
+		UsesEncryption: true,
+	}
+	bytes, err = serializeProofResponse(circuit, &snark)
+	assert.NoError(t, err)
+	require.NoError(t, proto.Unmarshal(bytes, &provingRes))
+	assert.Equal(t, "15", provingRes.PublicInputs["encryptionNonce"])
+	assert.NotEmpty(t, provingRes.PublicInputs["ecdhPublicKey"])
+	assert.NotEmpty(t, provingRes.PublicInputs["encryptedValues"])
 
 	circuit = &zetosignerapi.Circuit{
 		Name:           "anon_nullifier",
@@ -581,12 +598,12 @@ func TestSerializeProofResponse(t *testing.T) {
 }
 
 func TestZKPProverInvalidAlgos(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := &zetosignerapi.SnarkProverConfig{
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	_, err = prover.GetVerifier(ctx, "domain:zeto:unsupported", "", nil)
@@ -613,12 +630,12 @@ func TestZKPProverInvalidAlgos(t *testing.T) {
 }
 
 func TestGetVerifier(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := &zetosignerapi.SnarkProverConfig{
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	keyBytes := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20}
@@ -703,6 +720,14 @@ func TestNewWitnessInputs(t *testing.T) {
 			expectErr:  false,
 		},
 		{
+			name:       "Valid fungible encryption transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_enc", Type: zetosignerapi.TransferLocked, UsesEncryption: true},
+			extras:     &pb.ProvingRequestExtras_Encryption{},
+			expectType: &wtns.FungibleEncWitnessInputs{},
+			expectErr:  false,
+		},
+		{
 			name:       "Valid fungible nullifier witness inputs",
 			tokenType:  pb.TokenType_fungible,
 			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier", Type: zetosignerapi.Transfer, UsesNullifiers: true},
@@ -756,6 +781,97 @@ func TestNewWitnessInputs(t *testing.T) {
 			circuit:     &zetosignerapi.Circuit{Name: "anon_nullifier", Type: zetosignerapi.Transfer, UsesNullifiers: true},
 			extras:      &pb.ProvingRequestExtras_Encryption{},
 			expectType:  nil,
+			expectErr:   true,
+			errContains: "unexpected extras type for anon nullifier circuit",
+		},
+		{
+			name:       "Valid fungible KYC transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier_kyc_transferLocked", Type: zetosignerapi.TransferLocked, UsesKyc: true},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleLockKycWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible KYC transferLocked without nullifiers",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_kyc_transferLocked", Type: zetosignerapi.TransferLocked, UsesKyc: true, UsesNullifiers: false},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleLockKycWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid withdraw non-nullifier witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "withdraw", Type: zetosignerapi.Withdraw},
+			expectType: &wtns.WithdrawWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid non-fungible transfer witness inputs",
+			tokenType:  pb.TokenType_nunFungible,
+			circuit:    &zetosignerapi.Circuit{Name: "nf_anon", Type: zetosignerapi.Transfer},
+			expectType: &wtns.NonFungibleWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid non-fungible transferLocked witness inputs",
+			tokenType:  pb.TokenType_nunFungible,
+			circuit:    &zetosignerapi.Circuit{Name: "nf_anon", Type: zetosignerapi.TransferLocked},
+			expectType: &wtns.NonFungibleWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible plain transfer witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon", Type: zetosignerapi.Transfer},
+			expectType: &wtns.FungibleWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible plain transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon", Type: zetosignerapi.TransferLocked},
+			expectType: &wtns.FungibleWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible nullifier kyc transfer witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier_kyc", Type: zetosignerapi.Transfer, UsesNullifiers: true, UsesKyc: true},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleNullifierKycWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible nullifier transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier", Type: zetosignerapi.TransferLocked, UsesNullifiers: true},
+			extras:     &pb.ProvingRequestExtras_Nullifiers{},
+			expectType: &wtns.FungibleNullifierWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:       "Valid fungible nullifier kyc transferLocked witness inputs",
+			tokenType:  pb.TokenType_fungible,
+			circuit:    &zetosignerapi.Circuit{Name: "anon_nullifier_kyc", Type: zetosignerapi.TransferLocked, UsesNullifiers: true, UsesKyc: true},
+			extras:     &pb.ProvingRequestExtras_NullifiersKyc{},
+			expectType: &wtns.FungibleNullifierKycWitnessInputs{},
+			expectErr:  false,
+		},
+		{
+			name:        "Invalid extras for transferLocked kyc without nullifiers",
+			tokenType:   pb.TokenType_fungible,
+			circuit:     &zetosignerapi.Circuit{Name: "anon_kyc", Type: zetosignerapi.TransferLocked, UsesKyc: true},
+			extras:      &pb.ProvingRequestExtras_Nullifiers{},
+			expectErr:   true,
+			errContains: "unexpected extras type for anon nullifier kyc transferLocked circuit",
+		},
+		{
+			name:        "Invalid extras for withdraw nullifier circuit",
+			tokenType:   pb.TokenType_fungible,
+			circuit:     &zetosignerapi.Circuit{Name: "withdraw_nullifier", Type: zetosignerapi.Withdraw, UsesNullifiers: true},
+			extras:      &pb.ProvingRequestExtras_Encryption{},
 			expectErr:   true,
 			errContains: "unexpected extras type for anon nullifier circuit",
 		},
@@ -899,18 +1015,18 @@ func TestNewSnarkProver(t *testing.T) {
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := NewSnarkProver(config)
+	prover, err := NewSnarkProver(config, false)
 	require.NoError(t, err)
 	assert.NotNil(t, prover)
 }
 
 func TestSnarkProverSign(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := &zetosignerapi.SnarkProverConfig{
 		CircuitsDir:    "test",
 		ProvingKeysDir: "test",
 	}
-	prover, err := newSnarkProver(config)
+	prover, err := newSnarkProver(config, false)
 	require.NoError(t, err)
 
 	t.Run("Invalid algorithm", func(t *testing.T) {

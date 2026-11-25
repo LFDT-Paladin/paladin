@@ -53,7 +53,11 @@ func makeNewState(ctx context.Context, stateSchema *pb.StateSchema, useNullifier
 		return nil, i18n.NewError(ctx, msgs.MsgErrorHashState, err)
 	}
 
-	hashStr := common.IntTo32ByteHexString(hash.Int())
+	id, err := hash.Bytes32(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hashStr := id.String()
 	newState := &pb.NewState{
 		Id:               &hashStr,
 		SchemaId:         stateSchema.Id,

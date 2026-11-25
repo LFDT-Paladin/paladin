@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"testing"
 	"time"
 
@@ -238,7 +239,7 @@ notReady:
 			address,
 			coinSchemaID,
 			jq,
-			"confirmed")
+			pldapi.StateStatusConfirmed)
 		if rpcerr != nil {
 			require.NoError(t, rpcerr)
 		}
@@ -254,4 +255,53 @@ notReady:
 		break
 	}
 	return states
+}
+
+func zetoUnlockedCoinQueryMethod(isNullifiersToken bool) string {
+	if isNullifiersToken {
+		return "pstate_queryContractNullifiers"
+	}
+	return "pstate_queryContractStates"
+}
+
+// findAvailableZetoCoinsUnlockedAndLocked queries unlocked coins with the token-appropriate RPC
+// (pstate_queryContractNullifiers for nullifier tokens, pstate_queryContractStates otherwise) and
+// locked coins always via pstate_queryContractStates, then merges the results for readiness checks.
+func findAvailableZetoCoinsUnlockedAndLocked(
+	t *testing.T, ctx context.Context, rpc rpcclient.Client,
+	domainName, coinSchemaID string, isNullifiersToken bool,
+	address *pldtypes.EthAddress, limit int,
+	readiness ...func(coins []*zetotypes.ZetoCoinState) bool,
+) []*zetotypes.ZetoCoinState {
+	if limit <= 0 {
+		limit = 100
+	}
+	jqUnlocked := query.NewQueryBuilder().Limit(limit).Equal("locked", false).Query()
+	jqLocked := query.NewQueryBuilder().Limit(limit).Equal("locked", true).Query()
+	unlockedMethod := zetoUnlockedCoinQueryMethod(isNullifiersToken)
+	lockedMethod := "pstate_queryContractStates"
+
+	var merged []*zetotypes.ZetoCoinState
+notReady:
+	for {
+		var unlocked, locked []*zetotypes.ZetoCoinState
+		// "confirmed" replaced the removed "available" qualifier; the two always selected the same states
+		// (a confirm record and no spend record). Use the typed constant so a future rename fails to compile.
+		rpcerr := rpc.CallRPC(ctx, &unlocked, unlockedMethod, domainName, address, coinSchemaID, jqUnlocked, pldapi.StateStatusConfirmed)
+		require.NoError(t, rpcerr)
+		rpcerr = rpc.CallRPC(ctx, &locked, lockedMethod, domainName, address, coinSchemaID, jqLocked, pldapi.StateStatusConfirmed)
+		require.NoError(t, rpcerr)
+		merged = append(unlocked, locked...)
+		for _, fn := range readiness {
+			if t.Failed() {
+				panic("test failed")
+			}
+			if !fn(merged) {
+				time.Sleep(100 * time.Millisecond)
+				continue notReady
+			}
+		}
+		break
+	}
+	return merged
 }

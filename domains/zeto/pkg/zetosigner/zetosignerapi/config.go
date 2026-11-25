@@ -25,6 +25,13 @@ import (
 // based on SNARK, which typically takes a circuit and proving key
 type SnarkProverConfig struct {
 	signerapi.ConfigNoExt
+	// CircuitsDir and ProvingKeysDir are the roots of the proving-artifact trees. For a Zeto domain configured with
+	// variants, artifacts are looked up under a per-variant subdirectory — <dir>/V<n>/<circuit>_js/<circuit>.wasm and
+	// <dir>/V<n>/<circuit>.zkey, where V<n> is the pool's ZetoVariant — so one node can serve pools of every variant.
+	// Circuit names are not unique across upstream zeto releases, which is why the variant cannot be left out of the path.
+	//
+	// A root laid out flat (no V<n> directories) is read by a Zeto domain configured with domainContracts, and by the
+	// standalone signing module; such a prover can only serve the variant it holds.
 	CircuitsDir         string `json:"circuitsDir"`         // directory for the circuits runtime (WASM currently supported)
 	ProvingKeysDir      string `json:"provingKeysDir"`      // public parameters for the prover, specific to each circuit
 	MaxProverPerCircuit *int   `json:"maxProverPerCircuit"` // maximum number of proving runtime per circuit, each prover owns a standalone WASM instance
@@ -45,6 +52,9 @@ type Circuit struct {
 	UsesNullifiers bool        `yaml:"usesNullifiers" json:"usesNullifiers"`
 	UsesEncryption bool        `yaml:"usesEncryption" json:"usesEncryption"`
 	UsesKyc        bool        `yaml:"usesKyc" json:"usesKyc"`
+	// Variant is the pool's ZetoVariant, stamped when the on-chain domain config is decoded. It selects which
+	// proving-artifact tree this circuit's .wasm and .zkey are read from.
+	Variant uint64 `yaml:"variant,omitempty" json:"variant,omitempty"`
 }
 
 func (c *Circuit) ToProto() *proto.Circuit {
@@ -54,6 +64,7 @@ func (c *Circuit) ToProto() *proto.Circuit {
 		UsesNullifiers: c.UsesNullifiers,
 		UsesEncryption: c.UsesEncryption,
 		UsesKyc:        c.UsesKyc,
+		Variant:        c.Variant,
 	}
 }
 
@@ -65,6 +76,16 @@ func (cs Circuits) Init() {
 	}
 }
 
+// StampVariant records the pool's variant on every circuit, so the prover reads artifacts from that variant's tree.
+// Called when the on-chain domain instance config is decoded.
+func (cs Circuits) StampVariant(variant uint64) {
+	for _, circuit := range cs {
+		if circuit != nil {
+			circuit.Variant = variant
+		}
+	}
+}
+
 func NewCircuitFromProto(pb *proto.Circuit) *Circuit {
 	return &Circuit{
 		Name:           pb.Name,
@@ -72,6 +93,7 @@ func NewCircuitFromProto(pb *proto.Circuit) *Circuit {
 		UsesNullifiers: pb.UsesNullifiers,
 		UsesEncryption: pb.UsesEncryption,
 		UsesKyc:        pb.UsesKyc,
+		Variant:        pb.Variant,
 	}
 }
 

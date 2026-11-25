@@ -92,14 +92,17 @@ func TestConfigureDomain(t *testing.T) {
 		Name:       "z1",
 		ConfigJson: "bad json",
 	}
-	_, err = z.ConfigureDomain(context.Background(), req)
+	_, err = z.ConfigureDomain(t.Context(), req)
 	assert.EqualError(t, err, "PD210002: Failed to parse domain config json. invalid character 'b' looking for beginning of value")
 
 	req.ConfigJson = string(configBytes)
-	res, err := z.ConfigureDomain(context.Background(), req)
+	res, err := z.ConfigureDomain(t.Context(), req)
 	assert.NoError(t, err)
 	assert.NotNil(t, res)
 
+	req.ConfigJson = `{"variants": {"V0": {}, "V1": {}}, "defaultVariant": "V2"}`
+	_, err = z.ConfigureDomain(t.Context(), req)
+	assert.Regexp(t, "PD210002.*PD210143", err)
 }
 
 func TestDecodeDomainConfig(t *testing.T) {
@@ -119,7 +122,7 @@ func TestDecodeDomainConfig(t *testing.T) {
 	assert.NoError(t, err)
 
 	z := &Zeto{name: "z1"}
-	decoded, err := z.decodeDomainConfig(context.Background(), encoded)
+	decoded, err := z.decodeDomainConfig(t.Context(), encoded)
 	assert.NoError(t, err)
 	assert.Equal(t, config, decoded)
 
@@ -195,7 +198,7 @@ func TestPrepareDeploy(t *testing.T) {
 				"deposit": &zetosignerapi.Circuit{Name: "circuit1"},
 			},
 			tokenName: "testToken1",
-			errorMsg:  "PD210007: Failed to find circuit ID based on the token name. PD210000: Contract '' not found",
+			errorMsg:  "PD210007: Failed to find circuit ID based on the token name. PD210146: No implementation '' is configured for Zeto variant V0",
 		},
 		{
 			name:      "Valid fungible token",
@@ -239,8 +242,8 @@ func TestPrepareDeploy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testCallbacks := &domain.MockDomainCallbacks{}
 			z := New(testCallbacks)
-			z.config = &types.DomainFactoryConfig{
-				DomainContracts: types.DomainConfigContracts{
+			z.variants = resolveTestVariants(t, &types.DomainFactoryConfig{
+				DomainContracts: &types.DomainConfigContracts{
 					Implementations: []*types.DomainContract{
 						{
 							Name:     tc.tokenName,
@@ -248,7 +251,7 @@ func TestPrepareDeploy(t *testing.T) {
 						},
 					},
 				},
-			}
+			})
 
 			req := &pb.PrepareDeployRequest{
 				Transaction: &pb.DeployTransactionSpecification{
@@ -262,7 +265,7 @@ func TestPrepareDeploy(t *testing.T) {
 				},
 			}
 
-			res, err := z.PrepareDeploy(context.Background(), req)
+			res, err := z.PrepareDeploy(t.Context(), req)
 
 			if tc.errorMsg == "" {
 				require.NoError(t, err)
@@ -275,13 +278,87 @@ func TestPrepareDeploy(t *testing.T) {
 	}
 }
 
+func resolveTestVariants(t *testing.T, config *types.DomainFactoryConfig) *types.DomainVariants {
+	dv, err := config.ResolveVariants(t.Context())
+	require.NoError(t, err)
+	return dv
+}
+
+func TestPrepareDeployVariants(t *testing.T) {
+	circuits := func(transfer string) *zetosignerapi.Circuits {
+		return &zetosignerapi.Circuits{
+			"deposit":        &zetosignerapi.Circuit{Name: "deposit"},
+			"withdraw":       &zetosignerapi.Circuit{Name: "withdraw"},
+			"transfer":       &zetosignerapi.Circuit{Name: transfer},
+			"transferLocked": &zetosignerapi.Circuit{Name: "transfer-locked"},
+		}
+	}
+	z := New(&domain.MockDomainCallbacks{})
+	z.variants = resolveTestVariants(t, &types.DomainFactoryConfig{
+		Variants: map[string]*types.VariantConfig{
+			"V0": {Implementations: []*types.DomainContract{
+				{Name: constants.TOKEN_ANON, Circuits: circuits("transfer-v0")},
+			}},
+			"V1": {Implementations: []*types.DomainContract{
+				{Name: constants.TOKEN_ANON, RegisteredName: "Zeto_Anon_V1", Circuits: circuits("transfer-v1")},
+			}},
+		},
+		DefaultVariant: "V1",
+	})
+	prepareDeploy := func(constructorParamsJson string) (*types.DeployParams, *types.DomainInstanceConfig, error) {
+		res, err := z.PrepareDeploy(t.Context(), &pb.PrepareDeployRequest{
+			Transaction: &pb.DeployTransactionSpecification{
+				TransactionId:         "0x1234",
+				ConstructorParamsJson: constructorParamsJson,
+			},
+			ResolvedVerifiers: []*pb.ResolvedVerifier{{Verifier: "0x74e71b05854ee819cb9397be01c82570a178d019"}},
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		var params types.DeployParams
+		require.NoError(t, json.Unmarshal([]byte(res.Transaction.ParamsJson), &params))
+		instanceConfig, err := types.DecodeDomainInstanceConfig(t.Context(), params.Data)
+		require.NoError(t, err)
+		return &params, instanceConfig, nil
+	}
+
+	params, instanceConfig, err := prepareDeploy(`{"tokenName":"Zeto_Anon"}`)
+	require.NoError(t, err)
+	assert.Equal(t, "Zeto_Anon_V1", params.TokenName)
+	assert.Equal(t, constants.TOKEN_ANON, params.Name)
+	assert.Equal(t, types.ZetoVariant_V1, instanceConfig.Variant)
+	assert.Equal(t, constants.TOKEN_ANON, instanceConfig.TokenName)
+	assert.Equal(t, "transfer-v1", (*instanceConfig.Circuits)["transfer"].Name)
+
+	// uint256 constructor inputs reach the plugin as decimal strings
+	params, instanceConfig, err = prepareDeploy(`{"tokenName":"Zeto_Anon","variant":"0"}`)
+	require.NoError(t, err)
+	assert.Equal(t, constants.TOKEN_ANON, params.TokenName)
+	assert.Equal(t, types.ZetoVariant_V0, instanceConfig.Variant)
+	assert.Equal(t, "transfer-v0", (*instanceConfig.Circuits)["transfer"].Name)
+
+	_, _, err = prepareDeploy(`{"tokenName":"Zeto_Anon","variant":"5"}`)
+	assert.Regexp(t, "PD210007.*PD210145.*V5", err)
+
+	_, _, err = prepareDeploy(`{"tokenName":"Zeto_AnonNullifier","variant":1}`)
+	assert.Regexp(t, "PD210007.*PD210146.*Zeto_AnonNullifier.*V1", err)
+
+	z.variants.DefaultVariant = nil
+	_, _, err = prepareDeploy(`{"tokenName":"Zeto_Anon"}`)
+	assert.Regexp(t, "PD210160", err)
+	params, _, err = prepareDeploy(`{"tokenName":"Zeto_Anon","variant":1}`)
+	require.NoError(t, err)
+	assert.Equal(t, "Zeto_Anon_V1", params.TokenName)
+}
+
 func TestInitContract(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{}
 	z := New(testCallbacks)
 	req := &pb.InitContractRequest{
 		ContractConfig: []byte("bad config"),
 	}
-	res, err := z.InitContract(context.Background(), req)
+	res, err := z.InitContract(t.Context(), req)
 	assert.NoError(t, err) // so we don't block the indexing
 	require.False(t, res.Valid)
 
@@ -298,7 +375,7 @@ func TestInitContract(t *testing.T) {
 	encoded, err := types.DomainInstanceConfigABI.EncodeABIDataJSON(configJSON)
 	assert.NoError(t, err)
 	req.ContractConfig = encoded
-	res, err = z.InitContract(context.Background(), req)
+	res, err = z.InitContract(t.Context(), req)
 	assert.NoError(t, err)
 	require.True(t, res.Valid)
 	require.JSONEq(t, `{
@@ -308,13 +385,39 @@ func TestInitContract(t *testing.T) {
 			"transfer": { "name": "circuit-transfer", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false },
 			"transferLocked": { "name": "circuit-transfer-locked", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false }
 		},
-		"tokenName": "testToken1"
+		"tokenName": "testToken1",
+		"variant": 0
 	}`, res.ContractConfig.ContractConfigJson)
+
+	encoded, err = types.EncodeDomainInstanceConfig(t.Context(), &types.DomainInstanceConfig{
+		Circuits:  conf.Circuits,
+		TokenName: "testToken1",
+		Variant:   types.ZetoVariant_V1,
+	})
+	require.NoError(t, err)
+	req.ContractConfig = encoded
+	res, err = z.InitContract(t.Context(), req)
+	require.NoError(t, err)
+	require.True(t, res.Valid)
+	assert.Contains(t, res.ContractConfig.ContractConfigJson, `"variant":1`)
+
+	// A variant this build does not support
+	encoded, err = types.EncodeDomainInstanceConfig(t.Context(), &types.DomainInstanceConfig{
+		Circuits:  conf.Circuits,
+		TokenName: "testToken1",
+		Variant:   types.ZetoVariant(9),
+	})
+	require.NoError(t, err)
+	req.ContractConfig = encoded
+	res, err = z.InitContract(t.Context(), req)
+	require.NoError(t, err)
+	require.False(t, res.Valid)
 }
 
 func TestInitTransaction(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{}
 	z := New(testCallbacks)
+	z.variants = resolveTestVariants(t, &types.DomainFactoryConfig{})
 	req := &pb.InitTransactionRequest{
 		Transaction: &pb.TransactionSpecification{
 			TransactionId:      "0x1234",
@@ -325,15 +428,15 @@ func TestInitTransaction(t *testing.T) {
 			},
 		},
 	}
-	_, err := z.InitTransaction(context.Background(), req)
+	_, err := z.InitTransaction(t.Context(), req)
 	assert.ErrorContains(t, err, "PD210008")
 
 	req.Transaction.FunctionAbiJson = "{\"type\":\"function\",\"name\":\"test\"}"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.ErrorContains(t, err, "PD210008")
 
 	req.Transaction.FunctionAbiJson = "{\"type\":\"function\",\"name\":\"test\"}"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.ErrorContains(t, err, "PD210008")
 
 	conf := types.DomainInstanceConfig{
@@ -345,46 +448,54 @@ func TestInitTransaction(t *testing.T) {
 	configJSON, err := json.Marshal(conf)
 	assert.NoError(t, err)
 	req.Transaction.ContractInfo.ContractConfigJson = string(configJSON)
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210014: Unknown function: test")
 
 	req.Transaction.FunctionAbiJson = "{\"type\":\"function\",\"name\":\"mint\"}"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210015: Failed to validate function params. invalid character 'b' looking for beginning of value")
 
 	req.Transaction.FunctionParamsJson = "{}"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210015: Failed to validate function params. PD210024: No transfer parameters provided")
 
 	req.Transaction.FunctionParamsJson = "{\"mints\":[{}]}"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210015: Failed to validate function params. PD210025: Parameter 'to' is required (index=0)")
 
 	req.Transaction.FunctionParamsJson = "{\"mints\":[{\"to\":\"Alice\"}]}"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210015: Failed to validate function params. PD210026: Parameter 'amount' is required (index=0)")
 
 	req.Transaction.FunctionParamsJson = "{\"mints\":[{\"to\":\"Alice\",\"amount\":\"0\"}]}"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210015: Failed to validate function params. PD210027: Parameter 'amount' must be in the range (0, 2^100) (index=0)")
 
 	req.Transaction.FunctionParamsJson = "{\"mints\":[{\"to\":\"Alice\",\"amount\":\"10\"}]}"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210016: Unexpected signature for function 'mint': expected='function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; bytes data; }', actual=''")
 
 	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; bytes data; }"
-	_, err = z.InitTransaction(context.Background(), req)
+	_, err = z.InitTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210017: Failed to decode contract address. bad address - must be 20 bytes (len=0)")
 
 	req.Transaction.ContractInfo.ContractAddress = "0x1234567890123456789012345678901234567890"
-	res, err := z.InitTransaction(context.Background(), req)
+	res, err := z.InitTransaction(t.Context(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, "Alice", res.RequiredVerifiers[0].Lookup)
+
+	conf.Variant = types.ZetoVariant_V1
+	configJSON, err = json.Marshal(conf)
+	require.NoError(t, err)
+	req.Transaction.ContractInfo.ContractConfigJson = string(configJSON)
+	_, err = z.InitTransaction(t.Context(), req)
+	assert.EqualError(t, err, "PD210008: Failed to validate init transaction spec. PD210145: Zeto variant V1 is not configured on this node")
 }
 
 func TestAssembleTransaction(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{}
 	z := New(testCallbacks)
+	z.variants = resolveTestVariants(t, &types.DomainFactoryConfig{})
 	z.name = "z1"
 	z.coinSchema = &pb.StateSchema{
 		Id: "coin",
@@ -414,7 +525,7 @@ func TestAssembleTransaction(t *testing.T) {
 			},
 		},
 	}
-	_, err := z.AssembleTransaction(context.Background(), req)
+	_, err := z.AssembleTransaction(t.Context(), req)
 	assert.ErrorContains(t, err, "PD210009")
 
 	req.Transaction.FunctionSignature = "function mint(TransferParam[] memory mints) external { }; struct TransferParam { string to; uint256 amount; bytes data; }"
@@ -425,13 +536,14 @@ func TestAssembleTransaction(t *testing.T) {
 		TokenName: "testToken1",
 	}
 	req.Transaction.ContractInfo.ContractConfigJson = pldtypes.JSONString(conf).Pretty()
-	_, err = z.AssembleTransaction(context.Background(), req)
+	_, err = z.AssembleTransaction(t.Context(), req)
 	assert.NoError(t, err)
 }
 
 func TestEndorseTransaction(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{}
 	z := New(testCallbacks)
+	z.variants = resolveTestVariants(t, &types.DomainFactoryConfig{})
 	req := &pb.EndorseTransactionRequest{
 		Transaction: &pb.TransactionSpecification{
 			TransactionId:      "0x1234",
@@ -441,7 +553,7 @@ func TestEndorseTransaction(t *testing.T) {
 			},
 		},
 	}
-	_, err := z.EndorseTransaction(context.Background(), req)
+	_, err := z.EndorseTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210010: Failed to validate endorse transaction spec. PD210012: Failed to unmarshal function abi json. unexpected end of JSON input")
 
 	req.Transaction.FunctionAbiJson = "{\"type\":\"function\",\"name\":\"mint\"}"
@@ -453,15 +565,15 @@ func TestEndorseTransaction(t *testing.T) {
 		TokenName: "testToken1",
 	}
 	req.Transaction.ContractInfo.ContractConfigJson = pldtypes.JSONString(conf).Pretty()
-	_, err = z.EndorseTransaction(context.Background(), req)
+	_, err = z.EndorseTransaction(t.Context(), req)
 	assert.NoError(t, err)
 }
 
 func TestPrepareTransaction(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{}
 	z := New(testCallbacks)
-	z.config = &types.DomainFactoryConfig{
-		DomainContracts: types.DomainConfigContracts{
+	z.variants = resolveTestVariants(t, &types.DomainFactoryConfig{
+		DomainContracts: &types.DomainConfigContracts{
 			Implementations: []*types.DomainContract{
 				{
 					Name: "testToken1",
@@ -471,7 +583,7 @@ func TestPrepareTransaction(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 	req := &pb.PrepareTransactionRequest{
 		Transaction: &pb.TransactionSpecification{
 			TransactionId:      pldtypes.RandBytes32().String(),
@@ -486,7 +598,7 @@ func TestPrepareTransaction(t *testing.T) {
 			},
 		},
 	}
-	_, err := z.PrepareTransaction(context.Background(), req)
+	_, err := z.PrepareTransaction(t.Context(), req)
 	assert.EqualError(t, err, "PD210011: Failed to validate prepare transaction spec. PD210012: Failed to unmarshal function abi json. unexpected end of JSON input")
 
 	req.Transaction.FunctionAbiJson = "{\"type\":\"function\",\"name\":\"mint\"}"
@@ -498,7 +610,7 @@ func TestPrepareTransaction(t *testing.T) {
 		TokenName: "testToken1",
 	}
 	req.Transaction.ContractInfo.ContractConfigJson = pldtypes.JSONString(conf).Pretty()
-	_, err = z.PrepareTransaction(context.Background(), req)
+	_, err = z.PrepareTransaction(t.Context(), req)
 	assert.NoError(t, err)
 }
 
@@ -525,13 +637,8 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	z.nftSchema = &pb.StateSchema{
 		Id: "nft",
 	}
-	z.events.mint = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
-	z.events.burn = "event UTXOBurn(uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
-	z.events.transfer = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
-	z.events.transferWithEnc = "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)"
-	z.events.withdraw = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
-	z.events.lock = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
-	z.events.identityRegistered = "event IdentityRegistered(uint256[] publicKey, bytes data)"
+	z.registerEventSignatures(zetoEventABISet(types.ZetoVariant_V0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoVariant_V1), &z.eventsV1)
 	return z, testCallbacks
 }
 
@@ -545,7 +652,7 @@ func TestHandleEventBatch(t *testing.T) {
 		Events: []*pb.OnChainEvent{
 			{
 				DataJson:          "bad data",
-				SoliditySignature: "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)",
+				SoliditySignature: z.events.mint,
 			},
 		},
 		ContractInfo: &pb.ContractInfo{
@@ -574,12 +681,12 @@ func TestHandleEventBatch(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, res1.TransactionsComplete, 0)
 
-	req.Events[0].SoliditySignature = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.transfer
 	res2, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res2.TransactionsComplete, 0)
 
-	req.Events[0].SoliditySignature = "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.transferWithEnc
 	res3, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res3.TransactionsComplete, 0)
@@ -595,7 +702,7 @@ func TestHandleEventBatch(t *testing.T) {
 		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
 	})
 	req.Events[0].DataJson = string(data)
-	req.Events[0].SoliditySignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.mint
 	_, err = z.HandleEventBatch(ctx, req)
 	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
@@ -616,23 +723,83 @@ func TestHandleEventBatch(t *testing.T) {
 		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
 	})
 	req.Events[0].DataJson = string(data)
-	req.Events[0].SoliditySignature = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.withdraw
 	_, err = z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 
-	req.Events[0].SoliditySignature = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
+	lockData, _ := json.Marshal(map[string]any{
+		"data":          encodedData,
+		"inputs":        []string{"100"},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"lockedOutputs": []string{"200"},
+	})
+	req.Events[0].DataJson = string(lockData)
+	req.Events[0].SoliditySignature = z.events.lock
 	res5, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res5.TransactionsComplete, 1)
+	assert.NotEmpty(t, res5.NewStates)
 
 	req.ContractInfo.ContractConfigJson = pldtypes.JSONString(map[string]interface{}{
 		"circuitId": "anon_nullifier_kyc_transfer",
-		"tokenName": "Zeto_AnonNullifierKYC",
+		"tokenName": "Zeto_AnonNullifierKyc",
 	}).Pretty()
-	req.Events[0].SoliditySignature = "event IdentityRegistered(uint256[] publicKey, bytes data)"
+	identityData, _ := json.Marshal(map[string]any{
+		"data":      encodedData,
+		"publicKey": []string{"7980718117603030807695495350922077879582656644717071592146865497574198464252", "7980718117603030807695495350922077879582656644717071592146865497574198464251"},
+	})
+	req.Events[0].DataJson = string(identityData)
+	req.Events[0].SoliditySignature = z.events.identityRegistered
 	res6, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res6.TransactionsComplete, 0)
+
+	z.lockInfoSchema = &pb.StateSchema{Id: "lock_info"}
+	lockID := pldtypes.MustParseBytes32("0xccdd000000000000000000000000000000000000000000000000000000000002")
+	lockCreated, _ := json.Marshal(map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        lockID.HexString0xPrefix(),
+		"owner":         "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"inputs":        []string{"100"},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"lockedOutputs": []string{"200"},
+		"proof":         "0x",
+		"data":          encodedData,
+	})
+	req.Events = []*pb.OnChainEvent{{
+		DataJson: string(lockCreated), SoliditySignature: z.eventsV1.zetoLockCreated,
+	}}
+	res7, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res7.SpentStates, 1)
+	assert.Len(t, res7.ConfirmedStates, 3)
+
+	lockSpent, _ := json.Marshal(map[string]any{
+		"txId":          "0xaabb000000000000000000000000000000000000000000000000000000000001",
+		"lockId":        lockID.HexString0xPrefix(),
+		"spender":       "0x74e71b05854ee819cb9397be01c82570a178d019",
+		"lockedInputs":  []string{"300"},
+		"lockedOutputs": []string{},
+		"outputs":       []string{"7980718117603030807695495350922077879582656644717071592146865497574198464253"},
+		"proof":         "0x",
+		"data":          encodedData,
+	})
+	req.Events[0].DataJson = string(lockSpent)
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockSpent
+	res8, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res8.TransactionsComplete, 1)
+
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockCancelled
+	res9, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Len(t, res9.TransactionsComplete, 1)
+
+	req.Events[0].DataJson = "not json"
+	req.Events[0].SoliditySignature = z.eventsV1.zetoLockCreated
+	res10, err := z.HandleEventBatch(ctx, req)
+	assert.NoError(t, err)
+	assert.Empty(t, res10.SpentStates)
 }
 
 func TestGetVerifier(t *testing.T) {
@@ -848,7 +1015,7 @@ func TestValidateStateHashesNFTState(t *testing.T) {
 	require.NoError(t, err)
 	hash, err := token.Hash(ctx)
 	require.NoError(t, err)
-	expectedID := zetocommon.HexUint256To32ByteHexString(hash)
+	expectedID := "0x" + zetocommon.HexUint256To32ByteHexString(hash)
 
 	req.States[0].StateDataJson = string(tokenJSON)
 	res, err := z.ValidateStateHashes(ctx, req)
@@ -859,10 +1026,10 @@ func TestValidateStateHashesNFTState(t *testing.T) {
 	_, err = z.ValidateStateHashes(ctx, req)
 	assert.ErrorContains(t, err, "PD210086")
 
-	req.States[0].Id = "0x" + expectedID
+	req.States[0].Id = expectedID
 	res, err = z.ValidateStateHashes(ctx, req)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"0x" + expectedID}, res.StateIds)
+	assert.Equal(t, []string{expectedID}, res.StateIds)
 
 	req.States[0].Id = ""
 	req.States[0].StateDataJson = `{"tokenID":"0x01"}`
@@ -879,26 +1046,35 @@ func TestGetHandler(t *testing.T) {
 		name        string
 		action      string
 		tokenName   string
+		variant     types.ZetoVariant
 		expectedNil bool
 	}{
 		// Tests for TOKEN_ANON
-		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, false},
-		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, false},
-		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, false},
-		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, false},
-		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, false},
-		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, false},
-		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, true},
+		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, types.ZetoVariant_V0, false},
+		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, types.ZetoVariant_V0, false},
+		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariant_V0, false},
+		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariant_V0, false},
+		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, types.ZetoVariant_V0, false},
+		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, types.ZetoVariant_V0, false},
+		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, types.ZetoVariant_V0, true},
+		{"V1 createLock handler for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariant_V1, false},
+		{"V1 spendLock handler for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariant_V1, false},
+		{"V1 cancelLock handler for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, types.ZetoVariant_V1, false},
+		{"V0 createLock nil for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariant_V0, true},
+		{"V0 spendLock nil for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariant_V0, true},
+		{"V0 cancelLock nil for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, types.ZetoVariant_V0, true},
+		{"V1 lock nil for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariant_V1, true},
+		{"V1 transferLocked nil for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariant_V1, true},
 
 		// Tests for TOKEN_NF_ANON
-		{"Valid mint handler for TOKEN_NF_ANON", "mint", constants.TOKEN_NF_ANON, false},
-		{"Valid transfer handler for TOKEN_NF_ANON", "transfer", constants.TOKEN_NF_ANON, false},
-		{"Invalid handler for TOKEN_NF_ANON", "bad", constants.TOKEN_NF_ANON, true},
+		{"Valid mint handler for TOKEN_NF_ANON", "mint", constants.TOKEN_NF_ANON, types.ZetoVariant_V0, false},
+		{"Valid transfer handler for TOKEN_NF_ANON", "transfer", constants.TOKEN_NF_ANON, types.ZetoVariant_V0, false},
+		{"Invalid handler for TOKEN_NF_ANON", "bad", constants.TOKEN_NF_ANON, types.ZetoVariant_V0, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := z.GetHandler(tt.action, tt.tokenName)
+			handler := z.GetHandler(tt.action, tt.tokenName, tt.variant)
 			if tt.expectedNil {
 				assert.Nil(t, handler)
 			} else {
@@ -957,5 +1133,5 @@ func TestUnimplementedMethods(t *testing.T) {
 func TestGetStateSchemas(t *testing.T) {
 	schemas, err := types.GetStateSchemas()
 	assert.NoError(t, err)
-	assert.Len(t, schemas, 5)
+	assert.Len(t, schemas, 6)
 }

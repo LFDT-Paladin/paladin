@@ -6,8 +6,8 @@ This guide provides detailed instructions for manually installing a Paladin Netw
 
 Ensure the following are installed:
 
-* [Helm v3](https://helm.sh/docs/intro/install/)
-* [kubectl](https://kubernetes.io/docs/tasks/tools/)
+- [Helm v3](https://helm.sh/docs/intro/install/)
+- [kubectl](https://kubernetes.io/docs/tasks/tools/)
 
 ## Step 1: Install Paladin Operator CRDs
 
@@ -50,12 +50,12 @@ Apply the self-signed certificate issuer in all Kubernetes clusters:
 kubectl -n paladin apply -f cert_issuer_selfsigned.yaml
 ```
 
-
 On the primary Kubernetes cluster (designated for smart contract deployment), apply the smart contract resources:
 
 The contents of these CRs should not be modified, with the exception of
-* `spec.node`- the name of the node that will be used to submit the transactions. Change this if you wish to name your first node something other than `node1`.
-* `spec.from`- the identifier of the key that will be used to sign the transactions. Change this if you wish to use a specific key from your signer for this purpose.
+
+- `spec.node`- the name of the node that will be used to submit the transactions. Change this if you wish to name your first node something other than `node1`.
+- `spec.from`- the identifier of the key that will be used to sign the transactions. Change this if you wish to use a specific key from your signer for this purpose.
 
 ```bash
 kubectl -n paladin apply -f core_v1alpha1_paladinregistry.yaml
@@ -108,7 +108,7 @@ metadata:
 spec:
   type: evm
   evm:
-    smartContractDeployment: registry  # use 'contractAddress' if referencing existing deployment
+    smartContractDeployment: registry # use 'contractAddress' if referencing existing deployment
     # contractAddress: "0x...."
   plugin:
     library: /app/registries/libevm.so
@@ -131,9 +131,8 @@ spec:
   plugin:
     library: /app/domains/libnoto.so
     type: c-shared
-  smartContractDeployment: noto-factory  # use 'contractAddress' for existing deployments
+  smartContractDeployment: noto-factory # use 'contractAddress' for existing deployments
   # contractAddress: "0x...."
-
 ```
 
 Repeat for `pente` and `zeto` domains.
@@ -169,83 +168,147 @@ spec:
   allowSigning: true
   configJSON: |
     {
-      "domainContracts": {
-        "implementations": [
-          {
-            "name": "Zeto_Anon",
-            "circuits": {
-              "deposit": {
-                "name": "deposit"
-              },
-              "withdraw": {
-                "name": "withdraw"
-              },
-              "transfer": {
-                "name": "anon"
-              },
-              "transferLocked": {
-                "name": "anon"
+      "variants": {
+        "V1": {
+          "implementations": [
+            {
+              "name": "Zeto_Anon",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw"
+                },
+                "transfer": {
+                  "name": "anon"
+                },
+                "transferLocked": {
+                  "name": "anon"
+                }
+              }
+            },
+            {
+              "name": "Zeto_AnonEnc",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw"
+                },
+                "transfer": {
+                  "name": "anon_enc",
+                  "usesEncryption": true
+                },
+                "transferLocked": {
+                  "name": "anon_enc",
+                  "usesEncryption": true
+                }
+              }
+            },
+            {
+              "name": "Zeto_AnonNullifier",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw_nullifier",
+                  "usesNullifiers": true
+                },
+                "transfer": {
+                  "name": "anon_nullifier_transfer",
+                  "usesNullifiers": true
+                },
+                "transferLocked": {
+                  "name": "anon_nullifier_transferLocked",
+                  "usesNullifiers": true
+                }
+              }
+            },
+            {
+              "name": "Zeto_AnonNullifierKyc",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw_nullifier",
+                  "usesNullifiers": true
+                },
+                "transfer": {
+                  "name": "anon_nullifier_kyc_transfer",
+                  "usesNullifiers": true,
+                  "usesKyc": true
+                },
+                "transferLocked": {
+                  "name": "anon_nullifier_kyc_transferLocked",
+                  "usesNullifiers": true,
+                  "usesKyc": true
+                }
+              }
+            },
+            {
+              "name": "Zeto_AnonEnc",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw"
+                },
+                "transfer": {
+                  "name": "anon_enc",
+                  "usesEncryption": true
+                },
+                "transferLocked": {
+                  "name": "anon_enc",
+                  "usesEncryption": true
+                }
+              }
+            },
+            {
+              "name": "Zeto_AnonNullifier",
+              "circuits": {
+                "deposit": {
+                  "name": "deposit"
+                },
+                "withdraw": {
+                  "name": "withdraw_nullifier",
+                  "usesNullifiers": true
+                },
+                "transfer": {
+                  "name": "anon_nullifier_transfer",
+                  "usesNullifiers": true
+                },
+                "transferLocked": {
+                  "name": "anon_nullifier_transferLocked",
+                  "usesNullifiers": true
+                }
+              }
+            },
+            {
+              "name": "Zeto_NfAnon",
+              "circuits": {
+                "deposit": {
+                  "name": "not_implemented"
+                },
+                "withdraw": {
+                  "name": "not_implemented"
+                },
+                "transfer": {
+                  "name": "nf_anon"
+                },
+                "transferLocked": {
+                  "name": "nf_anon"
+                }
               }
             }
-          },
-          {
-            "name": "Zeto_AnonEnc",
-            "circuits": {
-              "deposit": {
-                "name": "deposit"
-              },
-              "withdraw": {
-                "name": "withdraw"
-              },
-              "transfer": {
-                "name": "anon_enc",
-                "usesEncryption": true
-              },
-              "transferLocked": {
-                "name": "anon_enc",
-                "usesEncryption": true
-              }
-            }
-          },
-          {
-            "name": "Zeto_AnonNullifier",
-            "circuits": {
-              "deposit": {
-                "name": "deposit"
-              },
-              "withdraw": {
-                "name": "withdraw_nullifier",
-                "usesNullifiers": true
-              },
-              "transfer": {
-                "name": "anon_nullifier_transfer",
-                "usesNullifiers": true
-              },
-              "transferLocked": {
-                "name": "anon_nullifier_transferLocked",
-                "usesNullifiers": true
-              }
-            }
-          },
-          {
-            "name": "Zeto_NfAnon",
-            "circuits": {
-              "deposit": {
-                "name": "not_implemented"
-              },
-              "withdraw": {
-                "name": "not_implemented"
-              },
-              "transfer": {
-                "name": "nf_anon"
-              },
-              "transferLocked": {
-                "name": "nf_anon"
-              }
-            }
-          }
-        ]
+          ]
+        }
       },
+      "defaultVariant": "V1",
       "snarkProver": {
         "circuitsDir": "/app/domains/zeto/zkp",
         "provingKeysDir": "/app/domains/zeto/zkp"
@@ -262,7 +325,7 @@ spec:
 
 Deploy Paladin nodes with unique names. The first node (`node1`) handles initial smart contract deployment transactions:
 
-> Paladin node names need to be unique within the network. The Paladin node that is used to deploy the smart contracts must be called `node1`. 
+> Paladin node names need to be unique within the network. The Paladin node that is used to deploy the smart contracts must be called `node1`.
 
 ```yaml
 apiVersion: core.paladin.io/v1alpha1
@@ -287,69 +350,70 @@ spec:
     migrationMode: auto
     mode: sidecarPostgres
   domains:
-  - labelSelector:
-      matchLabels:
-        paladin.io/domain-name: noto
-  - labelSelector:
-      matchLabels:
-        paladin.io/domain-name: zeto
-  - labelSelector:
-      matchLabels:
-        paladin.io/domain-name: pente
+    - labelSelector:
+        matchLabels:
+          paladin.io/domain-name: noto
+    - labelSelector:
+        matchLabels:
+          paladin.io/domain-name: zeto
+    - labelSelector:
+        matchLabels:
+          paladin.io/domain-name: pente
   registries:
-  - labelSelector:
-      matchLabels:
-        paladin.io/registry-name: evm-registry
+    - labelSelector:
+        matchLabels:
+          paladin.io/registry-name: evm-registry
   secretBackedSigners:
-  - keySelector: .*
-    name: signer-1
-    secret: node1.keys
-    type: autoHDWallet
+    - keySelector: .*
+      name: signer-1
+      secret: node1.keys
+      type: autoHDWallet
   service:
     ports:
-    - name: rpc-http
-      nodePort: 31548
-      port: 8548
-      protocol: TCP
-    - name: rpc-ws
-      nodePort: 31549
-      port: 8549
-      protocol: TCP
+      - name: rpc-http
+        nodePort: 31548
+        port: 8548
+        protocol: TCP
+      - name: rpc-ws
+        nodePort: 31549
+        port: 8549
+        protocol: TCP
     type: NodePort
   transports:
-  - configJSON: |
-      {
-        "port": 9000,
-        "address": "0.0.0.0"
-      }
-    name: grpc
-    plugin:
-      library: /app/transports/libgrpc.so
-      type: c-shared
-    ports:
-    - name: transport-grpc
-      port: 9000
-      protocol: TCP
-      targetPort: 9000
-    tls:
-      certName: paladin-node1-mtls
-      issuer: selfsigned-issuer
-      secretName: paladin-node1-mtls
+    - configJSON: |
+        {
+          "port": 9000,
+          "address": "0.0.0.0"
+        }
+      name: grpc
+      plugin:
+        library: /app/transports/libgrpc.so
+        type: c-shared
+      ports:
+        - name: transport-grpc
+          port: 9000
+          protocol: TCP
+          targetPort: 9000
+      tls:
+        certName: paladin-node1-mtls
+        issuer: selfsigned-issuer
+        secretName: paladin-node1-mtls
 ```
 
 **Adjust configuration fields as needed:**
 
 ### `baseLedgerEndpoint`
+
 ```yaml
-  baseLedgerEndpoint:
-    type: endpoint
-    endpoint:
-      jsonrpc: https://chain-json-rpc-endpoint
-      ws: wss://chain-json-ws-endpoint
-      auth:
-        type: secret
-        secret:
-          name: node1-auth
+baseLedgerEndpoint:
+  type: endpoint
+  endpoint:
+    jsonrpc: https://chain-json-rpc-endpoint
+    ws: wss://chain-json-ws-endpoint
+    auth:
+      type: secret
+      secret:
+        name: node1-auth
 ```
 
 Configure the JSON RPC and websocket endpoints for the blockchain node you wish this Paladin node to connect to.
@@ -369,51 +433,59 @@ type: Opaque
 ```
 
 ### `config`
+
 This section contains an inline yaml/json string which can be used to provide Paladin node configuration that isn't exposed directly by the CRD. If the same configuration value is provided in the inline config and a CR field, the CR field will take precedence.
 
 [This code file](https://github.com/LFDT-Paladin/paladin/blob/main/config/pkg/pldconf/config.go) defines the full set of Paladin configuration.
 
 ### `database`
+
 ```yaml
 database:
   migrationMode: auto
   mode: sidecarPostgres
 ```
+
 `mode` may be `sidecarPostgres` or `embeddedSQLite`
 
 ### `domains`
+
 ```yaml
 domains:
-- labelSelector:
-    matchLabels:
-      paladin.io/domain-name: noto
-- labelSelector:
-    matchLabels:
-      paladin.io/domain-name: zeto
-- labelSelector:
-    matchLabels:
-      paladin.io/domain-name: pente
+  - labelSelector:
+      matchLabels:
+        paladin.io/domain-name: noto
+  - labelSelector:
+      matchLabels:
+        paladin.io/domain-name: zeto
+  - labelSelector:
+      matchLabels:
+        paladin.io/domain-name: pente
 ```
+
 The domain name labels provided here must match the labels on the domains created in step 6.
 
 ### `registries`
+
 ```yaml
 registries:
-- labelSelector:
-    matchLabels:
-      paladin.io/registry-name: evm-registry
+  - labelSelector:
+      matchLabels:
+        paladin.io/registry-name: evm-registry
 ```
+
 The registry name label provided here must match the label on the registry created in step 5.
 
 ### `secretBackedSigners`
+
 To use a HD wallet with a seed phrase generated by the Paladin operator, set `type: autoHDWallet` and provide the name of a secret you wish the seed phrase to be stored into, but which doesn't exist yet.
 
 ```yaml
 secretBackedSigners:
-- keySelector: .*
-  name: signer-1
-  secret: node1.keys
-  type: autoHDWallet
+  - keySelector: .*
+    name: signer-1
+    secret: node1.keys
+    type: autoHDWallet
 ```
 
 If you wish to use an existing seed phrase, store a file containing this seed phrase in a secret, and reference it in the signer configuration.
@@ -429,56 +501,60 @@ kubectl create secret generic <secret name> --from-file=keys.yaml=<file name>
 
 ```yaml
 secretBackedSigners:
-- keySelector: .*
-  name: signer-1
-  secret: node1.keys
+  - keySelector: .*
+    name: signer-1
+    secret: node1.keys
 ```
 
 ### `service`
+
 ```yaml
 service:
   ports:
-  - name: rpc-http
-    nodePort: 31548
-    port: 8548
-    protocol: TCP
-  - name: rpc-ws
-    nodePort: 31549
-    port: 8549
-    protocol: TCP
+    - name: rpc-http
+      nodePort: 31548
+      port: 8548
+      protocol: TCP
+    - name: rpc-ws
+      nodePort: 31549
+      port: 8549
+      protocol: TCP
   type: NodePort
 ```
+
 This section is used directly to create a Kubernetes service to expose the Paladin HTTP and WS servers. See the [Kubernetes documentation](https://kubernetes.io/docs/concepts/services-networking/service/) to understand how to configure this section.
 
-The Paladin http and ws servers run on ports `8548` and `8549` by default. 
+The Paladin http and ws servers run on ports `8548` and `8549` by default.
 
 ### `transports`
+
 ```yaml
 transports:
-- configJSON: |
-    {
-      "port": 9000,
-      "address": "0.0.0.0",
-      "externalHostname": ...
-    }
-  name: grpc
-  plugin:
-    library: /app/transports/libgrpc.so
-    type: c-shared
-  ports:
-  - name: transport-grpc
-    port: 9000
-    protocol: TCP
-    targetPort: 9000
-  tls:
-    certName: paladin-node1-mtls
-    issuer: selfsigned-issuer
-    secretName: paladin-node1-mtls
+  - configJSON: |
+      {
+        "port": 9000,
+        "address": "0.0.0.0",
+        "externalHostname": ...
+      }
+    name: grpc
+    plugin:
+      library: /app/transports/libgrpc.so
+      type: c-shared
+    ports:
+      - name: transport-grpc
+        port: 9000
+        protocol: TCP
+        targetPort: 9000
+    tls:
+      certName: paladin-node1-mtls
+      issuer: selfsigned-issuer
+      secretName: paladin-node1-mtls
 ```
 
 `configJSON` is the json/yaml configuration that is passed to the transport plugin. Specifically for the grpc transport plugin
-* `port`- this must match `targetPort` in the `ports` configuration
-* `externalHostname` - this can be set if the Paladin node needs to be accessible from outside the cluster. The value will depend on how ingress in configured, which is outside the scope of the Paladin project. If not set it defaults to the internal hostname, which is adequate if all Paladin nodes are running in the same cluster
+
+- `port`- this must match `targetPort` in the `ports` configuration
+- `externalHostname` - this can be set if the Paladin node needs to be accessible from outside the cluster. The value will depend on how ingress in configured, which is outside the scope of the Paladin project. If not set it defaults to the internal hostname, which is adequate if all Paladin nodes are running in the same cluster
 
 The certificates generated to match the `tls` configuration section is added in by the operator to the configuration for the transport plugin.
 
@@ -486,10 +562,9 @@ The certificates generated to match the `tls` configuration section is added in 
 
 Create `PaladinRegistration` CRs for each Paladin node:
 
-
-* `spec.registryAdminKey`: the identifier for the key that will be used to sign the root registration transaction
-* `spec.nodeAdminKey`: the identifier for the key that is used as the owner of the registration, and used to register transports
-These keys come from the signer configured on the node being registered.
+- `spec.registryAdminKey`: the identifier for the key that will be used to sign the root registration transaction
+- `spec.nodeAdminKey`: the identifier for the key that is used as the owner of the registration, and used to register transports
+  These keys come from the signer configured on the node being registered.
 
 ```yaml
 apiVersion: core.paladin.io/v1alpha1
@@ -503,7 +578,7 @@ spec:
   registryAdminKey: registry.operator
   registryAdminNode: node1 # <admin node name>
   transports:
-  - grpc
+    - grpc
 ```
 
 Repeat for all nodes created in Step 7.
@@ -512,6 +587,5 @@ Repeat for all nodes created in Step 7.
 
 When deploying across multiple clusters:
 
-* Follow Steps 1-8 on the primary cluster.
-* On additional clusters, reference the existing contract addresses obtained from the primary cluster (Steps 5-6).
-
+- Follow Steps 1-8 on the primary cluster.
+- On additional clusters, reference the existing contract addresses obtained from the primary cluster (Steps 5-6).

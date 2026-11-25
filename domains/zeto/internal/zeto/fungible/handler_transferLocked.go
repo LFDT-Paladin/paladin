@@ -216,7 +216,7 @@ func (h *transferLockedHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorDecodeContractAddress, err)
 	}
-	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputStates.coins, outputCoins, (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER_LOCKED], tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, delegateAddr)
+	payloadBytes, err := formatTransferProvingRequest(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, signercommon.GetHasher(), inputStates.coins, outputCoins, (*tx.DomainConfig.Circuits)[types.METHOD_TRANSFER_LOCKED], tx.DomainConfig.TokenName, req.StateQueryContext, contractAddress, true, delegateAddr)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFormatProvingReq, err)
 	}
@@ -312,7 +312,11 @@ func (h *transferLockedHandler) loadCoins(ctx context.Context, ids []*pldtypes.H
 	inputIDs := make([]any, 0, len(ids))
 	for _, input := range ids {
 		if !input.NilOrZero() {
-			inputIDs = append(inputIDs, common.HexUint256To32ByteHexString(input))
+			id, err := input.Bytes32(ctx)
+			if err != nil {
+				return nil, false, err
+			}
+			inputIDs = append(inputIDs, id.String())
 		}
 	}
 

@@ -54,7 +54,11 @@ func makeNewState(ctx context.Context, coinSchema *prototk.StateSchema, useNulli
 	if err != nil {
 		return nil, err
 	}
-	hashStr := common.HexUint256To32ByteHexString(hash)
+	id, err := hash.Bytes32(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hashStr := id.String()
 	newState := &pb.NewState{
 		Id:               &hashStr,
 		SchemaId:         coinSchema.Id,
@@ -77,6 +81,34 @@ func makeNewState(ctx context.Context, coinSchema *prototk.StateSchema, useNulli
 	return newState, nil
 }
 
+// clearNullifierSpecs removes nullifier attestation plans from pre-pinned spend outputs held as InfoStates at
+// createLock. Paladin only allows UpsertNullifiers for states in creatingStates (OutputStates with a create lock);
+// info states are upserted without one. Nullifiers for spend-pinned coins are registered at spendLock instead.
+func clearNullifierSpecs(states []*pb.NewState) {
+	for _, st := range states {
+		if st != nil {
+			st.NullifierSpecs = nil
+		}
+	}
+}
+
+func makeNewLockInfoState(ctx context.Context, lockInfoSchema *prototk.StateSchema, info *types.ZetoLockInfoState, distributionList []string) (*pb.NewState, error) {
+	if info == nil || info.LockID.IsZero() {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "lock info lockId is required")
+	}
+	infoJSON, err := json.Marshal(info)
+	if err != nil {
+		return nil, err
+	}
+	stateID := info.LockID.HexString0xPrefix()
+	return &pb.NewState{
+		Id:               &stateID,
+		SchemaId:         lockInfoSchema.Id,
+		StateDataJson:    string(infoJSON),
+		DistributionList: distributionList,
+	}, nil
+}
+
 func makeNewInfoState(ctx context.Context, dataSchema *prototk.StateSchema, info *types.TransactionData, distributionList []string) (*prototk.NewState, error) {
 	infoJSON, err := json.Marshal(info)
 	if err != nil {
@@ -86,7 +118,11 @@ func makeNewInfoState(ctx context.Context, dataSchema *prototk.StateSchema, info
 	if err != nil {
 		return nil, err
 	}
-	hashStr := common.HexUint256To32ByteHexString(hash)
+	id, err := hash.Bytes32(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hashStr := id.String()
 	return &prototk.NewState{
 		Id:               &hashStr,
 		SchemaId:         dataSchema.Id,
@@ -200,6 +236,74 @@ func prepareTransactionInfoStates(ctx context.Context, data pldtypes.HexBytes, d
 	}
 	newState, err := makeNewInfoState(ctx, infoSchema, newData, distributionList)
 	return []*prototk.NewState{newState}, err
+}
+
+// loadCoinStatesByIDs loads fungible coin states by Paladin state id (.id), in the same order as stateIDs.
+func loadCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, useNullifiers bool, stateQueryContext string, stateIDs []pldtypes.Bytes32, requireLocked bool) (*preparedInputs, []*prototk.StoredState, bool, error) {
+	stored, err := getCoinStatesByIDs(ctx, callbacks, coinSchema, stateQueryContext, stateIDs)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if len(stored) != len(stateIDs) {
+		return nil, nil, true, i18n.NewError(ctx, msgs.MsgFailedToQueryStatesById, len(stateIDs), len(stored))
+	}
+	coins := make([]*types.ZetoCoin, len(stateIDs))
+	refs := make([]*prototk.StateRef, 0, len(stateIDs))
+	total := big.NewInt(0)
+	for i, st := range stored {
+		var coin types.ZetoCoin
+		if err := json.Unmarshal([]byte(st.DataJson), &coin); err != nil {
+			return nil, nil, true, i18n.NewError(ctx, msgs.MsgErrorUnmarshalStateData, err)
+		}
+		if requireLocked {
+			if !coin.Locked {
+				return nil, nil, true, i18n.NewError(ctx, msgs.MsgErrorInputNotLocked, st.Id)
+			}
+		} else if coin.Locked {
+			return nil, nil, true, i18n.NewError(ctx, msgs.MsgErrorSpendOutputIsLocked, st.Id)
+		}
+		coins[i] = &coin
+		total = total.Add(total, coin.Amount.Int())
+		refs = append(refs, &prototk.StateRef{SchemaId: st.SchemaId, Id: st.Id})
+	}
+	return &preparedInputs{coins: coins, states: refs, total: total}, stored, false, nil
+}
+
+// getCoinStatesByIDs loads coin rows by id including unconfirmed InfoStates (e.g. createLock spend-pinned outputs).
+func getCoinStatesByIDs(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, stateQueryContext string, stateIDs []pldtypes.Bytes32) ([]*prototk.StoredState, error) {
+	if len(stateIDs) == 0 {
+		return nil, nil
+	}
+	reqIDs := make([]string, len(stateIDs))
+	for i, id := range stateIDs {
+		reqIDs[i] = id.String()
+	}
+	res, err := callbacks.GetStatesByID(ctx, &prototk.GetStatesByIDRequest{
+		StateQueryContext: stateQueryContext,
+		SchemaId:          coinSchema.Id,
+		StateIds:          reqIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil || len(res.States) == 0 {
+		return nil, nil
+	}
+	byID := make(map[pldtypes.Bytes32]*prototk.StoredState, len(res.States))
+	for _, st := range res.States {
+		id, err := pldtypes.ParseBytes32Ctx(ctx, st.Id)
+		if err != nil {
+			return nil, err
+		}
+		byID[id] = st
+	}
+	ordered := make([]*prototk.StoredState, 0, len(stateIDs))
+	for _, id := range stateIDs {
+		if st := byID[id]; st != nil {
+			ordered = append(ordered, st)
+		}
+	}
+	return ordered, nil
 }
 
 func findAvailableStates(ctx context.Context, callbacks plugintk.DomainCallbacks, coinSchema *prototk.StateSchema, useNullifiers bool, stateQueryContext, query string) ([]*pb.StoredState, error) {
