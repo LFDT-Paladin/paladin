@@ -90,6 +90,7 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 						Type:             pldtypes.OnChainEvent,
 						TransactionHash:  ev.TransactionHash,
 						BlockNumber:      ev.BlockNumber,
+						BlockTimestamp:   eventBlockTimestamp(ev),
 						TransactionIndex: ev.TransactionIndex,
 						LogIndex:         ev.LogIndex,
 						Source:           &ev.Address,
@@ -304,6 +305,14 @@ func (d *domain) indexedSmartContract(ctx context.Context, dbTX persistence.DBTX
 	return dc, err
 }
 
+// eventBlockTimestamp returns the timestamp of the block containing the event, or zero if unavailable
+func eventBlockTimestamp(ev *pldapi.EventWithData) pldtypes.Timestamp {
+	if ev.IndexedEvent == nil || ev.Block == nil {
+		return 0
+	}
+	return ev.Block.Timestamp
+}
+
 func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, batch *blockindexer.EventDeliveryBatch) error {
 
 	// First index any domain contract deployments
@@ -316,6 +325,14 @@ func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, ba
 	batches, err := d.batchEventsByContractConfig(ctx, dbTX, batch.BatchID.String(), registered, nonDeployEvents)
 	if err != nil {
 		return err
+	}
+	// The domain only passes us back the location of the completion event, so we need to
+	// correlate that back to the block timestamps of the events we delivered to it
+	blockTimestamps := make(map[int64]pldtypes.Timestamp)
+	for _, ev := range batch.Events {
+		if ts := eventBlockTimestamp(ev); ts != 0 {
+			blockTimestamps[ev.BlockNumber] = ts
+		}
 	}
 	for _, batch := range batches {
 		addr := batch.psc.Address()
@@ -344,6 +361,7 @@ func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, ba
 						Type:             pldtypes.OnChainEvent, // the on-chain confirmation is an event (even though it's a private transaction we're confirming)
 						TransactionHash:  txHash,
 						BlockNumber:      txCompletionEvent.Location.BlockNumber,
+						BlockTimestamp:   blockTimestamps[txCompletionEvent.Location.BlockNumber],
 						TransactionIndex: txCompletionEvent.Location.TransactionIndex,
 						LogIndex:         txCompletionEvent.Location.LogIndex,
 						Source:           &addr,

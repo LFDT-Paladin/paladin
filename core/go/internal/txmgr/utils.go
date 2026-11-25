@@ -15,6 +15,8 @@
 
 package txmgr
 
+import "github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+
 func stringOrEmpty(ps *string) string {
 	if ps == nil {
 		return ""
@@ -34,4 +36,11 @@ func int64OrZero(pi *int64) int64 {
 		return 0
 	}
 	return *pi
+}
+
+func timestampOrZero(pt *pldtypes.Timestamp) pldtypes.Timestamp {
+	if pt == nil {
+		return 0
+	}
+	return *pt
 }

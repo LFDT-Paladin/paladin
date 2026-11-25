@@ -1146,6 +1146,15 @@ func TestHandleEventBatchUpsertStateFail(t *testing.T) {
 	assert.EqualError(t, err, "pop")
 }
 
+func TestEventBlockTimestamp(t *testing.T) {
+	ts := pldtypes.TimestampNow()
+	assert.Zero(t, eventBlockTimestamp(&pldapi.EventWithData{}))
+	assert.Zero(t, eventBlockTimestamp(&pldapi.EventWithData{IndexedEvent: &pldapi.IndexedEvent{}}))
+	assert.Equal(t, ts, eventBlockTimestamp(&pldapi.EventWithData{
+		IndexedEvent: &pldapi.IndexedEvent{Block: &pldapi.IndexedBlock{Number: 1000, Timestamp: ts}},
+	}))
+}
+
 func TestReceiptSorting(t *testing.T) {
 	// Note the detail of the sorting code is in pldtypes.OnChainLocation
 	receiptList := txCompletionsOrdered{

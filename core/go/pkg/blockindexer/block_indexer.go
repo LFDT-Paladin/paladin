@@ -660,7 +660,8 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 					ContractAddress:  (*pldtypes.EthAddress)(r.ContractAddress),
 					Result:           result,
 				},
-				RevertReason: pldtypes.HexBytes(r.RevertReason),
+				BlockTimestamp: pldtypes.TimestampFromUnix(int64(block.Timestamp)),
+				RevertReason:   pldtypes.HexBytes(r.RevertReason),
 			}
 			notifyTransactions = append(notifyTransactions, &txn)
 			transactions = append(transactions, &txn.IndexedTransaction)

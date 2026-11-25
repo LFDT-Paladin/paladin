@@ -104,6 +104,7 @@ export interface IPaladinTransaction {
 
 export interface ITransactionReceipt {
   blockNumber: number;
+  blockTimestamp?: string;
   domain?: string;
   id: string;
   success: boolean;

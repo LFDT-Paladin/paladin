@@ -23,6 +23,7 @@ title: TransactionReceipt
 | `success` | Transaction success status | `bool` |
 | `transactionHash` | Transaction hash | [`Bytes32`](simpletypes.md#bytes32) |
 | `blockNumber` | Block number | `int64` |
+| `blockTimestamp` | Timestamp of the base ledger block that the transaction was confirmed in | [`Timestamp`](simpletypes.md#timestamp) |
 | `transactionIndex` | Transaction index | `int64` |
 | `logIndex` | Log index | `int64` |
 | `source` | Event source | [`EthAddress`](simpletypes.md#ethaddress) |

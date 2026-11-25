@@ -56,6 +56,15 @@ func newTestConfirm(revertReason ...[]byte) *blockindexer.IndexedTransactionNoti
 	return txi
 }
 
+func TestMapBlockchainReceiptBlockTimestamp(t *testing.T) {
+	txi := newTestConfirm()
+	txi.BlockTimestamp = pldtypes.TimestampNow()
+	receipt := (&txManager{}).mapBlockchainReceipt(&components.PublicTxMatch{IndexedTransactionNotify: txi})
+	assert.Equal(t, pldtypes.OnChainTransaction, receipt.OnChain.Type)
+	assert.Equal(t, txi.BlockNumber, receipt.OnChain.BlockNumber)
+	assert.Equal(t, txi.BlockTimestamp, receipt.OnChain.BlockTimestamp)
+}
+
 func TestPublicConfirmWithErrorDecodeRealDB(t *testing.T) {
 
 	testABI := abi.ABI{
