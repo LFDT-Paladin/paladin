@@ -135,6 +135,7 @@
 | readBufferSize | WebSocket read buffer size | `string` | `"16Kb"` |
 | requestTimeout | Request timeout | `string` | - |
 | retry | HTTP retry configuration | [`HTTPRetryConfig`](#blockchainwsretry) | - |
+| subscriptionDeliveryTimeout | How long to wait for a subscription consumer to read a notification before failing the subscription. Must be shorter than heartbeatInterval. 0 waits indefinitely | `string` | `"10s"` |
 | tls | TLS configuration | [`TLSConfig`](#blockchainwstls) | - |
 | url | HTTP client URL | `string` | - |
 | writeBufferSize | WebSocket write buffer size | `string` | `"16Kb"` |

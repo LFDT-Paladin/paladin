@@ -101,6 +101,15 @@ func (m *mergedSubscription) Notifications() chan rpcclient.RPCSubscriptionNotif
 	return m.notifications
 }
 
+func (m *mergedSubscription) Err() rpcclient.ErrorRPC {
+	for _, s := range m.subs {
+		if err := s.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *mergedSubscription) Unsubscribe(ctx context.Context) rpcclient.ErrorRPC {
 	m.cancel() // stop forwarder goroutines
 	var lastErr rpcclient.ErrorRPC

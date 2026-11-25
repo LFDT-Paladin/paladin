@@ -50,10 +50,12 @@ type WSClient interface {
 
 type wsClient struct {
 	ctx                  context.Context
+	cancelCtx            context.CancelFunc
 	headers              http.Header
 	url                  string
 	initialRetryAttempts int
 	wsdialer             *websocket.Dialer
+	closeMux             sync.Mutex // guards wsconn and closed, which Close reads from any goroutine
 	wsconn               *websocket.Conn
 	retry                retry.Retry
 	closed               bool
@@ -68,6 +70,8 @@ type wsClient struct {
 	heartbeatMux         sync.Mutex
 	activePingSent       *time.Time
 	lastPingCompleted    time.Time
+	connectionProven     bool
+	failCount            int
 }
 
 // WSPreConnectHandler will be called before every connect/reconnect. Any error returned will prevent the websocket from connecting.
@@ -84,9 +88,11 @@ func New(ctx context.Context, config *pldconf.WSClientConfig, beforeConnect WSPr
 		return nil, err
 	}
 
+	clientCtx, cancelCtx := context.WithCancel(ctx)
 	w := &wsClient{
-		ctx: ctx,
-		url: url.String(),
+		ctx:       clientCtx,
+		cancelCtx: cancelCtx,
+		url:       url.String(),
 		wsdialer: &websocket.Dialer{
 			ReadBufferSize:   int(confutil.ByteSize(config.ReadBufferSize, 0, *pldconf.DefaultWSConfig.ReadBufferSize)),
 			WriteBufferSize:  int(confutil.ByteSize(config.WriteBufferSize, 0, *pldconf.DefaultWSConfig.WriteBufferSize)),
@@ -156,14 +162,36 @@ func (w *wsClient) Connect() error {
 }
 
 func (w *wsClient) Close() {
+	w.closeMux.Lock()
+	defer w.closeMux.Unlock()
 	if !w.closed {
 		w.closed = true
 		close(w.closing)
-		c := w.wsconn
-		if c != nil {
-			_ = c.Close()
+		if w.cancelCtx != nil {
+			w.cancelCtx()
+		}
+		if w.wsconn != nil {
+			_ = w.wsconn.Close()
 		}
 	}
+}
+
+func (w *wsClient) isClosed() bool {
+	w.closeMux.Lock()
+	defer w.closeMux.Unlock()
+	return w.closed
+}
+
+// Refuses, and closes, a connection dialled after the client was closed
+func (w *wsClient) setConn(wsconn *websocket.Conn) bool {
+	w.closeMux.Lock()
+	defer w.closeMux.Unlock()
+	if w.closed && wsconn != nil {
+		_ = wsconn.Close()
+		return false
+	}
+	w.wsconn = wsconn
+	return true
 }
 
 func (w *wsClient) Receive() <-chan []byte {
@@ -223,7 +251,7 @@ func (w *wsClient) heartbeatTimeout(ctx context.Context) (context.Context, conte
 func (w *wsClient) connect(initial bool) error {
 	l := log.L(w.ctx)
 	return w.retry.Do(w.ctx, func(attempt int) (retry bool, err error) {
-		if w.closed {
+		if w.isClosed() {
 			return false, i18n.NewError(w.ctx, pldmsgs.MsgWSClientClosing)
 		}
 
@@ -235,8 +263,7 @@ func (w *wsClient) connect(initial bool) error {
 			}
 		}
 
-		var res *http.Response
-		w.wsconn, res, err = w.wsdialer.Dial(w.url, w.headers)
+		wsconn, res, err := w.wsdialer.Dial(w.url, w.headers)
 		if err != nil {
 			var b []byte
 			var status = -1
@@ -247,6 +274,9 @@ func (w *wsClient) connect(initial bool) error {
 			}
 			l.Warnf("WS %s connect attempt %d failed [%d]: %s", w.url, attempt, status, string(b))
 			return retry, i18n.WrapError(w.ctx, err, pldmsgs.MsgWSClientConnectFailed)
+		}
+		if !w.setConn(wsconn) {
+			return false, i18n.NewError(w.ctx, pldmsgs.MsgWSClientClosing)
 		}
 
 		w.pongReceivedOrReset(false)
@@ -265,6 +295,7 @@ func (w *wsClient) readLoop() {
 			l.Infof("WS %s closed: %s", w.url, err)
 			return
 		}
+		w.connectionProven = true
 
 		// Pass the message to the consumer
 		l.Tracef("WS %s read (mt=%d): %s", w.url, mt, message)
@@ -278,6 +309,7 @@ func (w *wsClient) readLoop() {
 }
 
 func (w *wsClient) pongHandler(_ string) error {
+	w.connectionProven = true
 	w.pongReceivedOrReset(true)
 	return nil
 }
@@ -350,7 +382,8 @@ func (w *wsClient) sendLoop(receiverDone chan struct{}) {
 func (w *wsClient) receiveReconnectLoop() {
 	l := log.L(w.ctx)
 	defer close(w.receive)
-	for !w.closed {
+	for !w.isClosed() {
+		w.connectionProven = false
 		// Start the sender, letting it close without blocking sending a notification on the sendDone
 		w.sendDoneMu.Lock()
 		w.sendDone = make(chan []byte, 1)
@@ -379,11 +412,22 @@ func (w *wsClient) receiveReconnectLoop() {
 		if err != nil {
 			l.Debugf("WS %s close failed: %s", w.url, err)
 		}
-		w.wsconn = nil
+		w.setConn(nil)
+
+		// Every dropped connection is a failure, but the count only resets once a connection has received something
+		if w.connectionProven {
+			w.failCount = 1
+		} else {
+			w.failCount++
+			l.Warnf("WS %s closed before anything was received (failCount=%d)", w.url, w.failCount)
+		}
 
 		// Go into reconnect
-		if !w.closed {
-			err = w.connect(false)
+		if !w.isClosed() {
+			err = w.retry.WaitDelay(w.ctx, w.failCount)
+			if err == nil {
+				err = w.connect(false)
+			}
 			if err != nil {
 				l.Debugf("WS %s exiting: %s", w.url, err)
 				return

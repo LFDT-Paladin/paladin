@@ -34,6 +34,7 @@ import (
 )
 
 func newTestWSRPC(t *testing.T) (context.Context, *wsRPCClient, chan string, chan string, func()) {
+	log.EnsureInit()
 	log.SetLevel("trace")
 
 	toServer, fromServer, url, close := wsclient.NewTestWSServer(func(req *http.Request) {
@@ -152,23 +153,24 @@ func TestWSRPCSubscribe(t *testing.T) {
 	res, ok := <-s.Notifications()
 	assert.Nil(t, res)
 	assert.False(t, ok)
+	assert.Nil(t, s.Err())
 }
 
 func TestWSRPCSubscribeError(t *testing.T) {
-	ctx, rc, _, _, done := newTestWSRPC(t)
+	_, rc, _, _, done := newTestWSRPC(t)
 
-	err := rc.Connect(context.Background())
+	err := rc.Connect(t.Context())
 	assert.NoError(t, err)
 
 	done()
-	_, rpcErr := rc.Subscribe(ctx, EthSubscribeConfig(), []bool{false})
-	assert.Regexp(t, "PD020502|PD020000", rpcErr)
+	_, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), []bool{false})
+	assert.Regexp(t, "PD020509", rpcErr)
 }
 
 func TestWSRPCSubscribeClose(t *testing.T) {
-	ctx, rc, toServer, _, done := newTestWSRPC(t)
+	_, rc, toServer, _, done := newTestWSRPC(t)
 
-	err := rc.Connect(context.Background())
+	err := rc.Connect(t.Context())
 	assert.NoError(t, err)
 
 	go func() {
@@ -176,8 +178,10 @@ func TestWSRPCSubscribeClose(t *testing.T) {
 		done()
 	}()
 
-	_, rpcErr := rc.Subscribe(ctx, EthSubscribeConfig(), []bool{false})
-	assert.Regexp(t, "PD020000", rpcErr)
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), []bool{false})
+	assert.Regexp(t, "PD020509", rpcErr)
+	assert.Nil(t, s)
+	assert.Empty(t, rc.configuredSubs)
 }
 
 func TestWSRPCCallRPCError(t *testing.T) {
@@ -204,10 +208,179 @@ func TestWSRPCSubscribeRPCError(t *testing.T) {
 	assert.Error(t, rpcErr)
 }
 
+func TestWSRPCSubscribeRejected(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000001","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","error":{"code":-32000,"message":"pop"}}`
+	}()
+
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	assert.Regexp(t, "pop", rpcErr)
+	assert.Nil(t, s)
+	assert.Empty(t, rc.configuredSubs)
+	assert.Empty(t, rc.pendingSubsByReqID)
+	assert.Empty(t, rc.activeSubsBySubID)
+}
+
+func TestWSRPCSubscribeCancelledBeforeConfirm(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	subCtx, cancelSub := context.WithCancel(t.Context())
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000001","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		cancelSub()
+	}()
+
+	s, rpcErr := rc.Subscribe(subCtx, EthSubscribeConfig(), "newHeads")
+	assert.Regexp(t, "PD020000", rpcErr)
+	assert.Nil(t, s)
+
+	// The server accepts the subscription after the caller has given up on it.
+	// Responses arrive in order, so the late confirm is processed before net_version returns.
+	fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+
+	assert.Empty(t, rc.configuredSubs)
+	assert.Empty(t, rc.pendingSubsByReqID)
+	assert.Empty(t, rc.activeSubsBySubID)
+}
+
+func TestWSRPCSubscriptionOutlivesSubscribeContext(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	require.NoError(t, rc.Connect(ctx))
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	subCtx, cancelSub := context.WithCancel(t.Context())
+	s, rpcErr := rc.Subscribe(subCtx, EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+	cancelSub()
+
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x9ce59a13059e417087c02d3236a0b1cc"}}`
+	// Not reading yet, so the notification is waiting for delivery rather than racing a waiting reader
+	time.Sleep(100 * time.Millisecond)
+	n := <-s.Notifications()
+	assert.Equal(t, "0x9ce59a13059e417087c02d3236a0b1cc", n.GetCurrentSubID())
+	assert.Nil(t, s.Err())
+}
+
+func TestWSRPCUnsubscribeAllWhileSubscribing(t *testing.T) {
+	ctx, rc, toServer, _, done := newTestWSRPC(t)
+	defer done()
+	require.NoError(t, rc.Connect(ctx))
+
+	// The server never replies, and the waiting subscription is unsubscribed from elsewhere
+	go func() {
+		<-toServer
+		assert.Nil(t, rc.UnsubscribeAll(t.Context()))
+	}()
+
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	assert.Nil(t, s)
+	assert.Regexp(t, "PD020511", rpcErr)
+}
+
+func TestWSRPCSubscriptionDeliveryTimeout(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	// Long enough that the heartbeat does not reconnect while the reader is blocked on delivery
+	rc.wsConf.HeartbeatInterval = confutil.P("10s")
+	rc.subscriptionDeliveryTimeout = 10 * time.Millisecond
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+
+	// Nothing reads this notification
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x9ce59a13059e417087c02d3236a0b1cc"}}`
+
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_unsubscribe","params":["0x9ce59a13059e417087c02d3236a0b1cc"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":true}`
+
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+	assert.Regexp(t, "PD020508", s.Err())
+	assert.Empty(t, rc.configuredSubs)
+	assert.Empty(t, rc.activeSubsBySubID)
+
+	// The subscription is already gone from the server, so this sends nothing
+	assert.Nil(t, s.Unsubscribe(t.Context()))
+	assert.Regexp(t, "PD020508", s.Err())
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000003","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000003","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	assert.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+}
+
+func TestWSRPCSubscriptionDeliveryTimeoutUnsubscribeRejected(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	rc.wsConf.HeartbeatInterval = confutil.P("10s")
+	rc.subscriptionDeliveryTimeout = 10 * time.Millisecond
+	require.NoError(t, rc.Connect(ctx))
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x9ce59a13059e417087c02d3236a0b1cc"}}`
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_unsubscribe","params":["0x9ce59a13059e417087c02d3236a0b1cc"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","error":{"code":-32000,"message":"pop"}}`
+
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+	assert.Regexp(t, "PD020508", s.Err())
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000003","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000003","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	assert.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+}
+
 func TestWSRPCUnsubscribeError(t *testing.T) {
 	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
 
-	err := rc.Connect(context.Background())
+	err := rc.Connect(t.Context())
 	assert.NoError(t, err)
 
 	go func() {
@@ -218,11 +391,10 @@ func TestWSRPCUnsubscribeError(t *testing.T) {
 
 		msg = <-toServer
 		assert.Equal(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_unsubscribe","params":["0x9ce59a13059e417087c02d3236a0b1cc"]}`, msg)
-		fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":false}`
-
+		fromServer <- `{"jsonrpc":"2.0","id":"000000002","error":{"code":-32000,"message":"pop"}}`
 	}()
 
-	s, rpcErr := rc.Subscribe(ctx, EthSubscribeConfig(), "newHeads")
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
 	assert.Nil(t, rpcErr)
 
 	newHead := <-s.Notifications()
@@ -235,9 +407,125 @@ func TestWSRPCUnsubscribeError(t *testing.T) {
 	hash := newHead.GetResult().ToMap()["hash"]
 	assert.Equal(t, "0xb3346685172db67de536d8765c43c31009d0eb3bd9c501c9be3229203f15f378", hash)
 
-	done()
-	rpcErr = rc.UnsubscribeAll(ctx)
-	assert.Regexp(t, "PD020502|PD020000", rpcErr)
+	rpcErr = rc.UnsubscribeAll(t.Context())
+	assert.Regexp(t, "pop", rpcErr)
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+}
+
+func TestWSRPCCloseEndsSubscriptions(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+
+	rc.Close()
+
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+	assert.Regexp(t, "PD020509", s.Err())
+	assert.Empty(t, rc.configuredSubs)
+	assert.Nil(t, s.Unsubscribe(t.Context()))
+}
+
+func TestWSRPCConnectTwiceKeepsTransport(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	require.NoError(t, rc.Connect(ctx))
+	client := rc.client
+	require.NoError(t, rc.Connect(ctx))
+	assert.Same(t, client, rc.client)
+}
+
+func TestWSRPCConnectRetryAfterFailure(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+	serverURL := rc.wsConf.URL
+
+	rc.wsConf.URL = "ws://127.0.0.1:1/test"
+	assert.Regexp(t, "PD021103", rc.Connect(ctx))
+	failedClient := rc.client
+	// The failed transport has been closed rather than left running
+	assert.Regexp(t, "PD021102", failedClient.Send(t.Context(), []byte(`{}`)))
+
+	rc.wsConf.URL = serverURL
+	require.NoError(t, rc.Connect(ctx))
+	assert.NotSame(t, failedClient, rc.client)
+}
+
+func TestWSRPCCallBeforeConnect(t *testing.T) {
+	_, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	var res pldtypes.HexUint64
+	assert.Regexp(t, "PD020510", rc.CallRPC(t.Context(), &res, "net_version"))
+}
+
+func TestWSRPCCallDuringConnect(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	// Nothing replies, so the call fails either as not connected or when its context times out
+	callDone := make(chan ErrorRPC)
+	go func() {
+		callCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		var res pldtypes.HexUint64
+		callDone <- rc.CallRPC(callCtx, &res, "net_version")
+	}()
+	require.NoError(t, rc.Connect(ctx))
+	assert.Error(t, <-callDone)
+}
+
+func TestWSRPCConnectContextEndClosesClient(t *testing.T) {
+	_, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+
+	connectCtx, cancelConnect := context.WithCancel(t.Context())
+	require.NoError(t, rc.Connect(connectCtx))
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+
+	cancelConnect()
+
+	_, ok := <-s.Notifications()
+	assert.False(t, ok)
+	assert.Regexp(t, "PD020509", s.Err())
+	assert.Regexp(t, "PD020509", rc.Connect(t.Context()))
+}
+
+func TestWSRPCSubscribeBeforeConnect(t *testing.T) {
+	_, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	assert.Nil(t, s)
+	assert.Regexp(t, "PD020510", rpcErr)
+	assert.Empty(t, rc.configuredSubs)
+}
+
+func TestWSRPCConnectAfterClose(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	require.NoError(t, err)
+
+	rc.Close()
+	assert.Regexp(t, "PD020509", rc.Connect(ctx))
 }
 
 func TestCallRPC(t *testing.T) {
@@ -358,6 +646,21 @@ func TestHandleSubscriptionNotificationClosed(t *testing.T) {
 	})
 }
 
+func TestHandleSubscriptionNotificationAfterNotificationsClosed(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	s := &sub{rc: rc, notifications: make(chan RPCSubscriptionNotification)}
+	s.ctx, s.cancelCtx = context.WithCancel(t.Context())
+	s.cancelCtx()
+	s.closeNotifications()
+	rc.activeSubsBySubID["12345"] = s
+
+	rc.handleSubscriptionNotification(ctx, &RPCResponse{
+		Params: pldtypes.RawJSON(`{"subscription":"12345"}`),
+	})
+}
+
 func TestHandleSubscriptionConfirmServerError(t *testing.T) {
 	ctx, rc, _, _, done := newTestWSRPC(t)
 	defer done()
@@ -405,14 +708,16 @@ func TestHandleReonnnectOK(t *testing.T) {
 
 	var err error
 	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil /* so we can invoke it directly */)
+	rc.ctx = ctx
 	assert.NoError(t, err)
 
 	err = rc.client.Connect()
 	assert.NoError(t, err)
 
-	go rc.receiveLoop(ctx)
+	go rc.receiveLoop(ctx, rc.client)
 
-	s, errChl := rc.addConfiguredSub(ctx, EthSubscribeConfig(), []interface{}{"newHeads"})
+	s, errChl, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	require.Nil(t, rpcErr)
 
 	inflightID, inflightRes := rc.addInflightRequest(&RPCRequest{})
 
@@ -424,7 +729,7 @@ func TestHandleReonnnectOK(t *testing.T) {
 
 	err = rc.handleReconnect(ctx, rc.client)
 	assert.NoError(t, err)
-	rpcErr := <-errChl
+	rpcErr = <-errChl
 	assert.Nil(t, rpcErr)
 	assert.Equal(t, "0x9ce59a13059e417087c02d3236a0b1cc", s.currentSubID)
 
@@ -433,15 +738,243 @@ func TestHandleReonnnectOK(t *testing.T) {
 	assert.Equal(t, inflightID, rpcRes.ID.StringValue())
 }
 
+func newTestWSRPCSubscribed(t *testing.T, retryInitialDelay string) (context.Context, *wsRPCClient, Subscription, chan string, chan string, func()) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	rc.wsConf.ConnectRetry.InitialDelay = confutil.P(retryInitialDelay)
+
+	var err error
+	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil /* so we can invoke handleReconnect directly */)
+	rc.ctx = ctx
+	require.NoError(t, err)
+	require.NoError(t, rc.client.Connect())
+	go rc.receiveLoop(ctx, rc.client)
+
+	go func() {
+		<-toServer
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	}()
+	s, rpcErr := rc.Subscribe(t.Context(), EthSubscribeConfig(), "newHeads")
+	require.Nil(t, rpcErr)
+	return ctx, rc, s, toServer, fromServer, done
+}
+
+func TestWSRPCResubscribeRetriedAfterRejection(t *testing.T) {
+	ctx, rc, s, toServer, fromServer, done := newTestWSRPCSubscribed(t, "1ms")
+	defer done()
+
+	go func() {
+		for _, reqID := range []string{"000000002", "000000003"} {
+			msg := <-toServer
+			assert.JSONEq(t, `{"jsonrpc":"2.0","id":"`+reqID+`","method":"eth_subscribe","params":["newHeads"]}`, msg)
+			fromServer <- `{"jsonrpc":"2.0","id":"` + reqID + `","error":{"code":-32000,"message":"not ready"}}`
+		}
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000004","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000004","result":"0x1111"}`
+		fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x1111"}}`
+	}()
+
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+
+	n := <-s.Notifications()
+	assert.Equal(t, "0x1111", n.GetCurrentSubID())
+	assert.Nil(t, s.Err())
+}
+
+func TestWSRPCResubscribeRetryStopsAfterUnsubscribe(t *testing.T) {
+	ctx, rc, s, toServer, fromServer, done := newTestWSRPCSubscribed(t, "50ms")
+	defer done()
+
+	callNetVersion := func(reqID string) {
+		go func() {
+			msg := <-toServer
+			assert.JSONEq(t, `{"jsonrpc":"2.0","id":"`+reqID+`","method":"net_version"}`, msg)
+			fromServer <- `{"jsonrpc":"2.0","id":"` + reqID + `","result":"0x1"}`
+		}()
+		var res pldtypes.HexUint64
+		require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+	}
+
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","error":{"code":-32000,"message":"not ready"}}`
+	// Responses arrive in order, so the rejection has started the retry loop once this returns
+	callNetVersion("000000003")
+
+	require.Nil(t, s.Unsubscribe(t.Context()))
+
+	// Past the retry delay, the next message the server sees is not a resubscribe
+	time.Sleep(100 * time.Millisecond)
+	callNetVersion("000000004")
+}
+
+func TestWSRPCResubscribeRetryWaitsForInflightSubscribe(t *testing.T) {
+	ctx, rc, s, toServer, fromServer, done := newTestWSRPCSubscribed(t, "100ms")
+	defer done()
+
+	callNetVersion := func(reqID string) {
+		go func() {
+			msg := <-toServer
+			assert.JSONEq(t, `{"jsonrpc":"2.0","id":"`+reqID+`","method":"net_version"}`, msg)
+			fromServer <- `{"jsonrpc":"2.0","id":"` + reqID + `","result":"0x1"}`
+		}()
+		var res pldtypes.HexUint64
+		require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+	}
+
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","error":{"code":-32000,"message":"not ready"}}`
+	// Responses arrive in order, so the rejection has started the retry loop once this returns
+	callNetVersion("000000003")
+
+	// A second reconnect's subscribe is still in flight when the retry loop wakes, then succeeds before it wakes again
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+	msg = <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000004","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	time.Sleep(200 * time.Millisecond)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000004","result":"0x1111"}`
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x1111"}}`
+	n := <-s.Notifications()
+	assert.Equal(t, "0x1111", n.GetCurrentSubID())
+
+	// Past the retry loop's next wake, the next message the server sees is not a resubscribe
+	time.Sleep(250 * time.Millisecond)
+	callNetVersion("000000005")
+}
+
+func TestWSRPCResubscribeRetriedAfterInvalidResponse(t *testing.T) {
+	ctx, rc, s, toServer, fromServer, done := newTestWSRPCSubscribed(t, "1ms")
+	defer done()
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":""}`
+		msg = <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000003","method":"eth_subscribe","params":["newHeads"]}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000003","result":"0x1111"}`
+		fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x1111"}}`
+	}()
+
+	require.NoError(t, rc.handleReconnect(ctx, rc.client))
+
+	n := <-s.Notifications()
+	assert.Equal(t, "0x1111", n.GetCurrentSubID())
+}
+
+func TestWSRPCResubscribeRetriedAfterSendFailure(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	rc.wsConf.ConnectRetry.InitialDelay = confutil.P("100ms")
+	rc.ctx = ctx
+
+	client, err := wsclient.New(ctx, &rc.wsConf, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, client.Connect())
+	go rc.receiveLoop(ctx, client)
+
+	s, _, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	require.Nil(t, rpcErr)
+
+	// The first attempt has no transport to send on, and the next one does
+	rc.retryResubscribe(ctx, s)
+	time.Sleep(200 * time.Millisecond)
+	established, err := rc.setClient(ctx, client)
+	require.NoError(t, err)
+	require.False(t, established)
+
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":"0x1111"}`
+	fromServer <- `{"jsonrpc":"2.0","method":"eth_subscription","params":{"result":{},"subscription":"0x1111"}}`
+	n := <-s.Notifications()
+	assert.Equal(t, "0x1111", n.GetCurrentSubID())
+}
+
+func TestResubscribeLoopBadParams(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+	rc.ctx = ctx
+
+	s, _, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{
+		map[bool]bool{false: true}, // cannot be serialized
+	})
+	require.Nil(t, rpcErr)
+
+	rc.resubscribeLoop(ctx, s)
+	assert.Empty(t, rc.pendingSubsByReqID)
+}
+
+func TestSubscribeAfterReconnectSnapshotSendsOnce(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	require.NoError(t, rc.Connect(ctx))
+
+	// Subscribe adds its sub just before a reconnect takes its snapshot, and sends just after it
+	s, errChl, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	require.Nil(t, rpcErr)
+	_, snapshot := rc.clearActiveReturnConfiguredSubs()
+	_, rpcErr = s.sendSubscribe(t.Context())
+	require.Nil(t, rpcErr)
+	for _, rs := range snapshot {
+		_, rpcErr := rs.sendSubscribe(t.Context())
+		require.Nil(t, rpcErr)
+	}
+
+	msg := <-toServer
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000001","method":"eth_subscribe","params":["newHeads"]}`, msg)
+	fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x9ce59a13059e417087c02d3236a0b1cc"}`
+	require.Nil(t, <-errChl)
+
+	// The next request the server sees is this one, not a second subscribe
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000002","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000002","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+	assert.Len(t, rc.activeSubsBySubID, 1)
+}
+
+func TestReconnectDoesNotResubscribeRemovedSub(t *testing.T) {
+	ctx, rc, toServer, fromServer, done := newTestWSRPC(t)
+	defer done()
+	require.NoError(t, rc.Connect(ctx))
+
+	// The sub is removed after a reconnect has taken its snapshot
+	s, _, rpcErr := rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{"newHeads"})
+	require.Nil(t, rpcErr)
+	_, snapshot := rc.clearActiveReturnConfiguredSubs()
+	rc.removeSubscription(s)
+	for _, rs := range snapshot {
+		_, rpcErr := rs.sendSubscribe(t.Context())
+		require.Nil(t, rpcErr)
+	}
+
+	go func() {
+		msg := <-toServer
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":"000000001","method":"net_version"}`, msg)
+		fromServer <- `{"jsonrpc":"2.0","id":"000000001","result":"0x1"}`
+	}()
+	var res pldtypes.HexUint64
+	require.Nil(t, rc.CallRPC(t.Context(), &res, "net_version"))
+	assert.Empty(t, rc.pendingSubsByReqID)
+}
+
 func TestHandleReonnnectFail(t *testing.T) {
 	ctx, rc, _, _, done := newTestWSRPC(t)
 	defer done()
 
 	var err error
 	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil /* so we can invoke it directly */)
+	rc.ctx = ctx
 	assert.NoError(t, err)
 
-	_, _ = rc.addConfiguredSub(ctx, EthSubscribeConfig(), []interface{}{
+	_, _, _ = rc.addConfiguredSub(t.Context(), EthSubscribeConfig(), []interface{}{
 		map[bool]bool{false: true}, // cannot be serialized
 	})
 
@@ -451,15 +984,27 @@ func TestHandleReonnnectFail(t *testing.T) {
 
 func TestConnectClosedContextFail(t *testing.T) {
 	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
 
 	err := rc.Connect(ctx)
 	assert.NoError(t, err)
-	done()
 
-	connected := make(chan struct{})
-	rc.connected = connected
-	err = rc.waitConnected(ctx, connected)
+	waitCtx, cancelWait := context.WithCancel(t.Context())
+	cancelWait()
+	err = rc.waitConnected(waitCtx, make(chan struct{}))
 	assert.Regexp(t, "PD020000", err)
+}
+
+func TestWaitConnectedClientClosed(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+
+	err := rc.Connect(ctx)
+	assert.NoError(t, err)
+
+	rc.Close()
+	err = rc.waitConnected(t.Context(), make(chan struct{}))
+	assert.Regexp(t, "PD020509", err)
 }
 
 func TestDeliverCallResponseNonBlocking(t *testing.T) {
@@ -475,12 +1020,13 @@ func TestHandleAckNack(t *testing.T) {
 
 	var err error
 	rc.client, err = wsclient.New(ctx, &rc.wsConf, nil, nil)
+	rc.ctx = ctx
 	assert.NoError(t, err)
 
 	err = rc.client.Connect()
 	assert.NoError(t, err)
 
-	go rc.receiveLoop(ctx)
+	go rc.receiveLoop(ctx, rc.client)
 
 	subDone := make(chan struct{})
 	go func() {

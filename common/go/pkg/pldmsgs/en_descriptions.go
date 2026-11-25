@@ -663,13 +663,14 @@ var (
 	TLSConfigRequiredDNAttributes   = pdm("TLSConfig.requiredDNAttributes", "Required DN attributes for client certificates")
 
 	// WSClientConfig field descriptions
-	WSClientConfigInitialConnectAttempts = pdm("WSClientConfig.initialConnectAttempts", "Number of initial connection attempts")
-	WSClientConfigConnectionTimeout      = pdm("WSClientConfig.connectionTimeout", "WebSocket connection timeout")
-	WSClientConfigConnectRetry           = pdm("WSClientConfig.connectRetry", "Retry configuration for WebSocket connections")
-	WSClientConfigReadBufferSize         = pdm("WSClientConfig.readBufferSize", "WebSocket read buffer size")
-	WSClientConfigWriteBufferSize        = pdm("WSClientConfig.writeBufferSize", "WebSocket write buffer size")
-	WSClientConfigHeartbeatInterval      = pdm("WSClientConfig.heartbeatInterval", "WebSocket heartbeat interval")
-	WSClientConfigWSRequestTimeout       = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
+	WSClientConfigInitialConnectAttempts      = pdm("WSClientConfig.initialConnectAttempts", "Number of initial connection attempts")
+	WSClientConfigConnectionTimeout           = pdm("WSClientConfig.connectionTimeout", "WebSocket connection timeout")
+	WSClientConfigConnectRetry                = pdm("WSClientConfig.connectRetry", "Retry configuration for WebSocket connections")
+	WSClientConfigReadBufferSize              = pdm("WSClientConfig.readBufferSize", "WebSocket read buffer size")
+	WSClientConfigWriteBufferSize             = pdm("WSClientConfig.writeBufferSize", "WebSocket write buffer size")
+	WSClientConfigHeartbeatInterval           = pdm("WSClientConfig.heartbeatInterval", "WebSocket heartbeat interval")
+	WSClientConfigWSRequestTimeout            = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
+	WSClientConfigSubscriptionDeliveryTimeout = pdm("WSClientConfig.subscriptionDeliveryTimeout", "How long to wait for a subscription consumer to read a notification before failing the subscription. Must be shorter than heartbeatInterval. 0 waits indefinitely")
 
 	// StateStoreConfig field descriptions
 	StateStoreConfigSchemaCache         = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
