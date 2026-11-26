@@ -13,5 +13,5 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/** Tests for the testing utilities module. */
-package org.lfdt.paladin.sdk.testing;
+/** Ready-made identifiers and receipts for tests. */
+package org.lfdt.paladin.sdk.testing.fixtures;

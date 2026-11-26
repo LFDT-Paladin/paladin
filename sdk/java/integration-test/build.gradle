@@ -4,6 +4,8 @@ dependencies {
     testImplementation project(':sdk:java:core')
     testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.18.6'
     testImplementation project(':sdk:java:domains')
+    // Testcontainers network, fixtures and assertions shared by every integration test.
+    testImplementation project(':sdk:java:testing')
 }
 
 // Live operator tests run only through the explicit task, never as part of a unit-test build.
