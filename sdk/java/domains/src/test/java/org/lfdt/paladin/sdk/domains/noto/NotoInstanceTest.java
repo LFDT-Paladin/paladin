@@ -38,7 +38,9 @@ import org.lfdt.paladin.sdk.core.types.Bytes32;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 import org.lfdt.paladin.sdk.core.types.HexUint256;
+import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
+@SuppressWarnings("resource") // FakeRpcClient.close() is a no-op
 class NotoInstanceTest {
 
   private static final String TX_ID = "00000000-0000-0000-0000-0000000000aa";

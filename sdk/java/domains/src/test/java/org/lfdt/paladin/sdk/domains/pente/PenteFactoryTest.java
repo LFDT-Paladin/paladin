@@ -34,7 +34,9 @@ import org.lfdt.paladin.sdk.client.PaladinClient;
 import org.lfdt.paladin.sdk.client.exception.PaladinException;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
+import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
+@SuppressWarnings("resource") // FakeRpcClient.close() is a no-op
 class PenteFactoryTest {
 
   private static final String GROUP_ID = "0x1234";

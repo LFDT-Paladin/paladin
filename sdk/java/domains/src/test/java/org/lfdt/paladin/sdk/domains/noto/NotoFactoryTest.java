@@ -33,7 +33,9 @@ import org.lfdt.paladin.sdk.client.PaladinClient;
 import org.lfdt.paladin.sdk.client.exception.PaladinException;
 import org.lfdt.paladin.sdk.core.types.Bytes32;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
+import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
+@SuppressWarnings("resource") // FakeRpcClient.close() is a no-op
 class NotoFactoryTest {
 
   private static final String TX_ID = "00000000-0000-0000-0000-0000000000bb";
