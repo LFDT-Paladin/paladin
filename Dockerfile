@@ -1,6 +1,6 @@
 # Dependency versions (some used by builder and runtime)
 ARG JAVA_VERSION=21.0.4+7
-ARG NODE_VERSION=20.19.0
+ARG NODE_VERSION=26.13.1
 ARG PROTO_VERSION=28.2
 ARG GO_VERSION=1.26.8
 ARG GO_MIGRATE_VERSION=4.18.3
@@ -48,7 +48,7 @@ RUN JAVA_ARCH=$( if [ "$TARGETARCH" = "arm64" ]; then echo -n "aarch64"; else ec
     tar -C /usr/local -xzf - && \
     ln -s /usr/local/jdk-* /usr/local/java
 
-# Install Node.js v18 and npm
+# Install Node.js and npm
 RUN NODE_ARCH=$( if [ "$TARGETARCH" = "arm64" ]; then echo -n "arm64"; else echo -n "x64"; fi ) && \
     curl -sLo - https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${TARGETOS}-${NODE_ARCH}.tar.xz | \
     xz -cd - | tar -C /usr/local -xf - && \

@@ -10,7 +10,7 @@
   "author": "",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@types/node": "^22.19.0",
+    "@types/node": "^26.6.6",
     "copy-file": "^11.1.0",
     "minimist": "^1.2.8",
     "node-fetch": "^3.3.2",

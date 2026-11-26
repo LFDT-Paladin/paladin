@@ -38,11 +38,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22.1' # Working around bug https://github.com/nodejs/node/issues/62425 until we move to Node 24
+          node-version: '26'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Install latest npm
-        run: npm install -g npm@latest
 
       - name: Install pre-requisites
         uses: ./.github/actions/setup
