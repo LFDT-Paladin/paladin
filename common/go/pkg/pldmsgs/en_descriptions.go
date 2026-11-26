@@ -299,6 +299,7 @@ var (
 	PeerInfoOutbound          = pdm("PeerInfo.outbound", "Transport specific information about an established outbound connection to the peer. Omitted if the peer does not have an established outbound connection")
 	PeerInfoOutboundTransport = pdm("PeerInfo.outboundTransport", "The name of the transport selected for outbound connection to the peer. Omitted if no attempt to send data has occurred for this peer")
 	PeerInfoOutboundError     = pdm("PeerInfo.outboundError", "Contains an error if attempting to send data, and the transport connection failed")
+	PeerInfoTransportVersion  = pdm("PeerInfo.transportVersion", "The transport version on the latest message received from the peer, which sets the message formats sent to it. Zero until a message is received")
 
 	PeerStatsCreatedAt           = pdm("PeerStats.createdAt", "Timestamp when this peer was first created")
 	PeerStatsSentMsgs            = pdm("PeerStats.sentMsgs", "Count of messages sent since activation of this peer")
@@ -490,6 +491,8 @@ var (
 	TransportManagerInlineConfigPeerInactivityTimeout     = pdm("TransportManagerInlineConfig.peerInactivityTimeout", "Timeout for peer inactivity detection")
 	TransportManagerInlineConfigPeerReaperInterval        = pdm("TransportManagerInlineConfig.peerReaperInterval", "Interval for peer reaper cleanup")
 	TransportManagerInlineConfigSendFailureResetThreshold = pdm("TransportManagerInlineConfig.sendFailureResetThreshold", "Consecutive send failure threshold before resetting a peer sender loop")
+	TransportManagerInlineConfigSendBatchMaxSize          = pdm("TransportManagerInlineConfig.sendBatchMaxSize", "The most messages sent to a peer in one batch, when the peer can read batches")
+	TransportManagerInlineConfigSendBatchMaxBytes         = pdm("TransportManagerInlineConfig.sendBatchMaxBytes", "The largest combined size of the messages in one batch sent to a peer. Must stay within the transport's message size limit. A single message larger than this is sent on its own")
 	TransportManagerInlineConfigSendRetry                 = pdm("TransportManagerInlineConfig.sendRetry", "Send retry configuration")
 	TransportManagerInlineConfigReliableScanRetry         = pdm("TransportManagerInlineConfig.reliableScanRetry", "Reliable scan retry configuration")
 	TransportManagerInlineConfigReliableMessageResend     = pdm("TransportManagerInlineConfig.reliableMessageResend", "Reliable message resend configuration")

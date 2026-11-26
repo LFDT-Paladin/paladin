@@ -26,6 +26,8 @@
 | reliableScanRetry | Reliable scan retry configuration | [`RetryConfig`](#reliablescanretry) | - |
 | rpcAuthorizers | Map of RPC authorizer configurations | [`map[string][RPCAuthorizerConfig]`](#rpcauthorizers) | - |
 | rpcServer | RPC server configuration | [`RPCServerConfig`](#rpcserver) | - |
+| sendBatchMaxBytes | The largest combined size of the messages in one batch sent to a peer. Must stay within the transport's message size limit. A single message larger than this is sent on its own | `string` | - |
+| sendBatchMaxSize | The most messages sent to a peer in one batch, when the peer can read batches | `int` | - |
 | sendFailureResetThreshold | Consecutive send failure threshold before resetting a peer sender loop | `int` | - |
 | sendQueueLen | Maximum length of send queue | `int` | - |
 | sendRetry | Send retry configuration | [`RetryConfigWithMax`](#sendretry) | - |

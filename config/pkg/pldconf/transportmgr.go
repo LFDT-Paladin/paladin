@@ -22,6 +22,8 @@ type TransportManagerInlineConfig struct {
 	PeerInactivityTimeout     *string                     `json:"peerInactivityTimeout"`
 	PeerReaperInterval        *string                     `json:"peerReaperInterval"`
 	SendFailureResetThreshold *int                        `json:"sendFailureResetThreshold"`
+	SendBatchMaxSize          *int                        `json:"sendBatchMaxSize"`
+	SendBatchMaxBytes         *string                     `json:"sendBatchMaxBytes"`
 	SendRetry                 RetryConfigWithMax          `json:"sendRetry"`
 	ReliableScanRetry         RetryConfig                 `json:"reliableScanRetry"`
 	ReliableMessageResend     *string                     `json:"reliableMessageResend"`
@@ -39,6 +41,8 @@ var TransportManagerDefaults = TransportManagerInlineConfig{
 	PeerInactivityTimeout:     confutil.P("1m"),
 	PeerReaperInterval:        confutil.P("30s"),
 	SendFailureResetThreshold: confutil.P(3),
+	SendBatchMaxSize:          confutil.P(200),
+	SendBatchMaxBytes:         confutil.P("1Mb"),
 	ReliableScanRetry:         GenericRetryDefaults.RetryConfig,
 	// SendRetry defaults are deliberately short
 	SendRetry: RetryConfigWithMax{

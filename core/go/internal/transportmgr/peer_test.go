@@ -191,6 +191,50 @@ func TestReliableMessageResendRealDB(t *testing.T) {
 
 }
 
+func TestFireAndForgetSendNotBlockedByReliableSendRealDB(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, true,
+		mockGoodTransport,
+		mockGetStateOk,
+	)
+	defer done()
+
+	mockActivateDeactivateOk(tp)
+	reliableSending := make(chan struct{})
+	releaseReliable := make(chan struct{})
+	fireAndForgetSent := make(chan *prototk.PaladinMsg, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		if req.Message.MessageType == RMHMessageTypeStateDistribution {
+			close(reliableSending)
+			<-releaseReliable
+		} else {
+			fireAndForgetSent <- req.Message
+		}
+		return nil, nil
+	}
+
+	err := tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return tm.SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
+			MessageType: pldapi.RMTState.Enum(),
+			Node:        "node2",
+			Metadata: pldtypes.JSONString(&components.StateDistribution{
+				Domain:          "domain1",
+				ContractAddress: pldtypes.RandAddress().String(),
+				SchemaID:        pldtypes.RandHex(32),
+				StateID:         pldtypes.RandHex(32),
+			}),
+		})
+	})
+	require.NoError(t, err)
+	<-reliableSending
+
+	message := testMessage()
+	require.NoError(t, tm.Send(ctx, message))
+	sent := <-fireAndForgetSent
+	assert.Equal(t, message.CorrelationID.String(), *sent.CorrelationId)
+
+	close(releaseReliable)
+}
+
 func TestReliableMessageSendSendQuiesceRealDB(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, true,
@@ -1016,6 +1060,29 @@ func TestSendConsecutiveFailureThresholdRestartsSenderAndReconnects(t *testing.T
 
 	<-secondSendSucceeded
 	require.GreaterOrEqual(t, activateCalls.Load(), int32(2))
+}
+
+func TestFireAndForgetFailureThresholdStopsRetryingReliableScan(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false, mockGoodTransport)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	// The reliable scan fails on the unmocked DB, and waits an hour before each retry.
+	tm.reliableScanRetry = retry.NewRetryIndefinite(&pldconf.RetryConfig{
+		InitialDelay: confutil.P("1h"),
+	})
+	tm.sendFailureResetThreshold = 1
+
+	mockActivateDeactivateOk(tp)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		return nil, fmt.Errorf("send failed")
+	}
+
+	require.NoError(t, tm.Send(ctx, testMessage()))
+
+	<-tm.getActivePeer("node2").senderDone
 }
 
 func TestReliableScanConsecutiveFailureThresholdStopsSender(t *testing.T) {

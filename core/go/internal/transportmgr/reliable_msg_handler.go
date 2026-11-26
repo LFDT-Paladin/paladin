@@ -97,12 +97,23 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 	var privacyGroupsToAdd []*receivedPrivacyGroup
 
 	dbTX.AddPostCommit(func(ctx context.Context) {
-		// We've committed the database work ok - send the acks/nacks to the other side
+		// We've committed the database work ok - send the acks/nacks to the other side, batched per node
+		acksByNode := make(map[string][]batchEntry)
+		var nodes []string
 		for _, a := range acksToSend {
 			if a.Error != "" {
 				log.L(ctx).Errorf("Sending nack to node '%s' for message %s: %s", a.node, a.id, a.Error)
 			}
-			_ = tm.queueFireAndForget(ctx, a.node, buildAck(a.id, a.Error), nil)
+			if _, ok := acksByNode[a.node]; !ok {
+				nodes = append(nodes, a.node)
+			}
+			acksByNode[a.node] = append(acksByNode[a.node], batchEntry{msg: buildAck(a.id, a.Error)})
+		}
+		for _, node := range nodes {
+			p := tm.getActivePeer(node)
+			for _, b := range tm.buildBatches(acksByNode[node], p != nil && p.readsBatches()) {
+				_ = tm.queueFireAndForget(ctx, node, b.msg, nil)
+			}
 		}
 	})
 

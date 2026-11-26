@@ -208,11 +208,12 @@ func (t *grpcTransport) ConnectSendStream(stream grpc.ClientStreamingServer[prot
 		_, err = t.callbacks.ReceiveMessage(ctx, &prototk.ReceiveMessageRequest{
 			FromNode: ai.verifiedNodeName,
 			Message: &prototk.PaladinMsg{
-				MessageId:     msg.MessageId,
-				CorrelationId: msg.CorrelationId,
-				Component:     prototk.PaladinMsg_Component(msg.Component),
-				MessageType:   msg.MessageType,
-				Payload:       msg.Payload,
+				MessageId:        msg.MessageId,
+				CorrelationId:    msg.CorrelationId,
+				Component:        prototk.PaladinMsg_Component(msg.Component),
+				MessageType:      msg.MessageType,
+				Payload:          msg.Payload,
+				TransportVersion: msg.TransportVersion,
 			},
 		})
 		if err != nil {
@@ -300,11 +301,12 @@ func (t *grpcTransport) SendMessage(ctx context.Context, req *prototk.SendMessag
 	log.L(ctx).Infof("GRPC sending message id=%s cid=%v component=%d messageType=%s to peer %s",
 		msg.MessageId, msg.CorrelationId, msg.Component, msg.MessageType, req.Node)
 	err := oc.send(&proto.Message{
-		MessageId:     msg.MessageId,
-		CorrelationId: msg.CorrelationId,
-		Component:     int32(msg.Component),
-		MessageType:   msg.MessageType,
-		Payload:       msg.Payload,
+		MessageId:        msg.MessageId,
+		CorrelationId:    msg.CorrelationId,
+		Component:        int32(msg.Component),
+		MessageType:      msg.MessageType,
+		Payload:          msg.Payload,
+		TransportVersion: msg.TransportVersion,
 	})
 	if err != nil {
 		return nil, err

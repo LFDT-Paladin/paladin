@@ -78,6 +78,8 @@ type transportManager struct {
 
 	senderBufferLen           int
 	sendFailureResetThreshold int
+	sendBatchMaxSize          int
+	sendBatchMaxBytes         int
 	reliableMessageResend     time.Duration
 	reliableMessagePageSize   int
 }
@@ -114,6 +116,8 @@ func NewTransportManager(bgCtx context.Context, conf *pldconf.TransportManagerIn
 		peerInactivityTimeout:     confutil.DurationMin(conf.PeerInactivityTimeout, 0, *pldconf.TransportManagerDefaults.PeerInactivityTimeout),
 		peerReaperInterval:        confutil.DurationMin(conf.PeerReaperInterval, 100*time.Millisecond, *pldconf.TransportManagerDefaults.PeerReaperInterval),
 		sendFailureResetThreshold: confutil.IntMin(conf.SendFailureResetThreshold, 1, *pldconf.TransportManagerDefaults.SendFailureResetThreshold),
+		sendBatchMaxSize:          confutil.IntMin(conf.SendBatchMaxSize, 1, *pldconf.TransportManagerDefaults.SendBatchMaxSize),
+		sendBatchMaxBytes:         int(confutil.ByteSize(conf.SendBatchMaxBytes, 0, *pldconf.TransportManagerDefaults.SendBatchMaxBytes)),
 		quiesceTimeout:            1 * time.Second, // not currently tunable (considered very small edge case)
 		reliableMessagePageSize:   100,             // not currently tunable
 	}
