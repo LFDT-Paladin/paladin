@@ -27,7 +27,11 @@ import (
 
 // The confirmed/spent columns on the states table are denormalized from state_confirm_records/state_spend_records
 // so the "confirmed" query can use the states_available partial index instead of anti-joining the
-// ever-growing record tables.
+// ever-growing record tables. The same columns are further denormalized onto state_labels and
+// state_int64_labels (along with the state's schema, contract_address and created), whose
+// state_labels_available/state_int64_labels_available partial indexes serve available-state
+// queries with a label predicate; every flag write here applies to all three tables so the
+// label rows never disagree with their state row.
 //
 // Private state data are distibuted off chain via reliable messaging, whereas confirm/spend records
 // are created as result of indexing the base ledger. This means that:
@@ -57,23 +61,25 @@ const (
 
 const availabilityFlagLock = "state_availability_flags"
 
+// The confirmed/spent flags are denormalized onto the label tables as well as states (their
+// partial indexes serve available-state queries with a label predicate), so every flag write
+// applies to all three tables. The state's ID column is "id" on states and "state" on the
+// label tables.
+var availabilityFlagTables = []struct {
+	table       string
+	stateColumn string
+}{
+	{"states", "id"},
+	{"state_labels", "state"},
+	{"state_int64_labels", "state"},
+}
+
 func setStatesConfirmed(ctx context.Context, dbTX persistence.DBTX, confirms []*pldapi.StateConfirmRecord) error {
 	idsByDomain := make(map[string][]pldtypes.HexBytes, 1)
 	for _, c := range confirms {
 		idsByDomain[c.DomainName] = append(idsByDomain[c.DomainName], c.State)
 	}
-	for domainName, ids := range idsByDomain {
-		if err := dbTX.DB(ctx).
-			Table("states").
-			Where("domain_name = ?", domainName).
-			Where("id IN ?", ids).
-			Where(`"confirmed" = FALSE`).
-			Update(availabilityFlagConfirmed, true).
-			Error; err != nil {
-			return err
-		}
-	}
-	return nil
+	return setAvailabilityFlag(ctx, dbTX, idsByDomain, availabilityFlagConfirmed)
 }
 
 func setStatesSpent(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord) error {
@@ -81,15 +87,21 @@ func setStatesSpent(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi
 	for _, s := range spends {
 		idsByDomain[s.DomainName] = append(idsByDomain[s.DomainName], s.State)
 	}
+	return setAvailabilityFlag(ctx, dbTX, idsByDomain, availabilityFlagSpent)
+}
+
+func setAvailabilityFlag(ctx context.Context, dbTX persistence.DBTX, idsByDomain map[string][]pldtypes.HexBytes, column string) error {
 	for domainName, ids := range idsByDomain {
-		if err := dbTX.DB(ctx).
-			Table("states").
-			Where("domain_name = ?", domainName).
-			Where("id IN ?", ids).
-			Where(`"spent" = FALSE`).
-			Update(availabilityFlagSpent, true).
-			Error; err != nil {
-			return err
+		for _, t := range availabilityFlagTables {
+			if err := dbTX.DB(ctx).
+				Table(t.table).
+				Where("domain_name = ?", domainName).
+				Where(fmt.Sprintf(`"%s" IN ?`, t.stateColumn), ids).
+				Where(fmt.Sprintf(`"%s" = FALSE`, column)).
+				Update(column, true).
+				Error; err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -120,12 +132,17 @@ func (ss *stateManager) setStateAvailableFromSpendConfirmRecords(ctx context.Con
 }
 
 func reconcileAvailabilityFlag(ctx context.Context, dbTX persistence.DBTX, domainName string, ids []pldtypes.HexBytes, column, recordTable string) error {
-	return dbTX.DB(ctx).
-		Table("states").
-		Where("domain_name = ?", domainName).
-		Where("id IN ?", ids).
-		Where(fmt.Sprintf(`"%s" = FALSE`, column)).
-		Where(fmt.Sprintf(`EXISTS (SELECT 1 FROM %s r WHERE r.domain_name = states.domain_name AND r.state = states.id)`, recordTable)).
-		Update(column, true).
-		Error
+	for _, t := range availabilityFlagTables {
+		if err := dbTX.DB(ctx).
+			Table(t.table).
+			Where("domain_name = ?", domainName).
+			Where(fmt.Sprintf(`"%s" IN ?`, t.stateColumn), ids).
+			Where(fmt.Sprintf(`"%s" = FALSE`, column)).
+			Where(fmt.Sprintf(`EXISTS (SELECT 1 FROM %s r WHERE r.domain_name = %s.domain_name AND r.state = %s."%s")`, recordTable, t.table, t.table, t.stateColumn)).
+			Update(column, true).
+			Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }

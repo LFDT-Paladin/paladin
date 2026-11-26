@@ -163,17 +163,9 @@ func (ss *stateManager) WriteStateBatch(ctx context.Context, dbTX persistence.DB
 func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, statesWithLabels []*components.StateWithLabels) (err error) {
 	states := make([]*pldapi.State, len(statesWithLabels))
 	persisted := make([]*persistedState, len(statesWithLabels))
-	var labels []*persistedStateLabel
-	var int64Labels []*persistedStateInt64Label
 	for i, s := range statesWithLabels {
 		states[i] = s.State
 		persisted[i] = newPersistedState(s.State)
-		for _, l := range s.Labels {
-			labels = append(labels, &persistedStateLabel{DomainName: s.DomainName, State: s.ID, Label: l.Label, Value: l.Value})
-		}
-		for _, l := range s.Int64Labels {
-			int64Labels = append(int64Labels, &persistedStateInt64Label{DomainName: s.DomainName, State: s.ID, Label: l.Label, Value: l.Value})
-		}
 	}
 
 	if len(states) > 0 {
@@ -188,6 +180,27 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 		// The insert stamps Created, which callers read from the states they passed in.
 		for i, ps := range persisted {
 			states[i].Created = ps.Base.Created
+		}
+	}
+
+	// Label rows denormalize the state's identity columns, and Created is only stamped onto the
+	// state by the insert above, so they are filled in after it. The availability flags are left
+	// false here: setStateAvailableFromSpendConfirmRecords below reconciles them on all tables,
+	// under the same lock that keeps them consistent when confirm/spend records arrive first.
+	var labels []*persistedStateLabel
+	var int64Labels []*persistedStateInt64Label
+	for _, s := range statesWithLabels {
+		for _, l := range s.Labels {
+			labels = append(labels, &persistedStateLabel{
+				DomainName: s.DomainName, State: s.ID, Label: l.Label, Value: l.Value,
+				Schema: s.Schema, ContractAddress: s.ContractAddress, Created: s.Created,
+			})
+		}
+		for _, l := range s.Int64Labels {
+			int64Labels = append(int64Labels, &persistedStateInt64Label{
+				DomainName: s.DomainName, State: s.ID, Label: l.Label, Value: l.Value,
+				Schema: s.Schema, ContractAddress: s.ContractAddress, Created: s.Created,
+			})
 		}
 	}
 	if err == nil && len(labels) > 0 {
@@ -320,21 +333,25 @@ func (ss *stateManager) labelSetFor(schema components.Schema) *trackingLabelSet 
 	return &tls
 }
 
-// statusScope returns the query modifier that scopes a states query to a status qualifier and
-// excludes the given state IDs. The confirmed qualifier is served from the maintained confirmed/spent
-// flags and the states_available partial index, so it needs neither the Confirmed/Spent joins nor
-// whereClauseForQual. Every other qualifier expresses status via those joins.
-func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.StateStatusQualifier, excludedIDs []pldtypes.HexBytes) func(*gorm.DB) *gorm.DB {
-	var whereClause *gorm.DB
-	var needsStatusJoins bool
-	if status == pldapi.StateStatusConfirmed {
-		whereClause = dbTX.DB(ctx).Where(`"states"."confirmed" AND NOT "states"."spent"`)
-	} else {
-		whereClause = whereClauseForQual(dbTX.DB(ctx), status, "Spent")
-		needsStatusJoins = true
-	}
-	return func(q *gorm.DB) *gorm.DB {
-		if needsStatusJoins {
+type stateQueryScope struct {
+	// availableOnly scopes to available states with predicates that hold on a label row as well as a
+	// states row, so the query can be driven from the label tables' available-state indexes.
+	availableOnly bool
+	apply         func(q *gorm.DB, source string) *gorm.DB
+}
+
+// statusScope scopes a states query to a status qualifier and excludes the given state IDs. The
+// confirmed qualifier is served from the maintained confirmed/spent flags and their partial indexes,
+// so it needs neither the Confirmed/Spent joins nor whereClauseForQual. Every other qualifier
+// expresses status via those joins.
+func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.StateStatusQualifier, excludedIDs []pldtypes.HexBytes) stateQueryScope {
+	apply := func(q *gorm.DB, source string) *gorm.DB {
+		var whereClause *gorm.DB
+		if status == pldapi.StateStatusConfirmed {
+			// source is the label table when the query is driven from its available-state index.
+			whereClause = dbTX.DB(ctx).Where(fmt.Sprintf(`%[1]s."confirmed" AND NOT %[1]s."spent"`, source))
+		} else {
+			whereClause = whereClauseForQual(dbTX.DB(ctx), status, "Spent")
 			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
 				Joins("Spent", dbTX.DB(ctx).Select("transaction"))
 		}
@@ -342,6 +359,10 @@ func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.State
 			q = q.Not(`"states"."id" IN(?)`, excludedIDs)
 		}
 		return q.Where(whereClause)
+	}
+	return stateQueryScope{
+		availableOnly: status == pldapi.StateStatusConfirmed,
+		apply:         apply,
 	}
 }
 
@@ -357,9 +378,7 @@ func (ss *stateManager) findStates(
 	status pldapi.StateStatusQualifier,
 	excludedIDs []pldtypes.HexBytes,
 ) (components.Schema, []*pldapi.State, error) {
-	scope := statusScope(ctx, dbTX, status, excludedIDs)
-	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq,
-		func(_ persistence.DBTX, q *gorm.DB) *gorm.DB { return scope(q) })
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, statusScope(ctx, dbTX, status, excludedIDs))
 }
 
 // findNullifierBackedStates reads states that carry a nullifier, dropping those that do not. Status is
@@ -376,7 +395,7 @@ func (ss *stateManager) findNullifierBackedStates(
 	excludedIDs []pldtypes.HexBytes,
 ) (components.Schema, []*pldapi.State, error) {
 	whereClause := whereClauseForQual(dbTX.DB(ctx), status, "Nullifier__Spent")
-	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB {
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, stateQueryScope{apply: func(q *gorm.DB, _ string) *gorm.DB {
 		hasNullifier := dbTX.DB(ctx).Where(`"Nullifier"."id" IS NOT NULL`)
 
 		q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
@@ -389,9 +408,11 @@ func (ss *stateManager) findNullifierBackedStates(
 		}
 
 		return q.Where(whereClause)
-	})
+	}})
 }
 
+// findStatesCommon runs a states query. The label tables have extra indexes to optimise the
+// available state queries made during assembly, and availableOnly queries are driven from them.
 func (ss *stateManager) findStatesCommon(
 	ctx context.Context,
 	dbTX persistence.DBTX,
@@ -399,7 +420,7 @@ func (ss *stateManager) findStatesCommon(
 	contractAddress *pldtypes.EthAddress,
 	schemaID pldtypes.Bytes32,
 	jq *query.QueryJSON,
-	modifyQuery func(dbTX persistence.DBTX, q *gorm.DB) *gorm.DB,
+	scope stateQueryScope,
 ) (schema components.Schema, s []*pldapi.State, err error) {
 	if len(jq.Sort) == 0 {
 		jq.Sort = []string{".created"}
@@ -410,30 +431,15 @@ func (ss *stateManager) findStatesCommon(
 		return nil, nil, err
 	}
 
-	tracker := ss.labelSetFor(schema)
-
-	// Build the query
-	q := filters.BuildGORM(ctx, jq, dbTX.DB(ctx).Table("states"), tracker)
+	// The label indexes of available states are keyed by contract, so only a contract-scoped query can seek them.
+	var driver *schemaLabelInfo
+	if scope.availableOnly && contractAddress != nil {
+		driver = labelIndexDriver(jq, ss.labelSetFor(schema).labels)
+	}
+	q := ss.buildStatesQuery(ctx, dbTX.DB(ctx), domainName, contractAddress, schema, jq, driver, scope.apply)
 	if q.Error != nil {
 		return nil, nil, q.Error
 	}
-
-	// Add joins only for the fields actually used in the query
-	for _, fi := range tracker.used {
-		typeMod := ""
-		if fi.labelType == labelTypeInt64 || fi.labelType == labelTypeBool {
-			typeMod = "int64_"
-		}
-		// Include domain_name so the join matches the state_labels PK/FK and Postgres can use (domain_name, label, value) indexes.
-		q = q.Joins(fmt.Sprintf(`INNER JOIN state_%[1]slabels AS %[2]s ON %[2]s.state = "states"."id" AND %[2]s.domain_name = "states"."domain_name" AND %[2]s.label = ?`, typeMod, fi.virtualColumn), fi.label)
-	}
-
-	q = q.Where("states.domain_name = ?", domainName).
-		Where("states.schema = ?", schema.Persisted().ID)
-	if contractAddress != nil {
-		q = q.Where("states.contract_address = ?", contractAddress)
-	}
-	q = modifyQuery(dbTX, q)
 
 	var persisted []*persistedState
 	dbStart := time.Now()
@@ -443,6 +449,55 @@ func (ss *stateManager) findStatesCommon(
 		return nil, nil, err
 	}
 	return schema, mapStatesToAPI(persisted), nil
+}
+
+func (ss *stateManager) buildStatesQuery(
+	ctx context.Context,
+	db *gorm.DB,
+	domainName string,
+	contractAddress *pldtypes.EthAddress,
+	schema components.Schema,
+	jq *query.QueryJSON,
+	driver *schemaLabelInfo,
+	modifyQuery func(q *gorm.DB, source string) *gorm.DB,
+) *gorm.DB {
+	tracker := ss.labelSetFor(schema)
+	source, idColumn := `"states"`, `"id"`
+	var fieldSet filters.FieldSet = tracker
+	if driver != nil {
+		source, idColumn = driver.virtualColumn, `"state"`
+		db = db.Table(fmt.Sprintf(`%s AS %s`, labelTable(driver), source)).
+			Select(`"states".*`).
+			Joins(fmt.Sprintf(`INNER JOIN states ON "states"."domain_name" = %[1]s."domain_name" AND "states"."id" = %[1]s."state"`, source))
+		fieldSet = labelRowFieldSet{trackingLabelSet: tracker, row: source}
+	} else {
+		db = db.Table("states")
+	}
+
+	// Build the query
+	q := filters.BuildGORM(ctx, jq, db, fieldSet)
+	if q.Error != nil {
+		return q
+	}
+
+	// Add joins only for the fields actually used in the query
+	for _, fi := range tracker.used {
+		if fi == driver {
+			continue
+		}
+		// Include domain_name so the join matches the state_labels PK/FK and Postgres can use (domain_name, label, value) indexes.
+		q = q.Joins(fmt.Sprintf(`INNER JOIN %[1]s AS %[2]s ON %[2]s.state = %[3]s.%[4]s AND %[2]s.domain_name = %[3]s."domain_name" AND %[2]s.label = ?`, labelTable(fi), fi.virtualColumn, source, idColumn), fi.label)
+	}
+
+	if driver != nil {
+		q = q.Where(source+`."label" = ?`, driver.label)
+	}
+	q = q.Where(source+`."domain_name" = ?`, domainName).
+		Where(source+`."schema" = ?`, schema.Persisted().ID)
+	if contractAddress != nil {
+		q = q.Where(source+`."contract_address" = ?`, contractAddress)
+	}
+	return modifyQuery(q, source)
 }
 
 // cacheGetValidatedStateWithLabels returns a caller-owned shallow copy of a cache entry, with labels.
