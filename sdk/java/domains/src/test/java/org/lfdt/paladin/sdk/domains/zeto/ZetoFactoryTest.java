@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.lfdt.paladin.sdk.client.PaladinClient;
 import org.lfdt.paladin.sdk.client.exception.PaladinException;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
+import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
 class ZetoFactoryTest {
 

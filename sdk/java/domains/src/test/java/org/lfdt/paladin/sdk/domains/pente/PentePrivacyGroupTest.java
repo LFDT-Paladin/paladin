@@ -40,6 +40,7 @@ import org.lfdt.paladin.sdk.core.json.PaladinObjectMapper;
 import org.lfdt.paladin.sdk.core.privacygroup.PrivacyGroup;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
+import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
 class PentePrivacyGroupTest {
 

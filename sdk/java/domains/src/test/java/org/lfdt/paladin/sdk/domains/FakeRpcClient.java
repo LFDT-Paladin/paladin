@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.lfdt.paladin.sdk.domains.pente;
+package org.lfdt.paladin.sdk.domains;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -27,13 +27,13 @@ import org.lfdt.paladin.sdk.client.rpc.RpcClient;
 import org.lfdt.paladin.sdk.core.json.PaladinObjectMapper;
 
 /** In-memory {@link RpcClient} that records each call and answers from canned JSON results. */
-final class FakeRpcClient implements RpcClient {
+public final class FakeRpcClient implements RpcClient {
 
   /** One recorded call: the method and its positional parameters as JSON. */
-  record Call(String method, JsonNode params) {
+  public record Call(String method, JsonNode params) {
 
     /** The first positional parameter, which carries the request body for most methods. */
-    JsonNode body() {
+    public JsonNode body() {
       return params.get(0);
     }
   }
@@ -44,17 +44,22 @@ final class FakeRpcClient implements RpcClient {
   private final List<Call> calls = new ArrayList<>();
 
   /** Answers every later call to {@code method} with {@code resultJson}. */
-  FakeRpcClient respond(final String method, final String resultJson) {
+  public FakeRpcClient respond(final String method, final String resultJson) {
     results.put(method, resultJson);
     return this;
   }
 
-  List<Call> calls() {
+  /**
+   * Every call received, in order.
+   *
+   * @return the recorded calls
+   */
+  public List<Call> calls() {
     return calls;
   }
 
   /** The most recent call to {@code method}; fails the test if there was none. */
-  Call lastCall(final String method) {
+  public Call lastCall(final String method) {
     for (int i = calls.size() - 1; i >= 0; i--) {
       if (calls.get(i).method().equals(method)) {
         return calls.get(i);

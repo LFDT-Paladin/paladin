@@ -38,6 +38,7 @@ import org.lfdt.paladin.sdk.core.types.Bytes32;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 import org.lfdt.paladin.sdk.core.types.HexUint256;
+import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
 class NotoInstanceTest {
 

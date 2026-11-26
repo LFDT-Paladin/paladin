@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,11 +33,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.lfdt.paladin.sdk.client.PaladinClient;
+import org.lfdt.paladin.sdk.client.exception.PaladinException;
 import org.lfdt.paladin.sdk.client.tx.SentTransaction;
 import org.lfdt.paladin.sdk.core.json.PaladinObjectMapper;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.core.types.HexBytes;
 import org.lfdt.paladin.sdk.core.types.HexUint256;
+import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
 class ZetoInstanceTest {
 
@@ -176,6 +179,17 @@ class ZetoInstanceTest {
     assertTrue(balance.overflow());
     final JsonNode body = assertCall("balanceOf");
     assertEquals("bob", body.get("data").get("account").asText());
+  }
+
+  @Test
+  void rejectsNullBalance() {
+    rpc.respond("ptx_call", "null");
+
+    final CompletionException error =
+        assertThrows(CompletionException.class, () -> token.balanceOf("alice", "bob").join());
+
+    assertSame(PaladinException.class, error.getCause().getClass());
+    assertEquals("balanceOf returned no result", error.getCause().getMessage());
   }
 
   @Test

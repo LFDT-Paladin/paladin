@@ -15,13 +15,13 @@
 package org.lfdt.paladin.sdk.domains.zeto;
 
 import com.fasterxml.jackson.databind.JsonNode;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.lfdt.paladin.sdk.client.PaladinClient;
+import org.lfdt.paladin.sdk.client.exception.PaladinException;
 import org.lfdt.paladin.sdk.client.tx.SentTransaction;
 import org.lfdt.paladin.sdk.client.tx.TxBuilder;
 import org.lfdt.paladin.sdk.core.json.PaladinObjectMapper;
@@ -210,7 +210,6 @@ public final class ZetoInstance {
     if (params.delegate() != null) {
       inputs.put("delegate", params.delegate());
     }
-    
 
     inputs.put("data", ZetoDefaults.EMPTY_BYTES);
 
@@ -270,7 +269,8 @@ public final class ZetoInstance {
   }
 
   /**
-   * Reads the balance of an account, as visible to the calling identity.
+   * Reads the balance of an account, as visible to the calling identity. A call that returns no
+   * result fails the future with {@link PaladinException}.
    *
    * @param from lookup string of the identity making the call
    * @param account lookup string of the account to read
@@ -278,8 +278,14 @@ public final class ZetoInstance {
    */
   public CompletableFuture<ZetoBalanceOfResult> balanceOf(final String from, final String account) {
     return call("balanceOf", from, Map.of("account", Objects.requireNonNull(account, "account")))
-        .thenApply(
-            result -> PaladinObjectMapper.shared().convertValue(result, ZetoBalanceOfResult.class));
+        .thenApply(ZetoInstance::readBalance);
+  }
+
+  private static ZetoBalanceOfResult readBalance(final JsonNode result) {
+    if (result == null || result.isNull()) {
+      throw new PaladinException("balanceOf returned no result");
+    }
+    return PaladinObjectMapper.shared().convertValue(result, ZetoBalanceOfResult.class);
   }
 
   private SentTransaction sendPrivate(

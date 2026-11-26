@@ -37,6 +37,7 @@ import org.lfdt.paladin.sdk.client.exception.PaladinInvalidTransactionException;
 import org.lfdt.paladin.sdk.client.tx.SentTransaction;
 import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
+import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
 class PentePrivateContractTest {
 
