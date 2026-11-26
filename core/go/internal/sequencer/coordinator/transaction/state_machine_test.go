@@ -1568,7 +1568,7 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 		PreparesOnReadyForDispatch()
 	txnB, mocksB := builderB.Build()
 
-	_, _ = NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+	txnC, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		Grapher(mockGrapher).
 		TransactionID(txCID).
 		AddPendingPreDispatchRequest().
@@ -1578,6 +1578,10 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 		Grapher(mockGrapher).
 		TransactionID(txAID).
 		Build()
+
+	txByID := map[uuid.UUID]CoordinatorTransaction{txAID: txnA, txBID: txnB, txCID: txnC}
+	txnA.getCoordinatorTransactionState = coordinatorTransactionStateLookup(txByID)
+	txnB.coordinatorTransactionHandleEvent = coordinatorTransactionHandleEvent(txByID)
 
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txAID).Return([]uuid.UUID{txBID, txCID}).Maybe()
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txBID).Return([]uuid.UUID{txAID}).Once()

@@ -30,7 +30,7 @@ import (
 )
 
 // The Grapher package provides 3 core functions to Paladin:
-// 1. It allows transactions to link to each other in a bi-directional dependency graph, based entirely on post-assembly outputs. This ensures
+// 1. It allows transactions to link to each other in a bi-directional dependency graph, based entirely on post-assembly outputs and reads. This ensures
 //    base-ledger state changes are correctly ordered, crucial to transaction success.
 // 2. It records ahead-of-chain state changes, such as inputs being locked, to allow successful ahead-of-chain assembly for new transactions.
 // 3. It provides interfaces onto the current ahead-of-chain state changes: query evaluation for assembling originators
@@ -90,12 +90,14 @@ type grapher struct {
 	stateVisibilityTracker statevisibilitytracker.StateVisibilityStore
 
 	dependencyChain          dependencytracker.DependencyChain
+	readDeps                 dependencytracker.DependencyChain
 	transactionByID          map[uuid.UUID]*grapherTX
 	transactionByOutputState map[string]*grapherTX
 	outputStatesByMinter     map[uuid.UUID][]string                     // reverse lookup by transactions ID for building dependency chains and transaction-driven cleanup
 	createLocksByStateID     map[string]*prototk.SnapshotStateLock      // create locks keyed by state ID (at most one per state, from its minter)
 	spendLocksByStateID      map[string]*prototk.SnapshotStateLock      // spend locks keyed by state ID (at most one per state)
-	readLocksByStateID       map[string]*prototk.SnapshotStateLock      // read locks keyed by state ID (at most one per state)
+	readersByStateID         map[string]map[uuid.UUID]bool              // in-flight transactions reading each state
+	readStatesByReader       map[uuid.UUID][]string                     // reverse lookup for transaction-driven cleanup
 	locksByTransaction       map[uuid.UUID][]*prototk.SnapshotStateLock // secondary index for O(1) transaction-driven cleanup
 }
 
@@ -108,12 +110,14 @@ func NewGrapher(dependencyTracker dependencytracker.DependencyTracker, stateVisi
 		blockHeightTolerance:     blockHeightTolerance,
 		stateVisibilityTracker:   stateVisibilityTracker,
 		dependencyChain:          dependencyTracker.GetPostAssemblyDeps(),
+		readDeps:                 dependencyTracker.GetReadDeps(),
 		transactionByOutputState: make(map[string]*grapherTX),
 		transactionByID:          make(map[uuid.UUID]*grapherTX),
 		outputStatesByMinter:     make(map[uuid.UUID][]string),
 		createLocksByStateID:     make(map[string]*prototk.SnapshotStateLock),
 		spendLocksByStateID:      make(map[string]*prototk.SnapshotStateLock),
-		readLocksByStateID:       make(map[string]*prototk.SnapshotStateLock),
+		readersByStateID:         make(map[string]map[uuid.UUID]bool),
+		readStatesByReader:       make(map[uuid.UUID][]string),
 		locksByTransaction:       make(map[uuid.UUID][]*prototk.SnapshotStateLock),
 	}
 }
@@ -161,12 +165,13 @@ func (g *grapher) ForgetTransactionAndLocks(ctx context.Context, transactionID u
 
 	g.dependencyChain.Delete(ctx, transactionID)
 	g.forgetTxMints(transactionID)
+	g.forgetTxReads(ctx, transactionID)
 	g.forgetTxLocks(transactionID)
 	delete(g.transactionByID, transactionID)
 }
 
 // ForgetTransaction removes the transaction from all in-flight tracking (dependency chain,
-// transactionByOutputState, outputStatesByMinter, transactionByID), stamps confirmedAtBlock on
+// transactionByOutputState, outputStatesByMinter, read tracking, transactionByID), stamps confirmedAtBlock on
 // its locks, and clears the transaction reference on those locks.
 // The statevisibilitytracker store is NOT cleared — private state data persists until the lock expires in
 // ForgetConfirmedLocks, so coordinator handover heartbeats include it within the block tolerance window.
@@ -181,10 +186,11 @@ func (g *grapher) ForgetTransaction(ctx context.Context, transactionID uuid.UUID
 
 	g.dependencyChain.Delete(ctx, transactionID)
 	g.forgetTxMints(transactionID)
+	g.forgetTxReads(ctx, transactionID)
 
 	// Stamp confirmedAtBlock on the transaction's locks and clear the transaction reference.
 	// Each stateLock object is shared by pointer between locksByTransaction and the type-segregated
-	// maps (createLocksByStateID / spendLocksByStateID / readLocksByStateID). Mutating the fields
+	// maps (createLocksByStateID / spendLocksByStateID). Mutating the fields
 	// here propagates to whichever of those maps holds the same pointer, so after this loop every
 	// type-segregated entry for this transaction reflects the confirmed state — even though
 	// locksByTransaction is deleted immediately below. Each lock carries the confirmedAtBlock of
@@ -234,15 +240,6 @@ func (g *grapher) forgetConfirmedLocks(ctx context.Context, currentBlockHeight u
 			}
 		}
 	}
-	for stateID, lock := range g.readLocksByStateID {
-		if lock.Transaction == nil && lock.ConfirmedAtBlock != nil {
-			if currentBlockHeight >= *lock.ConfirmedAtBlock+g.blockHeightTolerance {
-				log.L(ctx).Debugf("forgetConfirmedLocks: removing read lock on state %s (confirmedAtBlock=%d, tolerance=%d, currentBlock=%d)",
-					stateID, *lock.ConfirmedAtBlock, g.blockHeightTolerance, currentBlockHeight)
-				delete(g.readLocksByStateID, stateID)
-			}
-		}
-	}
 }
 
 // ImportStatesAndLocks imports confirmed locks and their associated private state data
@@ -253,10 +250,18 @@ func (g *grapher) ImportStatesAndLocks(ctx context.Context, snapshot *prototk.St
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// Build a map of confirmed locks only. In-flight locks are skipped.
-	confirmedLockByStateID := make(map[string]*prototk.SnapshotStateLock, len(snapshot.GetLocks()))
+	// Import confirmed locks only, preserving existing entries. In-flight locks are skipped.
+	// Route each lock into the appropriate type-segregated map, as one state can hold both a create and a spend lock.
+	confirmedCreateLockStateIDs := make(map[string]bool, len(snapshot.GetLocks()))
 	for _, lock := range snapshot.GetLocks() {
 		stateID := lock.GetStateId()
+		if lock.GetType() == prototk.SnapshotStateLock_READ {
+			// A confirmed read places no constraint on later transactions.
+			// Read locks are now removed from snapshots, but a node running an earlier version
+			// might still send one.
+			log.L(ctx).Debugf("ImportStatesAndLocks: skipping read lock on state %s", stateID)
+			continue
+		}
 		if lock.Transaction != nil {
 			log.L(ctx).Debugf("ImportStatesAndLocks: skipping in-flight lock on state %s — in-flight transactions are re-processed by the new coordinator", stateID)
 			continue
@@ -265,34 +270,13 @@ func (g *grapher) ImportStatesAndLocks(ctx context.Context, snapshot *prototk.St
 			log.L(ctx).Warnf("ImportStatesAndLocks: skipping lock on state %s — no transaction and no ConfirmedAtBlock", stateID)
 			continue
 		}
-		confirmedLockByStateID[stateID] = lock
-	}
-
-	// Import output states that have a corresponding confirmed lock.
-	for _, state := range snapshot.GetStates() {
-		stateID := state.GetState().GetId()
-		if _, ok := confirmedLockByStateID[stateID]; !ok {
-			log.L(ctx).Debugf("ImportStatesAndLocks: skipping output state %s — no corresponding confirmed lock found", stateID)
-			continue
-		}
-		if g.stateVisibilityTracker.ImportIfAbsent(stateID, state) {
-			log.L(ctx).Debugf("ImportStatesAndLocks: imported output state %s", stateID)
-		} else {
-			log.L(ctx).Debugf("ImportStatesAndLocks: skipping output state %s — existing entry takes precedence", stateID)
-		}
-	}
-
-	// Import confirmed locks, preserving existing entries.
-	// Route each lock into the appropriate type-segregated map.
-	for stateID, lock := range confirmedLockByStateID {
 		var targetMap map[string]*prototk.SnapshotStateLock
 		switch lock.GetType() {
 		case prototk.SnapshotStateLock_CREATE:
 			targetMap = g.createLocksByStateID
-		case prototk.SnapshotStateLock_SPEND:
-			targetMap = g.spendLocksByStateID
+			confirmedCreateLockStateIDs[stateID] = true
 		default:
-			targetMap = g.readLocksByStateID
+			targetMap = g.spendLocksByStateID
 		}
 		if _, exists := targetMap[stateID]; exists {
 			log.L(ctx).Debugf("ImportStatesAndLocks: skipping lock on state %s — existing lock takes precedence", stateID)
@@ -300,6 +284,20 @@ func (g *grapher) ImportStatesAndLocks(ctx context.Context, snapshot *prototk.St
 		}
 		targetMap[stateID] = lock
 		log.L(ctx).Debugf("ImportStatesAndLocks: imported confirmed lock on state %s", stateID)
+	}
+
+	// Import output states that have a corresponding confirmed create lock
+	for _, state := range snapshot.GetStates() {
+		stateID := state.GetState().GetId()
+		if !confirmedCreateLockStateIDs[stateID] {
+			log.L(ctx).Debugf("ImportStatesAndLocks: skipping output state %s — no corresponding confirmed create lock found", stateID)
+			continue
+		}
+		if g.stateVisibilityTracker.ImportIfAbsent(stateID, state) {
+			log.L(ctx).Debugf("ImportStatesAndLocks: imported output state %s", stateID)
+		} else {
+			log.L(ctx).Debugf("ImportStatesAndLocks: skipping output state %s — existing entry takes precedence", stateID)
+		}
 	}
 }
 
@@ -317,6 +315,18 @@ func (g *grapher) forgetTxMints(transactionID uuid.UUID) {
 	}
 }
 
+// Caller must hold g.mu write lock.
+func (g *grapher) forgetTxReads(ctx context.Context, transactionID uuid.UUID) {
+	g.readDeps.Delete(ctx, transactionID)
+	for _, stateID := range g.readStatesByReader[transactionID] {
+		delete(g.readersByStateID[stateID], transactionID)
+		if len(g.readersByStateID[stateID]) == 0 {
+			delete(g.readersByStateID, stateID)
+		}
+	}
+	delete(g.readStatesByReader, transactionID)
+}
+
 // forgetTxLocks removes all locks owned by a transaction from all lock indexes.
 // Removing a create lock cascades to delete the corresponding private state data
 // from the statevisibilitytracker store — the create lock governs the state's lifetime in the grapher.
@@ -330,8 +340,6 @@ func (g *grapher) forgetTxLocks(transactionID uuid.UUID) {
 			g.stateVisibilityTracker.Delete(stateID)
 		case prototk.SnapshotStateLock_SPEND:
 			delete(g.spendLocksByStateID, stateID)
-		default:
-			delete(g.readLocksByStateID, stateID)
 		}
 	}
 	delete(g.locksByTransaction, transactionID)
@@ -381,10 +389,12 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*pro
 	txnStr := transactionID.String()
 	for _, state := range readStates {
 		stateID := state.GetId()
-		log.L(ctx).Debugf("LockMintsOnReadAndSpend: TX %s taking read lock on state %s", transactionID.String(), stateID)
-		lock := &prototk.SnapshotStateLock{StateId: stateID, Transaction: &txnStr, Type: prototk.SnapshotStateLock_READ}
-		g.readLocksByStateID[stateID] = lock
-		g.locksByTransaction[transactionID] = append(g.locksByTransaction[transactionID], lock)
+		log.L(ctx).Debugf("LockMintsOnReadAndSpend: TX %s reading state %s", transactionID.String(), stateID)
+		if g.readersByStateID[stateID] == nil {
+			g.readersByStateID[stateID] = make(map[uuid.UUID]bool)
+		}
+		g.readersByStateID[stateID][transactionID] = true
+		g.readStatesByReader[transactionID] = append(g.readStatesByReader[transactionID], stateID)
 		if mintedBy := g.transactionByOutputState[stateID]; mintedBy != nil {
 			g.dependencyChain.AddPrerequisites(ctx, transactionID, mintedBy.ID)
 		}
@@ -398,6 +408,12 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*pro
 		g.locksByTransaction[transactionID] = append(g.locksByTransaction[transactionID], lock)
 		if mintedBy := g.transactionByOutputState[stateID]; mintedBy != nil {
 			g.dependencyChain.AddPrerequisites(ctx, transactionID, mintedBy.ID)
+		}
+		// A read state must still be unspent when its reader executes on chain.
+		for readerID := range g.readersByStateID[stateID] {
+			if readerID != transactionID {
+				g.readDeps.AddPrerequisites(ctx, transactionID, readerID)
+			}
 		}
 	}
 }
@@ -421,14 +437,11 @@ func (g *grapher) ExportStatesAndLocks(ctx context.Context, node string) (*proto
 	}
 
 	// All locks are returned unfiltered — lock data is on-chain metadata and needs no privacy protection.
-	result.Locks = make([]*prototk.SnapshotStateLock, 0, len(g.createLocksByStateID)+len(g.spendLocksByStateID)+len(g.readLocksByStateID))
+	result.Locks = make([]*prototk.SnapshotStateLock, 0, len(g.createLocksByStateID)+len(g.spendLocksByStateID))
 	for _, lock := range g.createLocksByStateID {
 		result.Locks = append(result.Locks, lock)
 	}
 	for _, lock := range g.spendLocksByStateID {
-		result.Locks = append(result.Locks, lock)
-	}
-	for _, lock := range g.readLocksByStateID {
 		result.Locks = append(result.Locks, lock)
 	}
 	log.L(ctx).Debugf("ExportStatesAndLocks: %d output states (filtered from %d), %d locks (node=%q)", len(result.States), len(allStates), len(result.Locks), node)
