@@ -682,7 +682,7 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 
 	depTracker := dependencytracker.NewDependencyTracker()
 	visibilityStore := statevisibilitytracker.NewStore()
-	g := grapher.NewGrapher(depTracker, visibilityStore, 5)
+	g := grapher.NewGrapher(depTracker, visibilityStore, 5, true)
 
 	// Seed a confirmed create lock (confirmed at block 100, due to be forgotten at block 105)
 	// with private state data visible to node1
@@ -742,7 +742,7 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 	// The coordinator advances well past the tolerance window mid-assemble; the block-driven forget
 	// removes the state from the live grapher, but the frozen snapshot keeps serving it.
 	g.ForgetConfirmedLocks(ctx, 200)
-	liveCandidates, _ := g.SnapshotView(ctx, "node1")
+	liveCandidates, _, _ := g.SnapshotView(ctx, "node1", true)
 	require.Empty(t, liveCandidates, "the live grapher view forgets the confirmed lock")
 	require.Equal(t, 1, runQuery(), "state must stay visible to per-select queries while the assemble is in flight")
 

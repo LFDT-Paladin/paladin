@@ -23,15 +23,15 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"gorm.io/gorm"
 )
 
-// The confirmed/spent columns on the states table are denormalized from state_confirm_records/state_spend_records
-// so the "confirmed" query can use the states_available partial index instead of anti-joining the
-// ever-growing record tables. The same columns are further denormalized onto state_labels and
-// state_int64_labels (along with the state's schema, contract_address and created), whose
-// state_labels_available/state_int64_labels_available partial indexes serve available-state
-// queries with a label predicate; every flag write here applies to all three tables so the
-// label rows never disagree with their state row.
+// The confirmed/spent columns on the states table, and the block a state was confirmed at, are denormalized from
+// state_confirm_records/state_spend_records so the "confirmed" query can use the states_available partial index
+// instead of anti-joining the ever-growing record tables. The same columns are further denormalized onto
+// state_labels and state_int64_labels (along with the state's schema, contract_address and created), whose
+// state_labels_available/state_int64_labels_available partial indexes serve available-state queries with a label
+// predicate; every flag write here applies to all three tables so the label rows never disagree with their state row.
 //
 // Private state data are distibuted off chain via reliable messaging, whereas confirm/spend records
 // are created as result of indexing the base ledger. This means that:
@@ -55,8 +55,9 @@ import (
 // confirmed but never spent.
 
 const (
-	availabilityFlagConfirmed = "confirmed"
-	availabilityFlagSpent     = "spent"
+	availabilityFlagConfirmed  = "confirmed"
+	availabilityFlagSpent      = "spent"
+	availabilityConfirmedBlock = "confirmed_block"
 )
 
 const availabilityFlagLock = "state_availability_flags"
@@ -79,7 +80,12 @@ func setStatesConfirmed(ctx context.Context, dbTX persistence.DBTX, confirms []*
 	for _, c := range confirms {
 		idsByDomain[c.DomainName] = append(idsByDomain[c.DomainName], c.State)
 	}
-	return setAvailabilityFlag(ctx, dbTX, idsByDomain, availabilityFlagConfirmed)
+	for domainName, ids := range idsByDomain {
+		if err := reconcileConfirmed(ctx, dbTX, domainName, ids); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func setStatesSpent(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord) error {
@@ -87,21 +93,9 @@ func setStatesSpent(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi
 	for _, s := range spends {
 		idsByDomain[s.DomainName] = append(idsByDomain[s.DomainName], s.State)
 	}
-	return setAvailabilityFlag(ctx, dbTX, idsByDomain, availabilityFlagSpent)
-}
-
-func setAvailabilityFlag(ctx context.Context, dbTX persistence.DBTX, idsByDomain map[string][]pldtypes.HexBytes, column string) error {
 	for domainName, ids := range idsByDomain {
-		for _, t := range availabilityFlagTables {
-			if err := dbTX.DB(ctx).
-				Table(t.table).
-				Where("domain_name = ?", domainName).
-				Where(fmt.Sprintf(`"%s" IN ?`, t.stateColumn), ids).
-				Where(fmt.Sprintf(`"%s" = FALSE`, column)).
-				Update(column, true).
-				Error; err != nil {
-				return err
-			}
+		if err := reconcileSpent(ctx, dbTX, domainName, ids); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -121,25 +115,45 @@ func (ss *stateManager) setStateAvailableFromSpendConfirmRecords(ctx context.Con
 	}
 
 	for domainName, ids := range idsByDomain {
-		if err := reconcileAvailabilityFlag(ctx, dbTX, domainName, ids, availabilityFlagConfirmed, "state_confirm_records"); err != nil {
+		if err := reconcileConfirmed(ctx, dbTX, domainName, ids); err != nil {
 			return err
 		}
-		if err := reconcileAvailabilityFlag(ctx, dbTX, domainName, ids, availabilityFlagSpent, "state_spend_records"); err != nil {
+		if err := reconcileSpent(ctx, dbTX, domainName, ids); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func reconcileAvailabilityFlag(ctx context.Context, dbTX persistence.DBTX, domainName string, ids []pldtypes.HexBytes, column, recordTable string) error {
+func reconcileConfirmed(ctx context.Context, dbTX persistence.DBTX, domainName string, ids []pldtypes.HexBytes) error {
+	for _, t := range availabilityFlagTables {
+		record := fmt.Sprintf(`FROM state_confirm_records r WHERE r.domain_name = %[1]s.domain_name AND r.state = %[1]s."%[2]s"`, t.table, t.stateColumn)
+		if err := dbTX.DB(ctx).
+			Table(t.table).
+			Where("domain_name = ?", domainName).
+			Where(fmt.Sprintf(`"%s" IN ?`, t.stateColumn), ids).
+			Where(`"confirmed" = FALSE`).
+			Where(`EXISTS (SELECT 1 ` + record + `)`).
+			Updates(map[string]any{
+				availabilityFlagConfirmed:  true,
+				availabilityConfirmedBlock: gorm.Expr(`(SELECT r.block_number ` + record + `)`),
+			}).
+			Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reconcileSpent(ctx context.Context, dbTX persistence.DBTX, domainName string, ids []pldtypes.HexBytes) error {
 	for _, t := range availabilityFlagTables {
 		if err := dbTX.DB(ctx).
 			Table(t.table).
 			Where("domain_name = ?", domainName).
 			Where(fmt.Sprintf(`"%s" IN ?`, t.stateColumn), ids).
-			Where(fmt.Sprintf(`"%s" = FALSE`, column)).
-			Where(fmt.Sprintf(`EXISTS (SELECT 1 FROM %s r WHERE r.domain_name = %s.domain_name AND r.state = %s."%s")`, recordTable, t.table, t.table, t.stateColumn)).
-			Update(column, true).
+			Where(`"spent" = FALSE`).
+			Where(fmt.Sprintf(`EXISTS (SELECT 1 FROM state_spend_records r WHERE r.domain_name = %[1]s.domain_name AND r.state = %[1]s."%[2]s")`, t.table, t.stateColumn)).
+			Update(availabilityFlagSpent, true).
 			Error; err != nil {
 			return err
 		}

@@ -48,7 +48,9 @@ type Reader interface {
 	// a) coordinatorNode — the node requests are sent to and the only node whose responses are accepted for them.
 	// b) assembleRequestID — the assemble whose captured view the coordinator answers from. One view is captured per assembly.
 	// c) spentStateIDs — the spent state IDs the coordinator sent with the assemble request.
-	ForCoordinator(coordinatorNode string, assembleRequestID string, spentStateIDs []pldtypes.HexBytes) components.RemoteStateView
+	// d) viewFromBlock — the first block whose available states the coordinator's view supplies, or nil when the coordinator is running
+	//    an earlier version and did not send one.
+	ForCoordinator(coordinatorNode string, assembleRequestID string, spentStateIDs []pldtypes.HexBytes, viewFromBlock *int64) components.RemoteStateView
 
 	// HandleQueryAvailableStatesResponse delivers a state query response to the request that is
 	// waiting for it. Responses for unknown request IDs (stale, duplicate) and responses from any
@@ -94,10 +96,15 @@ type boundView struct {
 	coordinatorNode   string
 	assembleRequestID string
 	spentStateIDs     []pldtypes.HexBytes
+	fromBlock         *int64
 }
 
-func (r *reader) ForCoordinator(coordinatorNode string, assembleRequestID string, spentStateIDs []pldtypes.HexBytes) components.RemoteStateView {
-	return &boundView{reader: r, coordinatorNode: coordinatorNode, assembleRequestID: assembleRequestID, spentStateIDs: spentStateIDs}
+func (r *reader) ForCoordinator(coordinatorNode string, assembleRequestID string, spentStateIDs []pldtypes.HexBytes, viewFromBlock *int64) components.RemoteStateView {
+	return &boundView{reader: r, coordinatorNode: coordinatorNode, assembleRequestID: assembleRequestID, spentStateIDs: spentStateIDs, fromBlock: viewFromBlock}
+}
+
+func (b *boundView) FromBlock() *int64 {
+	return b.fromBlock
 }
 
 // QueryAvailableStates blocks until the response arrives or ctx expires (the assembly deadline).

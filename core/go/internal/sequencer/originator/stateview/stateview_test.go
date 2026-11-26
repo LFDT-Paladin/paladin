@@ -128,7 +128,7 @@ func newTestReader(t *testing.T) (Reader, *signallingWriter, *fakeClock) {
 func TestReader_QueryAvailableStates_Success(t *testing.T) {
 	ctx := t.Context()
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil, nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{"eq":[{"field":"amount","value":10}]}`)
 	req := <-writer.sent
@@ -156,7 +156,7 @@ func TestReader_QueryAvailableStates_Success(t *testing.T) {
 func TestReader_QueryAvailableStates_Error(t *testing.T) {
 	ctx := t.Context()
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil, nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req := <-writer.sent
@@ -175,7 +175,7 @@ func TestReader_QueryAvailableStates_Error(t *testing.T) {
 func TestReader_QueryAvailableStates_RetriesSameRequestID(t *testing.T) {
 	ctx := t.Context()
 	r, writer, clock := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil, nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req1 := <-writer.sent
@@ -199,7 +199,7 @@ func TestReader_QueryAvailableStates_SendErrorIsRetried(t *testing.T) {
 	ctx := t.Context()
 	r, writer, clock := newTestReader(t)
 	writer.sendErr = assert.AnError // every send "fails" — the query must keep waiting and retrying
-	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil, nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req1 := <-writer.sent
@@ -219,7 +219,7 @@ func TestReader_QueryAvailableStates_SendErrorIsRetried(t *testing.T) {
 func TestReader_HandleQueryAvailableStatesResponse_WrongNodeDropped(t *testing.T) {
 	ctx := t.Context()
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil, nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req := <-writer.sent
@@ -256,7 +256,7 @@ func TestReader_HandleQueryAvailableStatesResponse_UnknownRequestDropped(t *test
 func TestReader_HandleQueryAvailableStatesResponse_DuplicateDropped(t *testing.T) {
 	ctx := t.Context()
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil, nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	req := <-writer.sent
@@ -284,7 +284,7 @@ func TestReader_HandleQueryAvailableStatesResponse_DuplicateDropped(t *testing.T
 func TestReader_QueryAvailableStates_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	r, writer, _ := newTestReader(t)
-	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil)
+	querier := r.ForCoordinator("coordinator-node", "assemble-1", nil, nil)
 
 	done := startQuery(ctx, querier, "0xschema", `{}`)
 	<-writer.sent
@@ -323,8 +323,17 @@ func TestReader_Deliver_DuplicateWithFullBufferDropped(t *testing.T) {
 func TestReader_GetSpentStateIDs_FromAssembleRequest(t *testing.T) {
 	r, writer, _ := newTestReader(t)
 	spent := []pldtypes.HexBytes{{0x01, 0x02}, {0x03, 0x04}}
-	view := r.ForCoordinator("coordinator-node", "assemble-1", spent)
+	view := r.ForCoordinator("coordinator-node", "assemble-1", spent, nil)
 
 	assert.Equal(t, spent, view.GetSpentStateIDs())
+	assert.Empty(t, writer.sent)
+}
+
+func TestReader_FromBlock_FromAssembleRequest(t *testing.T) {
+	r, writer, _ := newTestReader(t)
+	fromBlock := int64(7)
+
+	assert.Equal(t, &fromBlock, r.ForCoordinator("coordinator-node", "assemble-1", nil, &fromBlock).FromBlock())
+	assert.Nil(t, r.ForCoordinator("coordinator-node", "assemble-1", nil, nil).FromBlock(), "a coordinator that does not send a from block")
 	assert.Empty(t, writer.sent)
 }

@@ -175,7 +175,7 @@ func NewCoordinator(
 ) *coordinator {
 	dependencyTracker := dependencytracker.NewDependencyTracker()
 	stateVisibilityTracker := statevisibilitytracker.NewStore()
-	grapher := grapher.NewGrapher(dependencyTracker, stateVisibilityTracker, confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance))
+	grapher := grapher.NewGrapher(dependencyTracker, stateVisibilityTracker, confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance), !domainAPI.ContractConfig().GetUseNullifiers())
 	stateViewProvider := stateview.NewProvider(domainAPI.Domain().Name(), contractAddress.HexString(), transportWriter, grapher, allComponents.StateManager())
 	c := &coordinator{
 		heartbeatIntervalsSinceStateChange: 0,
@@ -250,6 +250,7 @@ func (c *coordinator) Start(ctx context.Context) {
 
 	blockHeight := c.engineIntegration.GetBlockHeight(ctx)
 	c.currentBlockHeight = blockHeight
+	c.grapher.ForgetConfirmedLocks(ctx, uint64(blockHeight))
 	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(uint64(blockHeight), c.coordinatorSelectionBlockRange)
 
 	c.started = true

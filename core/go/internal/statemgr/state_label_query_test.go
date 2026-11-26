@@ -129,7 +129,7 @@ func TestLabelDrivenQueryParity(t *testing.T) {
 	// reference runs the states-driven query with the availability scope, the path a label-driven
 	// query replaces.
 	reference := func(contractAddress *pldtypes.EthAddress, schemaID pldtypes.Bytes32, jq *query.QueryJSON, excludedIDs []pldtypes.HexBytes) []*pldapi.State {
-		scope := statusScope(ctx, ss.p.NOTX(), pldapi.StateStatusConfirmed, excludedIDs)
+		scope := statusScope(ctx, ss.p.NOTX(), pldapi.StateStatusConfirmed, excludedIDs, nil)
 		scope.availableOnly = false
 		_, states, err := ss.findStatesCommon(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, scope)
 		require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestLabelDrivenQueryParity(t *testing.T) {
 			require.NotNil(t, driver, "expected the query to be label-driven")
 			assert.Equal(t, driverLabel, driver.label)
 
-			_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, pldapi.StateStatusConfirmed, excludedIDs)
+			_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, pldapi.StateStatusConfirmed, excludedIDs, nil)
 			require.NoError(t, err)
 			assert.Equal(t, idsOf(expected), idsOf(states))
 			assert.Equal(t, idsOf(reference(contractAddress, schemaID, jq, excludedIDs)), idsOf(states))
@@ -163,7 +163,7 @@ func TestLabelDrivenQueryParity(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			require.Nil(t, driverFor(schemaID, jq), "expected the query to be states-driven")
 
-			_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, pldapi.StateStatusConfirmed, nil)
+			_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, pldapi.StateStatusConfirmed, nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, idsOf(reference(contractAddress, schemaID, jq, nil)), idsOf(states))
 		})
@@ -346,7 +346,7 @@ func TestLabelDrivenQueryParity(t *testing.T) {
 
 	t.Run("not scoped to a contract", func(t *testing.T) {
 		jq := query.NewQueryBuilder().Equal("color", "red").Query()
-		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, widgetID, jq, pldapi.StateStatusConfirmed, nil)
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, widgetID, jq, pldapi.StateStatusConfirmed, nil, nil)
 		require.NoError(t, err)
 		assert.Equal(t, idsOf(reference(nil, widgetID, jq, nil)), idsOf(states))
 		assert.Equal(t, idsOf([]*pldapi.State{widgets[0], widgets[3], widgets[5], widgets[7]}), idsOf(states))
@@ -367,7 +367,7 @@ func TestLabelDrivenQueryParity(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name+" is reported", func(t *testing.T) {
-			_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, widgetID, tc.jq, pldapi.StateStatusConfirmed, nil)
+			_, _, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, widgetID, tc.jq, pldapi.StateStatusConfirmed, nil, nil)
 			require.Error(t, err)
 		})
 	}
@@ -375,7 +375,7 @@ func TestLabelDrivenQueryParity(t *testing.T) {
 	// A non-availability qualifier is never label-driven: all reds regardless of status.
 	t.Run("status all is states-driven", func(t *testing.T) {
 		jq := query.NewQueryBuilder().Equal("color", "red").Query()
-		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, widgetID, jq, pldapi.StateStatusAll, nil)
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, widgetID, jq, pldapi.StateStatusAll, nil, nil)
 		require.NoError(t, err)
 		assert.Equal(t, idsOf([]*pldapi.State{widgets[0], widgets[1], widgets[3], widgets[5], widgets[7], widgets[9]}), idsOf(states))
 	})
@@ -401,6 +401,6 @@ func TestLabelIndexFastPathQueryError(t *testing.T) {
 	db.ExpectQuery("SELECT").WillReturnError(fmt.Errorf("pop"))
 
 	_, _, err = ss.findStates(ctx, ss.p.NOTX(), "domain1", pldtypes.RandAddress(), schema.ID(),
-		query.NewQueryBuilder().Equal("color", "red").Query(), pldapi.StateStatusConfirmed, nil)
+		query.NewQueryBuilder().Equal("color", "red").Query(), pldapi.StateStatusConfirmed, nil, nil)
 	assert.Regexp(t, "pop", err)
 }

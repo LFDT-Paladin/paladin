@@ -598,7 +598,7 @@ func TestCoordinator_WhenElect_ActiveCoordinatorClosing_TransitionsDirectlyToAct
 	assert.Len(t, exported.GetStates(), 1, "imported output state must be visible to node1")
 	assert.Len(t, exported.GetLocks(), 1, "imported confirmed lock must be present in grapher")
 	// The labelled state is offered to ahead-of-chain queries.
-	candidates, _ := c.grapher.SnapshotView(ctx, "node1")
+	candidates, _, _ := c.grapher.SnapshotView(ctx, "node1", true)
 	assert.Len(t, candidates, 1, "a labelled imported state must be queryable ahead-of-chain")
 }
 
@@ -1042,7 +1042,7 @@ func TestCoordinator_WhenPreparedReceivesClosingHeartbeat_TransitionsToActiveAnd
 	assert.Empty(t, exported.GetStates(), "an un-labelled state must be dropped, not imported unusable")
 	assert.Len(t, exported.GetLocks(), 1, "imported confirmed lock must be retained even when its state is dropped")
 	// The dropped state is therefore not offered to ahead-of-chain queries either.
-	droppedCandidates, _ := c.grapher.SnapshotView(ctx, "node1")
+	droppedCandidates, _, _ := c.grapher.SnapshotView(ctx, "node1", true)
 	assert.Empty(t, droppedCandidates, "a dropped state must not be queryable")
 }
 

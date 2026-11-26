@@ -498,7 +498,7 @@ func Test_Blocked_DependencyReady_StaysBlocked_WhenDepsNotReady(t *testing.T) {
 func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
 	ctx := t.Context()
 	depTracker := dependencytracker.NewDependencyTracker()
-	g := grapher.NewGrapher(depTracker, statevisibilitytracker.NewStore(), 5)
+	g := grapher.NewGrapher(depTracker, statevisibilitytracker.NewStore(), 5, true)
 
 	dependentTx, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(g).

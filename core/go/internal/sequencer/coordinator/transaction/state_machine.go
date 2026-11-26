@@ -289,9 +289,8 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Assembling: {
 		OnTransitionTo: []ActionRule{
 			{Action: action_ScheduleStateTimeout},
-			// Capture a state view: a snapshot of the states available to the originator.
-			// OnTransitionFrom discards that view on every exit from this state.
-			{Action: action_CaptureGrapherSnapshot},
+			// Capture a state view — a snapshot of the states available to the originator — and send the assemble
+			// request. OnTransitionFrom discards that view on every exit from this state.
 			{Action: action_SendAssembleRequest},
 		},
 		OnTransitionFrom: []ActionRule{

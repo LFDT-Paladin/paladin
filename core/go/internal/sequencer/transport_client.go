@@ -210,6 +210,7 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 	for i, id := range assembleRequest.SpentStateIds {
 		assembleRequestEvent.SpentStateIDs[i] = id
 	}
+	assembleRequestEvent.ViewFromBlock = assembleRequest.ViewFromBlock
 	assembleRequestEvent.EventTime = time.Now()
 	if assembleRequest.ExpiryTimeUnixMs != 0 {
 		assembleRequestEvent.Expiry = time.UnixMilli(assembleRequest.ExpiryTimeUnixMs)

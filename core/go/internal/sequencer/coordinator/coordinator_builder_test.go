@@ -347,6 +347,7 @@ func (b *CoordinatorBuilderForTesting) Build() (*coordinator, *CoordinatorDepend
 	}
 
 	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
+	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{}).Once()
 	mocks.Domain.On("Name").Return("test-domain").Maybe()
 	mocks.DomainAPI.On("Address").Return(*b.contractAddress).Maybe()
 	mocks.StateManager.On("NewDomainQueryContext", mock.Anything, mock.Anything, mock.Anything).Return(mocks.DomainQueryContext).Maybe()

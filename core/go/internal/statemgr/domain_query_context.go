@@ -350,7 +350,7 @@ func (dqc *domainQueryContext) FindAvailableStates(ctx context.Context, dbTX per
 	var err error
 	if dqc.remoteStateView == nil {
 		schema, states, err = dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-			pldapi.StateStatusConfirmed, nil)
+			pldapi.StateStatusConfirmed, nil, nil)
 	} else {
 		schema, states, err = dqc.availableStatesWithRemoteView(ctx, dbTX, schemaID, q)
 	}
@@ -381,7 +381,7 @@ func (dqc *domainQueryContext) availableStatesWithRemoteView(ctx context.Context
 
 	waitRemote := dqc.startRemoteViewFetch(ctx, schemaID, q)
 	schema, dbStates, dbErr := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-		pldapi.StateStatusConfirmed, spentStateIDs)
+		pldapi.StateStatusConfirmed, spentStateIDs, dqc.remoteStateView.FromBlock())
 	remoteStates, fetchErr := waitRemote()
 	if fetchErr != nil {
 		return nil, nil, fetchErr
@@ -447,12 +447,12 @@ func (dqc *domainQueryContext) GetStatesByID(ctx context.Context, dbTX persisten
 
 	if dqc.remoteStateView == nil {
 		return dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-			pldapi.StateStatusAll, nil)
+			pldapi.StateStatusAll, nil, nil)
 	}
 
 	waitRemote := dqc.startRemoteViewFetch(ctx, schemaID, q)
 	schema, dbStates, dbErr := dqc.ss.findStates(ctx, dbTX, dqc.domainName, &dqc.contractAddress, schemaID, q,
-		pldapi.StateStatusAll, nil)
+		pldapi.StateStatusAll, nil, nil)
 	remoteStates, fetchErr := waitRemote()
 	if fetchErr != nil {
 		return nil, nil, fetchErr

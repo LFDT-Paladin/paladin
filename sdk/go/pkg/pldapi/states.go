@@ -170,6 +170,7 @@ type StateConfirmRecord struct {
 	State       pldtypes.HexBytes `json:"-"`
 	Transaction uuid.UUID         `docstruct:"StateConfirm" json:"transaction"`
 	Index       int               `json:"-"`
+	BlockNumber *int64            `json:"-"`
 }
 
 // A spend record is written when indexing the blockchain, and can be written regardless

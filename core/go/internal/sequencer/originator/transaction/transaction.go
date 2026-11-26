@@ -39,6 +39,7 @@ type assembleRequestFromCoordinator struct {
 	requestID               uuid.UUID
 	expiry                  time.Time
 	spentStateIDs           []pldtypes.HexBytes
+	viewFromBlock           *int64
 }
 
 type OriginatorTransaction interface {

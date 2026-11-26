@@ -26,10 +26,11 @@ import (
 // SequencerVersion is sent on every delegation and tells the coordinator which sequencer messaging the originator
 // understands. Each change to that messaging adds a constant below and moves SequencerVersion to it. An originator
 // that predates versioning sends 0.
-const SequencerVersion = SequencerVersionReportsVersion
+const SequencerVersion = SequencerVersionViewFromBlock
 
-// An originator at SequencerVersionReportsVersion or above states its sequencer version on every delegation.
-const SequencerVersionReportsVersion uint32 = 1
+// An originator at SequencerVersionViewFromBlock or above restricts its own store to the available states confirmed
+// before the view's from block, so its spent state IDs need only cover the spend-locked states the view does not supply.
+const SequencerVersionViewFromBlock uint32 = 1
 
 // The CoordinatorSnapshot proto's transaction lists are converted wholesale to native types
 // (uuid.UUID / pldtypes.EthAddress / Bytes32 / HexBytes) once at the transport boundary, rather than

@@ -839,6 +839,7 @@ func mockDomainSmartContractForConstructor(t *testing.T) *componentsmocks.Domain
 	domain := componentsmocks.NewDomain(t)
 	domain.On("Name").Return("test-domain").Maybe()
 	domainAPI.On("Domain").Return(domain).Maybe()
+	domainAPI.On("ContractConfig").Return(&prototk.ContractConfig{}).Once()
 	return domainAPI
 }
 

@@ -40,7 +40,7 @@ import (
 
 func newTestGrapher() (grapher.Grapher, dependencytracker.DependencyTracker) {
 	dt := dependencytracker.NewDependencyTracker()
-	return grapher.NewGrapher(dt, statevisibilitytracker.NewStore(), 5), dt
+	return grapher.NewGrapher(dt, statevisibilitytracker.NewStore(), 5, true), dt
 }
 
 func TestTransaction_HasDependenciesNotReady_FalseIfNoDependencies(t *testing.T) {

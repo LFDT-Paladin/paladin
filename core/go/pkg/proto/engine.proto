@@ -155,6 +155,7 @@ message AssembleRequest {
     int64 expiry_time_unix_ms = 5;
     int64 block_height_tolerance = 6;
     repeated bytes spent_state_ids = 7;
+    optional int64 view_from_block = 8;
 }
 
 // QueryAvailableStatesRequest asks the coordinator to evaluate a state query against the snapshot

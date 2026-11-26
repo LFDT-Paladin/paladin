@@ -443,6 +443,26 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 		stateReads[i] = &pldapi.StateReadRecord{DomainName: d.name, State: stateID, Transaction: txUUID, Index: nextIndex(nextReadIndexes, txUUID)}
 	}
 
+	// A confirmation is recorded at its transaction's completion block. A state confirmed with the zero transaction ID
+	// was not created by a transaction, so it has no completion and no block.
+	completionBlocks := make(map[uuid.UUID]int64, len(res.TransactionsComplete))
+	for _, tc := range res.TransactionsComplete {
+		txUUID, err := d.recoverTransactionID(ctx, tc.TransactionId)
+		if err != nil {
+			return nil, err
+		}
+		completionBlocks[*txUUID] = tc.GetLocation().GetBlockNumber()
+	}
+	confirmBlock := func(stateID pldtypes.HexBytes, txUUID uuid.UUID) (*int64, error) {
+		if b, ok := completionBlocks[txUUID]; ok {
+			return &b, nil
+		}
+		if txUUID == uuid.Nil {
+			return nil, nil
+		}
+		return nil, i18n.NewError(ctx, msgs.MsgDomainConfirmationWithoutCompletion, stateID, txUUID)
+	}
+
 	// Only confirmed states are tracked for the completion index
 	confirmedStateIDsByTX := make(map[uuid.UUID]map[string]pldtypes.HexBytes)
 	nextConfirmIndexes := make(map[uuid.UUID]int)
@@ -452,7 +472,11 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 		if err != nil {
 			return nil, err
 		}
-		stateConfirms[i] = &pldapi.StateConfirmRecord{DomainName: d.name, State: stateID, Transaction: txUUID, Index: nextIndex(nextConfirmIndexes, txUUID)}
+		block, err := confirmBlock(stateID, txUUID)
+		if err != nil {
+			return nil, err
+		}
+		stateConfirms[i] = &pldapi.StateConfirmRecord{DomainName: d.name, State: stateID, Transaction: txUUID, Index: nextIndex(nextConfirmIndexes, txUUID), BlockNumber: block}
 		if d.FullStateAvailablityRequired() {
 			if len(stateID) > 0 {
 				if confirmedStateIDsByTX[txUUID] == nil {
@@ -498,7 +522,11 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 		})
 
 		// These have implicit confirmations
-		stateConfirms = append(stateConfirms, &pldapi.StateConfirmRecord{DomainName: d.name, State: id, Transaction: *txUUID, Index: nextIndex(nextConfirmIndexes, *txUUID)})
+		block, err := confirmBlock(id, *txUUID)
+		if err != nil {
+			return nil, err
+		}
+		stateConfirms = append(stateConfirms, &pldapi.StateConfirmRecord{DomainName: d.name, State: id, Transaction: *txUUID, Index: nextIndex(nextConfirmIndexes, *txUUID), BlockNumber: block})
 	}
 
 	// Write any new states first
@@ -521,16 +549,12 @@ func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persisten
 	// Update the global pending private state data index for domains that opt in.
 	if len(confirmedStateIDsByTX) > 0 {
 		var batchEntries []components.PendingPrivateStateDataEntry
-		for _, txCompletionEvent := range res.TransactionsComplete {
-			txUUID, err := d.recoverTransactionID(ctx, txCompletionEvent.TransactionId)
-			if err != nil {
-				return nil, err
-			}
-			for _, id := range confirmedStateIDsByTX[*txUUID] {
+		for txUUID, block := range completionBlocks {
+			for _, id := range confirmedStateIDsByTX[txUUID] {
 				batchEntries = append(batchEntries, components.PendingPrivateStateDataEntry{
 					StateID:     id,
 					Contract:    addr,
-					BlockNumber: txCompletionEvent.Location.BlockNumber,
+					BlockNumber: block,
 				})
 			}
 		}

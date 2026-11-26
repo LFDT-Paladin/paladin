@@ -308,6 +308,7 @@ var (
 	MsgDomainInvalidPGroupTxCannotRedirect    = pde("PD011666", "Resulting wrapped function call must target the same smart contract (contract=%s,addr=%s)")
 	MsgDomainUnsupportedStateQualifier        = pde("PD011667", "Unsupported state qualifier '%s'")
 	MsgDomainInvalidRegistryEventData         = pde("PD011668", "Invalid data in event '%s'")
+	MsgDomainConfirmationWithoutCompletion    = pde("PD011669", "Domain confirmed state %s in transaction %s, which has no completion in the batch")
 
 	// Entrypoint PD0117XX
 	MsgEntrypointUnknownRunMode = pde("PD011700", "Unknown run mode '%s'")

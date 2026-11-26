@@ -68,6 +68,7 @@ type TransactionBuilderForTesting struct {
 	coordinatorTransactions            map[uuid.UUID]CoordinatorTransaction
 	originator                         string
 	originatorNode                     string
+	originatorSequencerVersion         uint32
 	queueEventForCoordinator           func(context.Context, common.Event)
 	setDispatchedInFlight              func(txID uuid.UUID, inFlight bool)
 	domainSigningIdentity              string
@@ -113,19 +114,20 @@ type TransactionBuilderForTesting struct {
 // use the builder methods to set specific values for fields before calling Build to create a new Transaction
 func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuilderForTesting {
 	builder := &TransactionBuilderForTesting{
-		t:                         t,
-		originator:                "sender@node1",
-		originatorNode:            "node1",
-		setDispatchedInFlight:     func(uuid.UUID, bool) {},
-		signerAddress:             nil,
-		latestSubmissionHash:      nil,
-		state:                     state,
-		stateTimeout:              5000,
-		requestTimeout:            1000,
-		finalizingGracePeriod:     5,
-		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
-		submitterSelection:        prototk.ContractConfig_SUBMITTER_COORDINATOR,
-		nodeName:                  "node1",
+		t:                          t,
+		originator:                 "sender@node1",
+		originatorNode:             "node1",
+		originatorSequencerVersion: common.SequencerVersion,
+		setDispatchedInFlight:      func(uuid.UUID, bool) {},
+		signerAddress:              nil,
+		latestSubmissionHash:       nil,
+		state:                      state,
+		stateTimeout:               5000,
+		requestTimeout:             1000,
+		finalizingGracePeriod:      5,
+		privateTransactionBuilder:  testutil.NewPrivateTransactionBuilderForTesting(),
+		submitterSelection:         prototk.ContractConfig_SUBMITTER_COORDINATOR,
+		nodeName:                   "node1",
 	}
 
 	switch state {
@@ -229,6 +231,11 @@ func (b *TransactionBuilderForTesting) Reverts(revertReason string) *Transaction
 
 func (b *TransactionBuilderForTesting) Grapher(grapher grapher.Grapher) *TransactionBuilderForTesting {
 	b.grapher = grapher
+	return b
+}
+
+func (b *TransactionBuilderForTesting) OriginatorSequencerVersion(originatorSequencerVersion uint32) *TransactionBuilderForTesting {
+	b.originatorSequencerVersion = originatorSequencerVersion
 	return b
 }
 
@@ -574,7 +581,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.stateVisibilityTracker = statevisibilitytracker.NewStore()
 	}
 	if b.grapher == nil {
-		b.grapher = grapher.NewGrapher(b.dependencyTracker, b.stateVisibilityTracker, 5)
+		b.grapher = grapher.NewGrapher(b.dependencyTracker, b.stateVisibilityTracker, 5, true)
 	}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
@@ -651,14 +658,12 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		clock = common.RealClock()
 	}
 
-	// Default the stateview provider to a permissive mock: view open/close and the spent state ID
-	// read for the assemble request fire on every entry/exit of State_Assembling, and most tests do
-	// not assert on them. Tests that do can inject a strict mock via StateViewProvider(...).
+	// Default the stateview provider to a permissive mock: view capture and close fire on every
+	// entry/exit of State_Assembling, and most tests do not assert on them. Tests that do can inject a strict mock via StateViewProvider(...).
 	stateViewProvider := b.stateViewProvider
 	if stateViewProvider == nil {
 		mocks.StateViewProvider = coordinatorstateviewmocks.NewProvider(b.t)
-		mocks.StateViewProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mocks.StateViewProvider.EXPECT().SpentStateIDs(mock.Anything).Return(nil).Maybe()
+		mocks.StateViewProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, 0).Maybe()
 		mocks.StateViewProvider.EXPECT().DeleteSnapshot(mock.Anything, mock.Anything).Return().Maybe()
 		stateViewProvider = mocks.StateViewProvider
 	}
@@ -667,7 +672,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		ctx,
 		b.originator,
 		b.originatorNode,
-		common.SequencerVersion,
+		b.originatorSequencerVersion,
 		b.nodeName,
 		privateTransaction,
 		func() string { return b.coordinatorSigningIdentity },

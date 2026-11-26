@@ -1617,7 +1617,7 @@ func Test_action_ImportStatesAndLocks_LabelledStatesKept(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	candidates, _ := c.grapher.SnapshotView(ctx, "node1")
+	candidates, _, _ := c.grapher.SnapshotView(ctx, "node1", true)
 	assert.Len(t, candidates, 1, "the imported labels must make the state queryable as-is")
 }
 

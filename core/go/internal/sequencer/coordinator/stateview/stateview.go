@@ -49,11 +49,9 @@ import (
 type Provider interface {
 	// CaptureSnapshot captures a point in time — the states currently available to node plus the IDs of
 	// the states currently spend-locked — and holds it under assembleRequestID.
-	// node is the only node permitted to query against it.
-	CaptureSnapshot(ctx context.Context, assembleRequestID string, node string)
-
-	// SpentStateIDs returns the spent state IDs of the view captured for the assemble, or nil if absent.
-	SpentStateIDs(assembleRequestID string) []pldtypes.HexBytes
+	// node is the only node permitted to query against it. acceptsFromBlock says whether node is able to restrict the
+	// states it selects from its own state store to those confirmed before the view's from block.
+	CaptureSnapshot(ctx context.Context, assembleRequestID string, node string, acceptsFromBlock bool) (spentStateIDs []pldtypes.HexBytes, fromBlock int64)
 
 	// DeleteSnapshot discards the captured view. No-op if absent.
 	DeleteSnapshot(ctx context.Context, assembleRequestID string)
@@ -69,6 +67,7 @@ type capturedView struct {
 	node          string
 	candidates    []*prototk.SnapshotState
 	spentStateIDs []pldtypes.HexBytes
+	fromBlock     int64
 }
 
 type provider struct {
@@ -93,25 +92,17 @@ func NewProvider(domainName string, contractAddress string, transportWriter tran
 	}
 }
 
-func (p *provider) CaptureSnapshot(ctx context.Context, assembleRequestID string, node string) {
+func (p *provider) CaptureSnapshot(ctx context.Context, assembleRequestID string, node string, acceptsFromBlock bool) ([]pldtypes.HexBytes, int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if _, exists := p.views[assembleRequestID]; exists {
+	if view, exists := p.views[assembleRequestID]; exists {
 		log.L(ctx).Debugf("stateview provider: view for assemble request %s already open, keeping existing view", assembleRequestID)
-		return
+		return view.spentStateIDs, view.fromBlock
 	}
-	candidates, spentStateIDs := p.grapher.SnapshotView(ctx, node)
+	candidates, spentStateIDs, fromBlock := p.grapher.SnapshotView(ctx, node, acceptsFromBlock)
 	log.L(ctx).Debugf("stateview provider: open view for assemble request %s for node %s with %d candidate states and %d spent state IDs", assembleRequestID, node, len(candidates), len(spentStateIDs))
-	p.views[assembleRequestID] = &capturedView{node: node, candidates: candidates, spentStateIDs: spentStateIDs}
-}
-
-func (p *provider) SpentStateIDs(assembleRequestID string) []pldtypes.HexBytes {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if v := p.views[assembleRequestID]; v != nil {
-		return v.spentStateIDs
-	}
-	return nil
+	p.views[assembleRequestID] = &capturedView{node: node, candidates: candidates, spentStateIDs: spentStateIDs, fromBlock: fromBlock}
+	return spentStateIDs, fromBlock
 }
 
 func (p *provider) DeleteSnapshot(ctx context.Context, assembleRequestID string) {
