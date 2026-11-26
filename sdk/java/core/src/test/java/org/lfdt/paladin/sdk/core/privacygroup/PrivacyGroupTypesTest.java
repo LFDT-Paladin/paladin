@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -114,6 +115,28 @@ class PrivacyGroupTypesTest {
     assertFalse(json.contains("\"created\""));
     assertFalse(json.contains("\"contractAddress\""));
     assertTrue(json.contains("\"members\":[]"));
+  }
+
+  @Test
+  void privacyGroupWithContractAddress() throws Exception {
+    final PrivacyGroup group =
+        MAPPER.readValue("{\"domain\":\"pente\",\"id\":\"0x1234\"}", PrivacyGroup.class);
+    assertNull(group.contractAddress());
+
+    final EthAddress addr = EthAddress.fromString(ADDRESS);
+    final PrivacyGroup withAddr = group.withContractAddress(addr);
+    assertEquals(addr, withAddr.contractAddress());
+    assertEquals(group.domain(), withAddr.domain());
+    assertEquals(group.id(), withAddr.id());
+    assertEquals(group.members(), withAddr.members());
+
+    // Calling with same address returns identical instance
+    assertSame(withAddr, withAddr.withContractAddress(addr));
+
+    // Calling with null returns updated instance
+    final PrivacyGroup withoutAddr = withAddr.withContractAddress(null);
+    assertNull(withoutAddr.contractAddress());
+    assertSame(withoutAddr, withoutAddr.withContractAddress(null));
   }
 
   // ---- PrivacyGroupInput / PrivacyGroupTXOptions --------------------------
