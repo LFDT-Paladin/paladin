@@ -42,6 +42,7 @@ type transactionReceipt struct {
 	Success          bool                 `gorm:"column:success"`
 	TransactionHash  *pldtypes.Bytes32    `gorm:"column:tx_hash"`
 	BlockNumber      *int64               `gorm:"column:block_number"`
+	BlockTimestamp   *pldtypes.Timestamp  `gorm:"column:block_timestamp"`
 	TransactionIndex *int64               `gorm:"column:tx_index"`
 	LogIndex         *int64               `gorm:"column:log_index"`
 	Source           *pldtypes.EthAddress `gorm:"column:source"`
@@ -68,6 +69,7 @@ func mapPersistedReceipt(receipt *transactionReceipt) *pldapi.TransactionReceipt
 		r.TransactionReceiptDataOnchain = &pldapi.TransactionReceiptDataOnchain{
 			TransactionHash:  receipt.TransactionHash,
 			BlockNumber:      int64OrZero(receipt.BlockNumber),
+			BlockTimestamp:   receipt.BlockTimestamp,
 			TransactionIndex: int64OrZero(receipt.TransactionIndex),
 		}
 	}
@@ -91,6 +93,7 @@ var transactionReceiptFilters = filters.FieldMap{
 	"source":          filters.StringField("source"),
 	"transactionHash": filters.HexBytesField("tx_hash"),
 	"blockNumber":     filters.Int64Field("block_number"),
+	"blockTimestamp":  filters.TimestampField("block_timestamp"),
 }
 
 // FinalizeTransactions is called by the block indexing routine, but also can be called
@@ -119,6 +122,11 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		if ri.OnChain.Type != pldtypes.NotOnChain {
 			receipt.TransactionHash = &ri.OnChain.TransactionHash
 			receipt.BlockNumber = &ri.OnChain.BlockNumber
+			if ri.OnChain.BlockTimestamp != nil {
+				// Normalize to nanoseconds, as block timestamps arrive from the base ledger in seconds
+				blockTimestamp := pldtypes.TimestampFromUnix(ri.OnChain.BlockTimestamp.UnixNano())
+				receipt.BlockTimestamp = &blockTimestamp
+			}
 			receipt.TransactionIndex = &ri.OnChain.TransactionIndex
 			receipt.LogIndex = &ri.OnChain.LogIndex
 			receipt.Source = ri.OnChain.Source

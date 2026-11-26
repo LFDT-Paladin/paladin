@@ -117,6 +117,7 @@ func (tm *txManager) mapBlockchainReceipt(pubTx *components.PublicTxMatch) *comp
 			Type:             pldtypes.OnChainTransaction,
 			TransactionHash:  pubTx.Hash,
 			BlockNumber:      pubTx.BlockNumber,
+			BlockTimestamp:   pubTx.BlockTimestamp,
 			TransactionIndex: pubTx.TransactionIndex,
 		},
 		ContractAddress: pubTx.ContractAddress,

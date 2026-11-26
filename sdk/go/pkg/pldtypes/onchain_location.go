@@ -29,6 +29,7 @@ type OnChainLocation struct {
 	Type             OnChainLocationType
 	TransactionHash  Bytes32
 	BlockNumber      int64
+	BlockTimestamp   *Timestamp // the timestamp of the base ledger block, nil if unknown
 	TransactionIndex int64
 	LogIndex         int64       // non-zero only for events
 	Source           *EthAddress // non-nil only for events

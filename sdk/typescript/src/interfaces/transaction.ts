@@ -73,6 +73,7 @@ export interface ITransactionCall extends ITransactionInput, PublicCallOptions {
 
 export interface ITransactionReceipt {
   blockNumber: number;
+  blockTimestamp?: string;
   id: string;
   sequence: number;
   success: boolean;

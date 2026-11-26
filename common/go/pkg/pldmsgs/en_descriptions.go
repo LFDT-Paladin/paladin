@@ -148,6 +148,7 @@ var (
 	TransactionReceiptID                                    = pdm("TransactionReceipt.id", "Transaction ID")
 	TransactionReceiptDataOnchainTransactionHash            = pdm("TransactionReceiptDataOnchain.transactionHash", "Transaction hash")
 	TransactionReceiptDataOnchainBlockNumber                = pdm("TransactionReceiptDataOnchain.blockNumber", "Block number")
+	TransactionReceiptDataOnchainBlockTimestamp             = pdm("TransactionReceiptDataOnchain.blockTimestamp", "Timestamp of the base ledger block that the transaction was confirmed in")
 	TransactionReceiptDataOnchainTransactionIndex           = pdm("TransactionReceiptDataOnchain.transactionIndex", "Transaction index")
 	TransactionReceiptDataOnchainEventLogIndex              = pdm("TransactionReceiptDataOnchainEvent.logIndex", "Log index")
 	TransactionReceiptDataOnchainEventSource                = pdm("TransactionReceiptDataOnchainEvent.source", "Event source")

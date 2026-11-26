@@ -761,6 +761,7 @@ func (sMgr *sequencerManager) HandleDirectTransactionRevert(ctx context.Context,
 			Type:             pldtypes.OnChainTransaction,
 			TransactionHash:  tx.Hash,
 			BlockNumber:      tx.BlockNumber,
+			BlockTimestamp:   tx.BlockTimestamp,
 			TransactionIndex: tx.TransactionIndex,
 		}
 		sMgr.queueConfirmedRevertedEventToCoordinator(ctx, *contractAddress, tx.TransactionID, tx.RevertReason, onChain, &nonceVal)

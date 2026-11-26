@@ -636,6 +636,7 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 		newHighestBlock.Timestamp = int64(block.Timestamp)
 		blocks = append(blocks, bi.blockInfoToIndexedBlock(block))
 		log.L(ctx).Debugf("Indexing %d transactions from block %d", len(batch.receipts[i]), block.Number)
+		blockTimestamp := pldtypes.TimestampFromUnix(int64(block.Timestamp))
 		for txIndex, r := range batch.receipts[i] {
 			result := pldapi.TXResult_FAILURE.Enum()
 			if r.Status.BigInt().Int64() == 1 {
@@ -660,7 +661,8 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 					ContractAddress:  (*pldtypes.EthAddress)(r.ContractAddress),
 					Result:           result,
 				},
-				RevertReason: pldtypes.HexBytes(r.RevertReason),
+				BlockTimestamp: &blockTimestamp,
+				RevertReason:   pldtypes.HexBytes(r.RevertReason),
 			}
 			notifyTransactions = append(notifyTransactions, &txn)
 			transactions = append(transactions, &txn.IndexedTransaction)
