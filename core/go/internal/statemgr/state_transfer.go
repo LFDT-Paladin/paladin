@@ -42,7 +42,7 @@ func (ss *stateManager) TransferState(ctx context.Context, dbTX persistence.DBTX
 		return uuid.Nil, nil
 	}
 
-	states, err := ss.GetStatesByID(ctx, dbTX, domain, nil, []pldtypes.HexBytes{stateID}, true, false)
+	states, err := ss.GetStatesByID(ctx, dbTX, domain, nil, []pldtypes.HexBytes{stateID}, true)
 	if err != nil {
 		return uuid.Nil, err
 	}

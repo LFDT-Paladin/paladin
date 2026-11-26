@@ -38,20 +38,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
-type transactionStateRecord struct {
-	pldapi.StateBase
-	State          pldtypes.HexBytes `gorm:"column:state"`
-	RecordType     string            `gorm:"column:record_type"`
-	Index          *int              `gorm:"column:idx"` // nil for records written before indexes were recorded
-	SpentState     pldtypes.HexBytes `gorm:"column:spent_state"`
-	ReadState      pldtypes.HexBytes `gorm:"column:read_state"`
-	ConfirmedState pldtypes.HexBytes `gorm:"column:confirmed_state"`
-}
-
-func (transactionStateRecord) TableName() string {
-	return "states"
-}
-
 func (ss *stateManager) WritePreVerifiedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, states []*components.StateUpsertOutsideContext) ([]*pldapi.State, error) {
 	ctx = log.WithComponent(ctx, "statemanager")
 	d, err := ss.domainManager.GetDomainByName(ctx, domainName)
@@ -113,7 +99,7 @@ func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, db
 			Clauses(clause.OnConflict{
 				DoNothing: true, // immutable
 			}).
-			Create(nullifiers).
+			Create(newPersistedStateNullifiers(nullifiers)).
 			Error
 	}
 
@@ -123,6 +109,7 @@ func (ss *stateManager) WriteNullifiersForReceivedStates(ctx context.Context, db
 func (ss *stateManager) processInsertStates(ctx context.Context, dbTX persistence.DBTX, d components.Domain, inStates []*components.StateUpsertOutsideContext) (processedStates []*pldapi.State, err error) {
 
 	processedStates = make([]*pldapi.State, len(inStates))
+	withLabels := make([]*components.StateWithLabels, len(inStates))
 	for i, inState := range inStates {
 		schema, err := ss.getSchemaByID(ctx, dbTX, d.Name(), inState.SchemaID, true)
 		if err != nil {
@@ -134,10 +121,11 @@ func (ss *stateManager) processInsertStates(ctx context.Context, dbTX persistenc
 			return nil, err
 		}
 		processedStates[i] = s.State
+		withLabels[i] = s
 	}
 
 	// Write them directly
-	if err = ss.writeStates(ctx, dbTX, processedStates); err != nil {
+	if err = ss.writeStates(ctx, dbTX, withLabels); err != nil {
 		return nil, err
 	}
 
@@ -158,7 +146,7 @@ func (ss *stateManager) WriteStateBatch(ctx context.Context, dbTX persistence.DB
 	}
 
 	if len(states) > 0 {
-		err = ss.writeStates(ctx, dbTX, states)
+		err = ss.writeStates(ctx, dbTX, statesWithLabels)
 	}
 	if err == nil && len(nullifiers) > 0 {
 		err = dbTX.DB(ctx).
@@ -166,18 +154,26 @@ func (ss *stateManager) WriteStateBatch(ctx context.Context, dbTX persistence.DB
 			Clauses(clause.OnConflict{
 				DoNothing: true, // immutable
 			}).
-			Create(nullifiers).
+			Create(newPersistedStateNullifiers(nullifiers)).
 			Error
 	}
 	return err
 }
 
-func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, states []*pldapi.State) (err error) {
-	var labels []*pldapi.StateLabel
-	var int64Labels []*pldapi.StateInt64Label
-	for _, s := range states {
-		labels = append(labels, s.Labels...)
-		int64Labels = append(int64Labels, s.Int64Labels...)
+func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, statesWithLabels []*components.StateWithLabels) (err error) {
+	states := make([]*pldapi.State, len(statesWithLabels))
+	persisted := make([]*persistedState, len(statesWithLabels))
+	var labels []*persistedStateLabel
+	var int64Labels []*persistedStateInt64Label
+	for i, s := range statesWithLabels {
+		states[i] = s.State
+		persisted[i] = newPersistedState(s.State)
+		for _, l := range s.Labels {
+			labels = append(labels, &persistedStateLabel{DomainName: s.DomainName, State: s.ID, Label: l.Label, Value: l.Value})
+		}
+		for _, l := range s.Int64Labels {
+			int64Labels = append(int64Labels, &persistedStateInt64Label{DomainName: s.DomainName, State: s.ID, Label: l.Label, Value: l.Value})
+		}
 	}
 
 	if len(states) > 0 {
@@ -187,9 +183,12 @@ func (ss *stateManager) writeStates(ctx context.Context, dbTX persistence.DBTX, 
 				Columns:   []clause.Column{{Name: "domain_name"}, {Name: "id"}},
 				DoNothing: true, // immutable
 			}).
-			Omit("Labels", "Int64Labels", "Confirmed", "Spent"). // we do this ourselves below
-			Create(states).
+			Create(persisted).
 			Error
+		// The insert stamps Created, which callers read from the states they passed in.
+		for i, ps := range persisted {
+			states[i].Created = ps.Base.Created
+		}
 	}
 	if err == nil && len(labels) > 0 {
 		err = dbTX.DB(ctx).
@@ -256,13 +255,10 @@ func (ss *stateManager) getStateIDsMissingPrivateData(ctx context.Context, dbTX 
 	return missing, nil
 }
 
-func (ss *stateManager) GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound, withLabels bool) ([]*pldapi.State, error) {
+func (ss *stateManager) GetStatesByID(ctx context.Context, dbTX persistence.DBTX, domainName string, contractAddress *pldtypes.EthAddress, stateIDs []pldtypes.HexBytes, failNotFound bool) ([]*pldapi.State, error) {
 	ctx = log.WithComponent(ctx, "statemanager")
 	q := dbTX.DB(ctx).Table("states")
-	if withLabels {
-		q = q.Preload("Labels").Preload("Int64Labels")
-	}
-	var states []*pldapi.State
+	var persisted []*persistedState
 	q = q.
 		Where("domain_name = ?", domainName).
 		Where("id IN ?", stateIDs)
@@ -270,12 +266,12 @@ func (ss *stateManager) GetStatesByID(ctx context.Context, dbTX persistence.DBTX
 		q = q.Where("contract_address = ?", contractAddress)
 	}
 	err := q.
-		Find(&states).
+		Find(&persisted).
 		Error
-	if err == nil && len(states) != len(stateIDs) && failNotFound {
+	if err == nil && len(persisted) != len(stateIDs) && failNotFound {
 		return nil, i18n.NewError(ctx, msgs.MsgStateNotFound, stateIDs)
 	}
-	return states, err
+	return mapStatesToAPI(persisted), err
 }
 
 // Built in fields all start with "." as that prevents them
@@ -439,14 +435,14 @@ func (ss *stateManager) findStatesCommon(
 	}
 	q = modifyQuery(dbTX, q)
 
-	var states []*pldapi.State
+	var persisted []*persistedState
 	dbStart := time.Now()
-	err = q.Find(&states).Error
+	err = q.Find(&persisted).Error
 	ss.metrics.ObserveStateQueryDB(domainName, time.Since(dbStart))
 	if err != nil {
 		return nil, nil, err
 	}
-	return schema, states, nil
+	return schema, mapStatesToAPI(persisted), nil
 }
 
 // cacheGetValidatedStateWithLabels returns a caller-owned shallow copy of a cache entry, with labels.
@@ -467,6 +463,8 @@ func (ss *stateManager) cacheGetValidatedStateWithLabels(cacheKey string) (*comp
 	stateCopy := *cached.State
 	return &components.StateWithLabels{
 		State:       &stateCopy,
+		Labels:      cached.Labels,
+		Int64Labels: cached.Int64Labels,
 		LabelValues: cached.LabelValues,
 	}, true
 }
@@ -480,8 +478,6 @@ func (ss *stateManager) cacheGetValidatedState(cacheKey string) (*pldapi.State, 
 		return nil, false
 	}
 	stateCopy := *cached.State
-	stateCopy.Labels = nil
-	stateCopy.Int64Labels = nil
 	return &stateCopy, true
 }
 
@@ -532,6 +528,8 @@ func (ss *stateManager) validateStateWithLabels(ctx context.Context, domainName 
 		stateCopy := *vs.State
 		return &components.StateWithLabels{
 			State:       &stateCopy,
+			Labels:      vs.Labels,
+			Int64Labels: vs.Int64Labels,
 			LabelValues: vs.LabelValues,
 		}, nil
 	}

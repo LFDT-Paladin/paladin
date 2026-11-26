@@ -67,10 +67,11 @@ func TestStateWithLabels_ValueSet_Nil(t *testing.T) {
 }
 
 func TestStateWithLabels_ProtoLabels_ConvertsAllLabelTypes(t *testing.T) {
-	state := &StateWithLabels{State: &pldapi.State{
-		Labels:      []*pldapi.StateLabel{{Label: "owner", Value: "0xfeed"}},
-		Int64Labels: []*pldapi.StateInt64Label{{Label: "amount", Value: 42}, {Label: "flag", Value: 1}},
-	}}
+	state := &StateWithLabels{
+		State:       &pldapi.State{},
+		Labels:      []*StateLabel{{Label: "owner", Value: "0xfeed"}},
+		Int64Labels: []*StateInt64Label{{Label: "amount", Value: 42}, {Label: "flag", Value: 1}},
+	}
 
 	pl := state.ProtoLabels()
 	assert.Len(t, pl.GetLabels(), 1)

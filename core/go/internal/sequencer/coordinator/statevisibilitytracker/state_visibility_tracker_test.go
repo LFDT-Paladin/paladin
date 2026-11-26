@@ -50,14 +50,14 @@ func endorsableState(id pldtypes.HexBytes) *prototk.EndorsableState {
 // resolvedState builds the StateWithLabels that state resolution would produce for a state,
 // carrying the given string and int64 labels.
 func resolvedState(id pldtypes.HexBytes, labels map[string]string, int64Labels map[string]int64) *components.StateWithLabels {
-	state := &pldapi.State{StateBase: pldapi.StateBase{ID: id}}
+	resolved := &components.StateWithLabels{State: &pldapi.State{StateBase: pldapi.StateBase{ID: id}}}
 	for l, v := range labels {
-		state.Labels = append(state.Labels, &pldapi.StateLabel{State: id, Label: l, Value: v})
+		resolved.Labels = append(resolved.Labels, &components.StateLabel{Label: l, Value: v})
 	}
 	for l, v := range int64Labels {
-		state.Int64Labels = append(state.Int64Labels, &pldapi.StateInt64Label{State: id, Label: l, Value: v})
+		resolved.Int64Labels = append(resolved.Int64Labels, &components.StateInt64Label{Label: l, Value: v})
 	}
-	return &components.StateWithLabels{State: state}
+	return resolved
 }
 
 // outputSpec is a test-only bundle of the three per-state inputs to RecordAssemblyOutput: the wire

@@ -153,7 +153,13 @@ func TestStoreRetrieveABISchema(t *testing.T) {
 	require.NoError(t, err)
 
 	state1 := states[0]
-	assert.Equal(t, []*pldapi.StateLabel{
+	var labels []*persistedStateLabel
+	err = ss.p.DB(ctx).Where("state = ?", state1.ID).Order("label").Find(&labels).Error
+	require.NoError(t, err)
+	var int64Labels []*persistedStateInt64Label
+	err = ss.p.DB(ctx).Where("state = ?", state1.ID).Order("label").Find(&int64Labels).Error
+	require.NoError(t, err)
+	assert.Equal(t, []*persistedStateLabel{
 		// uint256 written as zero padded string
 		{DomainName: "domain1", State: state1.ID, Label: "field1", Value: "0000000000000000000000000123456789012345678901234567890123456789"},
 		// string written as it is
@@ -165,15 +171,15 @@ func TestStoreRetrieveABISchema(t *testing.T) {
 		{DomainName: "domain1", State: state1.ID, Label: "field6", Value: "0ffffffffffffffffffffffffffffffffffffffffffffffffffdbc0638301b8e7"},
 		// bytes are just bytes
 		{DomainName: "domain1", State: state1.ID, Label: "field7", Value: "feedbeef"},
-	}, state1.Labels)
-	assert.Equal(t, []*pldapi.StateInt64Label{
+	}, labels)
+	assert.Equal(t, []*persistedStateInt64Label{
 		// int64 can just be stored directly in a numeric index
 		{DomainName: "domain1", State: state1.ID, Label: "field3", Value: 42},
 		// bool also gets an efficient numeric index - we don't attempt to allocate anything smaller than int64 to this
 		{DomainName: "domain1", State: state1.ID, Label: "field4", Value: 1},
 		// uint32 also
 		{DomainName: "domain1", State: state1.ID, Label: "field8", Value: 12345},
-	}, state1.Int64Labels)
+	}, int64Labels)
 	assert.Equal(t, "0x90c1f63e32a708ef59b3708c57d165a87bddf758709313c57448e85a10c59544", state1.ID.String())
 
 	// Check we get all the data in the canonical format, with the cruft removed
@@ -214,7 +220,7 @@ func TestStoreRetrieveABISchema(t *testing.T) {
 	getValidate()
 
 	// Get the state back too
-	statesQuery, err := ss.GetStatesByID(ctx, ss.p.NOTX(), as.Persisted().DomainName, contractAddress, []pldtypes.HexBytes{state1.ID}, true, true)
+	statesQuery, err := ss.GetStatesByID(ctx, ss.p.NOTX(), as.Persisted().DomainName, contractAddress, []pldtypes.HexBytes{state1.ID}, true)
 	require.NoError(t, err)
 	assert.Equal(t, state1, statesQuery[0])
 
@@ -279,25 +285,14 @@ func TestRecoverLabels(t *testing.T) {
 	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	data := pldtypes.RawJSON(`{"s":"hello","n":42}`)
 
-	// Preloaded labels (string + int64) - no re-parse needed
 	swl, err := as.RecoverLabels(ctx, &pldapi.State{
-		StateBase:   pldapi.StateBase{ID: stateID, Data: data},
-		Labels:      []*pldapi.StateLabel{{Label: "s", Value: "hello"}},
-		Int64Labels: []*pldapi.StateInt64Label{{Label: "n", Value: 42}},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, swl.LabelValues)
-	assert.Equal(t, stateID, swl.State.ID)
-
-	// Labels absent - falls back to re-parsing the state data
-	swl, err = as.RecoverLabels(ctx, &pldapi.State{
 		StateBase: pldapi.StateBase{ID: stateID, Data: data},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, swl)
 	assert.Equal(t, stateID, swl.State.ID)
 
-	// Fallback with invalid data - parse error propagates
+	// Invalid data - parse error propagates
 	_, err = as.RecoverLabels(ctx, &pldapi.State{
 		StateBase: pldapi.StateBase{ID: stateID, Data: pldtypes.RawJSON(`!!! bad`)},
 	})

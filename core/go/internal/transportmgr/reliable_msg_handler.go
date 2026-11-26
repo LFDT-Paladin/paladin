@@ -434,7 +434,7 @@ func (tm *transportManager) buildStateDistributionMsg(ctx context.Context, dbTX 
 	}
 
 	// Get the state - distinguishing between not found, vs. a retryable error
-	states, err := tm.stateManager.GetStatesByID(ctx, dbTX, sd.Domain, parsed.ContractAddress, []pldtypes.HexBytes{parsed.ID}, false, false)
+	states, err := tm.stateManager.GetStatesByID(ctx, dbTX, sd.Domain, parsed.ContractAddress, []pldtypes.HexBytes{parsed.ID}, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -488,7 +488,7 @@ func (tm *transportManager) buildPrivacyGroupDistributionMsg(ctx context.Context
 	domainName := pgd.GenesisState.Domain
 
 	// Get the state - distinguishing between not found, vs. a retryable error
-	states, err := tm.stateManager.GetStatesByID(ctx, dbTX, domainName, nil, []pldtypes.HexBytes{parsed.ID}, false, false)
+	states, err := tm.stateManager.GetStatesByID(ctx, dbTX, domainName, nil, []pldtypes.HexBytes{parsed.ID}, false)
 	if err != nil {
 		return nil, nil, err
 	}

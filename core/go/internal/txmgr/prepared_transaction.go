@@ -59,11 +59,43 @@ type preparedTransactionState struct {
 	StateID     pldtypes.HexBytes `gorm:"column:state"`
 	StateIdx    int               `gorm:"column:state_idx"`
 	Type        preparedStateType `gorm:"column:type"`
-	State       *pldapi.StateBase `gorm:"foreignKey:state;references:id;"`
+	State       *referencedState  `gorm:"foreignKey:state;references:id;"`
 }
 
 func (preparedTransactionState) TableName() string {
 	return "prepared_txn_states"
+}
+
+// TODO: this is a pattern used elsewhere in the code where one component wants to do a join
+// with a DB table belonging to another component. The behaviour itself is not undesirable- it
+// would be worse to force mutliple queries for the sake of component isolation. However, the code
+// could be better structured to support this. Perhaps a `components` style package, where all the
+// gorm definitions for all tables are kept?
+type referencedState struct {
+	ID              pldtypes.HexBytes    `gorm:"column:id;primaryKey"`
+	Created         pldtypes.Timestamp   `gorm:"column:created"`
+	DomainName      string               `gorm:"column:domain_name;primaryKey"`
+	Schema          pldtypes.Bytes32     `gorm:"column:schema"`
+	ContractAddress *pldtypes.EthAddress `gorm:"column:contract_address"`
+	Data            pldtypes.RawJSON     `gorm:"column:data"`
+}
+
+func (referencedState) TableName() string {
+	return "states"
+}
+
+func (rs *referencedState) mapToAPI() *pldapi.StateBase {
+	if rs == nil {
+		return nil
+	}
+	return &pldapi.StateBase{
+		ID:              rs.ID,
+		Created:         rs.Created,
+		DomainName:      rs.DomainName,
+		Schema:          rs.Schema,
+		ContractAddress: rs.ContractAddress,
+		Data:            rs.Data,
+	}
 }
 
 var preparedTransactionFilters = filters.FieldMap{
@@ -221,13 +253,13 @@ func (tm *txManager) enrichPreparedTransactionsFull(ctx context.Context, dbTX pe
 				if ps.Transaction == pt.ID {
 					switch ps.Type {
 					case preparedSpend:
-						pt.States.Spent = append(pt.States.Spent, ps.State)
+						pt.States.Spent = append(pt.States.Spent, ps.State.mapToAPI())
 					case preparedRead:
-						pt.States.Read = append(pt.States.Read, ps.State)
+						pt.States.Read = append(pt.States.Read, ps.State.mapToAPI())
 					case preparedConfirm:
-						pt.States.Confirmed = append(pt.States.Confirmed, ps.State)
+						pt.States.Confirmed = append(pt.States.Confirmed, ps.State.mapToAPI())
 					case preparedInfo:
-						pt.States.Info = append(pt.States.Info, ps.State)
+						pt.States.Info = append(pt.States.Info, ps.State.mapToAPI())
 					}
 				}
 			}
