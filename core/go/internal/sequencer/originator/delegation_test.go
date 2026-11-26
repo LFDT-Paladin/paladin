@@ -22,9 +22,11 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/originatortransactionmocks"
+	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
@@ -422,6 +424,25 @@ func Test_action_SendDelegation_Full_IncludesAssembled(t *testing.T) {
 
 	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(assembledID), "full send must include the assembled txn")
 	assert.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(pendingID))
+}
+
+func Test_sendDelegationRequest_SendsSequencerVersion(t *testing.T) {
+	ctx := t.Context()
+	pendingTxn, _ := newDelegatableMockTxn(t, transaction.State_Pending)
+	o, mocks := NewOriginatorBuilderForTesting(t, State_Sending).WithMockTransportWriter(t).
+		Transactions(pendingTxn).
+		CurrentActiveCoordinator("coordinator@node1").
+		Build()
+
+	var sent *engineProto.DelegationRequest
+	mocks.TransportWriter.EXPECT().
+		SendDelegationRequest(mock.Anything, "coordinator@node1", mock.Anything).
+		Run(func(_ context.Context, _ string, req *engineProto.DelegationRequest) { sent = req }).
+		Return(nil)
+
+	require.NoError(t, sendDelegationRequest(ctx, o, true))
+	require.NotNil(t, sent)
+	assert.Equal(t, common.SequencerVersion, sent.SequencerVersion)
 }
 
 func Test_sendDelegationRequest_TransportError_ReturnsError(t *testing.T) {

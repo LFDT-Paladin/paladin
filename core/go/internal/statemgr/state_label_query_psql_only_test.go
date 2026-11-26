@@ -69,7 +69,7 @@ func TestLabelDrivenQueryExplain(t *testing.T) {
 
 		sqlStr := ss.p.NOTX().DB(ctx).ToSQL(func(tx *gorm.DB) *gorm.DB {
 			return ss.buildStatesQuery(ctx, tx, "domain1", contractAddress, schema, jq, driver,
-				statusScope(ctx, ss.p.NOTX(), pldapi.StateStatusConfirmed, excludedIDs).apply).
+				statusScope(ctx, ss.p.NOTX(), pldapi.StateStatusConfirmed, excludedIDs, nil).apply).
 				Find(&[]*persistedState{})
 		})
 

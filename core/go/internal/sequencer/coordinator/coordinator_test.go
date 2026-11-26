@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/coordinatortransactionmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/graphermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/sequencercommonmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
@@ -251,13 +252,11 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with a submission hash")
 
 	// Simulate the block indexer confirming the transaction
-	nonce42 := pldtypes.HexUint64(42)
 	c.QueueEvent(ctx, &transaction.ConfirmedSuccessEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
-		Nonce: &nonce42,
-		Hash:  submissionHash,
+		Hash: submissionHash,
 	})
 
 	// Assert that snapshot contains a confirmed transaction with matching ID
@@ -286,7 +285,7 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 	for i := range 100 {
 		transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
 		txn := transactionBuilder.BuildSparse()
-		err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
+		err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
 
 		if i < 5 {
 			require.NoError(t, err)
@@ -840,6 +839,7 @@ func mockDomainSmartContractForConstructor(t *testing.T) *componentsmocks.Domain
 	domain := componentsmocks.NewDomain(t)
 	domain.On("Name").Return("test-domain").Maybe()
 	domainAPI.On("Domain").Return(domain).Maybe()
+	domainAPI.On("ContractConfig").Return(&prototk.ContractConfig{}).Once()
 	return domainAPI
 }
 
@@ -892,4 +892,63 @@ func TestNewCoordinator_EndorserMode_SetsEndorserCandidates(t *testing.T) {
 		},
 	)
 	assert.Equal(t, endorsers, c.endorserCandidates)
+}
+
+func Test_action_TransactionsConfirmed_AppliesConfirmationsBeforeHeight(t *testing.T) {
+	ctx := t.Context()
+	var order []string
+	txID1, txID2 := uuid.New(), uuid.New()
+	txn1 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	txn1.EXPECT().GetID().Return(txID1)
+	txn1.EXPECT().HandleEvent(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, common.Event) error {
+		order = append(order, "confirm 1")
+		return nil
+	}).Once()
+	// A failure in one transaction's later actions does not stop the rest of the batch
+	txn2 := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	txn2.EXPECT().GetID().Return(txID2)
+	txn2.EXPECT().HandleEvent(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, common.Event) error {
+		order = append(order, "confirm 2")
+		return fmt.Errorf("pop")
+	}).Once()
+	g := graphermocks.NewGrapher(t)
+	g.EXPECT().ForgetConfirmedLocks(mock.Anything, uint64(110)).Run(func(context.Context, uint64) {
+		order = append(order, "forget 110")
+	}).Once()
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).
+		CurrentBlockHeight(100).
+		Transactions(txn1, txn2).
+		Grapher(g).
+		Build()
+
+	confirmation := func(txID uuid.UUID) *transaction.ConfirmedSuccessEvent {
+		return &transaction.ConfirmedSuccessEvent{BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: txID}}
+	}
+	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &TransactionsConfirmedEvent{
+		// A confirmation for a transaction this coordinator does not hold is skipped
+		Confirmations: []*transaction.ConfirmedSuccessEvent{confirmation(txID1), confirmation(uuid.New()), confirmation(txID2)},
+		BlockHeight:   110,
+	}))
+	assert.Equal(t, []string{"confirm 1", "confirm 2", "forget 110"}, order)
+	assert.Equal(t, int64(110), c.currentBlockHeight)
+
+	// A batch at or below the current height never moves it back
+	require.NoError(t, c.stateMachineEventLoop.ProcessEvent(ctx, &TransactionsConfirmedEvent{BlockHeight: 105}))
+	assert.Equal(t, int64(110), c.currentBlockHeight)
+}
+
+func TestCoordinator_TransactionsConfirmed_HandledInEveryState(t *testing.T) {
+	for _, state := range []State{State_Idle, State_Observing, State_Elect, State_Prepared, State_Active, State_Active_Flush, State_Closing_Flush, State_Closing} {
+		t.Run(state.String(), func(t *testing.T) {
+			g := graphermocks.NewGrapher(t)
+			g.EXPECT().ForgetConfirmedLocks(mock.Anything, uint64(110)).Once()
+			c, _ := NewCoordinatorBuilderForTesting(t, state).
+				CurrentBlockHeight(100).
+				Grapher(g).
+				Build()
+
+			require.NoError(t, c.stateMachineEventLoop.ProcessEvent(t.Context(), &TransactionsConfirmedEvent{BlockHeight: 110}))
+			assert.Equal(t, int64(110), c.currentBlockHeight)
+		})
+	}
 }

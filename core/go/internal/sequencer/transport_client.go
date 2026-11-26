@@ -210,6 +210,7 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 	for i, id := range assembleRequest.SpentStateIds {
 		assembleRequestEvent.SpentStateIDs[i] = id
 	}
+	assembleRequestEvent.ViewFromBlock = assembleRequest.ViewFromBlock
 	assembleRequestEvent.EventTime = time.Now()
 	if assembleRequest.ExpiryTimeUnixMs != 0 {
 		assembleRequestEvent.Expiry = time.UnixMilli(assembleRequest.ExpiryTimeUnixMs)
@@ -684,6 +685,7 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	transactionDelegatedEvent.FromNode = message.FromNode
 	transactionDelegatedEvent.OriginatorsBlockHeight = uint64(delegationRequest.OriginatorBlockHeight)
 	transactionDelegatedEvent.DelegationID = delegationRequest.DelegationId
+	transactionDelegatedEvent.SequencerVersion = delegationRequest.SequencerVersion
 	transactionDelegatedEvent.EventTime = time.Now()
 
 	contractAddress := sMgr.parseContractAddressString(ctx, delegationRequest.ContractAddress, message)

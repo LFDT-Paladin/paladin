@@ -169,9 +169,10 @@ const (
 )
 
 type InternalEventStream struct {
-	Type             IESType
-	Definition       *EventStreamDefinition
-	HandlerDBTX      InternalStreamCallbackDBTX
-	HandlerNOTX      InternalStreamCallbackNOTX
-	PreCommitHandler PreCommitHandler
+	Type                IESType
+	Definition          *EventStreamDefinition
+	HandlerDBTX         InternalStreamCallbackDBTX
+	HandlerNOTX         InternalStreamCallbackNOTX
+	PreCommitHandler    PreCommitHandler
+	CheckpointCommitted func(blockNumber int64)
 }

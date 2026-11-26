@@ -58,7 +58,7 @@ func Test_addToDelegatedTransactions_NewTransactionError_ReturnsError(t *testing
 	txn := transactionBuilder.BuildSparse()
 
 	invalidOriginator := "sender@node1@node2"
-	err := c.addToDelegatedTransactions(ctx, invalidOriginator, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, invalidOriginator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
 
 	require.Error(t, err, "should return error when NewTransaction fails")
 	assert.Equal(t, 0, len(c.transactionsByID), "transaction should not be added when NewTransaction fails")
@@ -76,7 +76,7 @@ func Test_addToDelegatedTransactions_AddsTransactionInPreDispatchFlowState(t *te
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
 
 	require.NoError(t, err, "should add delegated transaction")
 	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
@@ -101,7 +101,7 @@ func Test_addToDelegatedTransactions_AddsTransactionInPooledFlowState(t *testing
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
 
 	require.NoError(t, err, "should add delegated transaction")
 	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
@@ -123,13 +123,13 @@ func Test_addToDelegatedTransactions_DuplicateTransaction_SkipsAndReturnsNoError
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
 	require.NoError(t, err, "should not return error on first add")
 	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
 	firstCoordinatedTxn := c.transactionsByID[txn.ID]
 	require.NotNil(t, firstCoordinatedTxn, "transaction should exist in transactionsByID")
 
-	err = c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
+	err = c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "", c.newCoordinatorTransaction)
 	require.NoError(t, err, "should not return error when adding duplicate transaction")
 	assert.Equal(t, 1, len(c.transactionsByID), "duplicate transaction should be skipped, count should remain 1")
 	secondCoordinatedTxn := c.transactionsByID[txn.ID]
@@ -437,11 +437,11 @@ func Test_addToDelegatedTransactions_WhenMaxInflightReached_ReturnsError(t *test
 	txn1 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 	txn2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn1}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn1}, "", c.newCoordinatorTransaction)
 	require.NoError(t, err)
 	require.Len(t, c.transactionsByID, 1)
 
-	err = c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn2}, "", c.newCoordinatorTransaction)
+	err = c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn2}, "", c.newCoordinatorTransaction)
 	require.Error(t, err, "should return error when max inflight reached")
 	assert.Len(t, c.transactionsByID, 1, "second transaction should not be added")
 }
@@ -506,7 +506,7 @@ func Test_addToDelegatedTransactions_MaxInflightThree_SlidingWindowKeepsOrder(t 
 		wantLen := min(3, 10-round)
 		delegationID := fmt.Sprintf("delegation-round-%d", round)
 
-		err := c.addToDelegatedTransactions(ctx, originator, txns[round:], delegationID, c.newCoordinatorTransaction)
+		err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, txns[round:], delegationID, c.newCoordinatorTransaction)
 
 		if round <= 6 {
 			require.Error(t, err, "round %d: should return max inflight error when tail transactions are rejected", round)
@@ -538,7 +538,7 @@ func Test_addToDelegatedTransactions_HandleEventError_ContinuesAndReturnsNoError
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 	txn.PreAssembly = nil // Triggers error in action_InitializeForNewAssembly when transitioning to Pooled
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "delegation-1", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "delegation-1", c.newCoordinatorTransaction)
 
 	require.NoError(t, err)
 	require.Len(t, c.transactionsByID, 1)
@@ -557,7 +557,7 @@ func Test_addToDelegatedTransactions_SendDelegationResponseError_ReturnsError(t 
 
 	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "delegation-1", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "delegation-1", c.newCoordinatorTransaction)
 
 	require.Error(t, err)
 	assert.Equal(t, "send ack failed", err.Error())
@@ -681,7 +681,7 @@ func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_Estab
 
 	newTxn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
 
 	require.NoError(t, err)
 }
@@ -713,7 +713,7 @@ func Test_addToDelegatedTransactions_PartialSuffixBatch_EstablishesDependencyOnK
 	existingTxn.ID = previousTxnID
 	newTxn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
 	require.NoError(t, err)
 
 	prereq, ok := c.dependencyTracker.GetPreassemblyDeps().GetPrerequisite(ctx, newTxn.ID)
@@ -745,9 +745,32 @@ func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_DoesN
 
 	newTxn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
 
 	require.NoError(t, err)
+}
+
+func Test_addToDelegatedTransactions_CreatesTransactionWithOriginatorSequencerVersion(t *testing.T) {
+	ctx := t.Context()
+	originator := "sender@senderNode"
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build()
+	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
+
+	mockTxn := coordinatortransactionmocks.NewCoordinatorTransaction(t)
+	mockTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DelegatedEvent")).Return(fmt.Errorf("pop"))
+	var createdWithVersion uint32
+	createTransaction := func(
+		_ context.Context,
+		_ string, _ string, originatorSequencerVersion uint32, _ string,
+		_ *components.PrivateTransaction,
+	) transaction.CoordinatorTransaction {
+		createdWithVersion = originatorSequencerVersion
+		return mockTxn
+	}
+
+	_ = c.addToDelegatedTransactions(ctx, originator, 7, []*components.PrivateTransaction{txn}, "delegation-1", createTransaction)
+	assert.Equal(t, uint32(7), createdWithVersion)
 }
 
 func Test_addToDelegatedTransactions_MockTransactionHandleEventReturnsError(t *testing.T) {
@@ -763,13 +786,13 @@ func Test_addToDelegatedTransactions_MockTransactionHandleEventReturnsError(t *t
 
 	createTransaction := func(
 		_ context.Context,
-		_ string, _ string, _ string,
+		_ string, _ string, _ uint32, _ string,
 		_ *components.PrivateTransaction,
 	) transaction.CoordinatorTransaction {
 		return mockTxn
 	}
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "delegation-1", createTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn}, "delegation-1", createTransaction)
 
 	require.Error(t, err)
 	assert.Equal(t, expectedError, err)
@@ -795,7 +818,7 @@ func Test_addToDelegatedTransactions_HandleEventErrorRemovesDependencyLinks(t *t
 
 	createTransaction := func(
 		_ context.Context,
-		_ string, _ string, _ string,
+		_ string, _ string, _ uint32, _ string,
 		pt *components.PrivateTransaction,
 	) transaction.CoordinatorTransaction {
 		if pt.ID == txn1.ID {
@@ -804,7 +827,7 @@ func Test_addToDelegatedTransactions_HandleEventErrorRemovesDependencyLinks(t *t
 		return failingTxn
 	}
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn1, txn2}, "delegation-1", createTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn1, txn2}, "delegation-1", createTransaction)
 	require.Error(t, err)
 
 	_, ok := c.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, txn1.ID)
@@ -822,7 +845,7 @@ func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactio
 
 	createTransaction := func(
 		_ context.Context,
-		_ string, _ string, _ string,
+		_ string, _ string, _ uint32, _ string,
 		_ *components.PrivateTransaction,
 	) transaction.CoordinatorTransaction {
 		return mockTxn
@@ -838,7 +861,7 @@ func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactio
 	txn1 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 	txn2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn1, txn2}, "delegation-1", createTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{txn1, txn2}, "delegation-1", createTransaction)
 
 	require.Error(t, err)
 	assert.Equal(t, firstTxnError, err)
@@ -866,7 +889,7 @@ func Test_addToDelegatedTransactions_ErrorStopsSubsequentTransactionsBeingAccept
 
 	createTransaction := func(
 		_ context.Context,
-		_ string, _ string, _ string,
+		_ string, _ string, _ uint32, _ string,
 		pt *components.PrivateTransaction,
 	) transaction.CoordinatorTransaction {
 		idx := -1
@@ -892,7 +915,7 @@ func Test_addToDelegatedTransactions_ErrorStopsSubsequentTransactionsBeingAccept
 		return m
 	}
 
-	err := c.addToDelegatedTransactions(ctx, originator, txns, "delegation-10", createTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, txns, "delegation-10", createTransaction)
 
 	require.Error(t, err)
 	assert.Equal(t, fifthErr, err)
@@ -978,7 +1001,7 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 	attempt := 0
 	createTransaction := func(
 		_ context.Context,
-		_ string, _ string, _ string,
+		_ string, _ string, _ uint32, _ string,
 		pt *components.PrivateTransaction,
 	) transaction.CoordinatorTransaction {
 		idx := idxOf(pt)
@@ -1003,7 +1026,7 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 		}
 	}
 
-	err := c.addToDelegatedTransactions(ctx, originator, txns, "delegation-pass1", createTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, txns, "delegation-pass1", createTransaction)
 	require.Error(t, err)
 	assert.Equal(t, fifthErr, err)
 	require.Len(t, c.transactionsByID, 4)
@@ -1016,7 +1039,7 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 	}
 
 	attempt = 1
-	err = c.addToDelegatedTransactions(ctx, originator, txns, "delegation-pass2", createTransaction)
+	err = c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, txns, "delegation-pass2", createTransaction)
 	require.NoError(t, err)
 
 	require.Len(t, c.transactionsByID, 10)
@@ -1058,7 +1081,7 @@ func Test_addToDelegatedTransactions_PreviousTransactionNotInPreAssemblyState_No
 
 	newTxn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
 
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
+	err := c.addToDelegatedTransactions(ctx, originator, common.SequencerVersion, []*components.PrivateTransaction{existingTxn, newTxn}, "", c.newCoordinatorTransaction)
 
 	require.NoError(t, err)
 }
@@ -1594,7 +1617,7 @@ func Test_action_ImportStatesAndLocks_LabelledStatesKept(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	candidates, _ := c.grapher.SnapshotView(ctx, "node1")
+	candidates, _, _ := c.grapher.SnapshotView(ctx, "node1", true)
 	assert.Len(t, candidates, 1, "the imported labels must make the state queryable as-is")
 }
 

@@ -94,7 +94,7 @@ type coordinator struct {
 	pooledTransactions                 []transaction.CoordinatorTransaction
 	assemblyInFlight                   bool      // true while a transaction occupies the single assembly slot
 	assemblingTxID                     uuid.UUID // ID of the transaction currently in the assembly slot
-	currentBlockHeight                 int64
+	currentBlockHeight                 int64     // every confirmation up to here is applied to the grapher, so its snapshots reflect this height and the requests this coordinator sends carry it
 	effectiveBlockHeight               uint64
 	dependencyTracker                  dependencytracker.DependencyTracker
 	grapher                            grapher.Grapher
@@ -175,7 +175,7 @@ func NewCoordinator(
 ) *coordinator {
 	dependencyTracker := dependencytracker.NewDependencyTracker()
 	stateVisibilityTracker := statevisibilitytracker.NewStore()
-	grapher := grapher.NewGrapher(dependencyTracker, stateVisibilityTracker, confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance))
+	grapher := grapher.NewGrapher(dependencyTracker, stateVisibilityTracker, confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance), !domainAPI.ContractConfig().GetUseNullifiers())
 	stateViewProvider := stateview.NewProvider(domainAPI.Domain().Name(), contractAddress.HexString(), transportWriter, grapher, allComponents.StateManager())
 	c := &coordinator{
 		heartbeatIntervalsSinceStateChange: 0,
@@ -250,6 +250,7 @@ func (c *coordinator) Start(ctx context.Context) {
 
 	blockHeight := c.engineIntegration.GetBlockHeight(ctx)
 	c.currentBlockHeight = blockHeight
+	c.grapher.ForgetConfirmedLocks(ctx, uint64(blockHeight))
 	c.effectiveBlockHeight = common.ComputeEffectiveBlockHeight(uint64(blockHeight), c.coordinatorSelectionBlockRange)
 
 	c.started = true

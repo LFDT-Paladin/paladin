@@ -176,7 +176,7 @@ func TestStateLockingQuery(t *testing.T) {
 
 	// checkQuery asserts what the query API returns for a status qualifier.
 	checkQuery := func(jq *query.QueryJSON, status pldapi.StateStatusQualifier, expected ...int) {
-		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, status, nil)
+		_, states, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", contractAddress, schemaID, jq, status, nil, nil)
 		require.NoError(t, err)
 		checkStates(states, expected...)
 	}
@@ -379,7 +379,7 @@ func TestAvailabilityFlagsReconcileOnLateArrival(t *testing.T) {
 	findAvailable := func() []*pldapi.State {
 		_, s, err := ss.findStates(ctx, ss.p.NOTX(), "domain1", nil, schemaID,
 			query.NewQueryBuilder().Query(),
-			pldapi.StateStatusConfirmed, nil)
+			pldapi.StateStatusConfirmed, nil, nil)
 		require.NoError(t, err)
 		return s
 	}
@@ -413,4 +413,69 @@ func TestAvailabilityFlagsReconcileOnLateArrival(t *testing.T) {
 		assert.True(t, l.Confirmed)
 		assert.True(t, l.Spent)
 	}
+}
+
+func TestConfirmedBlockRecordedInEitherArrivalOrder(t *testing.T) {
+	ctx, ss, m, done := newDBTestStateManager(t)
+	defer done()
+
+	_ = mockDomain(t, m, "domain1", false)
+	mockStateCallback(m)
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, widgetABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema.Schema})
+	require.NoError(t, err)
+	schemaID := schema.ID()
+	contractAddress := pldtypes.RandAddress()
+
+	widgets := []*prototk.EndorsableState{
+		genWidget(t, schemaID, `{"size": 1, "color": "red", "price": 10}`),
+		genWidget(t, schemaID, `{"size": 2, "color": "blue", "price": 20}`),
+		genWidget(t, schemaID, `{"size": 3, "color": "green", "price": 30}`),
+	}
+	ids := make([]pldtypes.HexBytes, len(widgets))
+	upserts := make([]*components.StateUpsertOutsideContext, len(widgets))
+	for i, w := range widgets {
+		s, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(w.StateDataJson), nil, false)
+		require.NoError(t, err)
+		ids[i] = s.ID
+		upserts[i] = &components.StateUpsertOutsideContext{ContractAddress: contractAddress, SchemaID: schemaID, Data: pldtypes.RawJSON(w.StateDataJson)}
+	}
+	writeReceived := func(upserts ...*components.StateUpsertOutsideContext) {
+		err := ss.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+			_, err := ss.WriteReceivedStates(ctx, dbTX, "domain1", upserts)
+			return err
+		})
+		require.NoError(t, err)
+	}
+	block := func(b int64) *int64 { return &b }
+
+	// The first state is held before its confirmation is indexed; the others are confirmed before their data arrives.
+	writeReceived(upserts[0])
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(), nil, nil, []*pldapi.StateConfirmRecord{
+		{DomainName: "domain1", State: ids[0], Transaction: uuid.New(), BlockNumber: block(5)},
+		{DomainName: "domain1", State: ids[1], Transaction: uuid.New(), BlockNumber: block(7)},
+		{DomainName: "domain1", State: ids[2], Transaction: uuid.New()},
+	}, nil)
+	require.NoError(t, err)
+	writeReceived(upserts[1], upserts[2])
+
+	var rows []struct {
+		ID             pldtypes.HexBytes
+		Confirmed      bool
+		ConfirmedBlock *int64
+	}
+	err = ss.p.DB(ctx).Table("states").Select("id", "confirmed", "confirmed_block").Where("id IN ?", ids).Find(&rows).Error
+	require.NoError(t, err)
+	confirmedBlocks := make(map[string]*int64, len(rows))
+	for _, r := range rows {
+		assert.True(t, r.Confirmed)
+		confirmedBlocks[r.ID.String()] = r.ConfirmedBlock
+	}
+	assert.Equal(t, map[string]*int64{
+		ids[0].String(): block(5),
+		ids[1].String(): block(7),
+		ids[2].String(): nil,
+	}, confirmedBlocks)
 }

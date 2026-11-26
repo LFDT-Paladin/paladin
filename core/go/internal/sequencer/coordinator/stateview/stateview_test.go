@@ -60,7 +60,7 @@ func providerTestSetup(t *testing.T) (Provider, *testutil.SentMessageRecorder, *
 func providerTestSetupWithWriter(t *testing.T, writer transport.TransportWriter) (Provider, *componentsmocks.StateManager) {
 	ctx := t.Context()
 	tracker := statevisibilitytracker.NewStore()
-	g := grapher.NewGrapher(dependencytracker.NewDependencyTracker(), tracker, 10)
+	g := grapher.NewGrapher(dependencytracker.NewDependencyTracker(), tracker, 10, true)
 
 	states := []*prototk.EndorsableState{{Id: testStateID.String(), SchemaId: testSchemaID.String(), StateDataJson: `{"some":"data"}`}}
 	tracker.RecordAssemblyOutput(ctx, states, []*prototk.StateLabels{{}}, [][]string{{"alice@node1"}})
@@ -68,7 +68,7 @@ func providerTestSetupWithWriter(t *testing.T, writer transport.TransportWriter)
 
 	stateManager := componentsmocks.NewStateManager(t)
 	p := NewProvider("test-domain", testContractAddress, writer, g, stateManager)
-	p.CaptureSnapshot(ctx, testAssembleRequestID, "node1")
+	p.CaptureSnapshot(ctx, testAssembleRequestID, "node1", true)
 	return p, stateManager
 }
 
@@ -132,7 +132,7 @@ func TestProvider_HandleQueryAvailableStates_UnentitledNodeGetsNoCandidates(t *t
 
 	// node2 has no visibility (default-deny): its snapshot captures zero candidates — an
 	// empty response, never an error, and never a data leak.
-	p.CaptureSnapshot(ctx, "assemble-2", "node2")
+	p.CaptureSnapshot(ctx, "assemble-2", "node2", true)
 	stateManager.EXPECT().FindMatchingInMemoryStates(mock.Anything, "test-domain", testSchemaID, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, _ string, _ pldtypes.Bytes32, _ *query.QueryJSON, candidates []*prototk.SnapshotState) ([]*prototk.QueriedState, error) {
 			assert.Empty(t, candidates)
@@ -269,23 +269,28 @@ func TestProvider_DeleteSnapshot_MakesSubsequentQueriesUnknown(t *testing.T) {
 	assert.Regexp(t, "PD012653", errs[0].GetErrorMessage())
 }
 
-func TestProvider_SpentStateIDs_FrozenAtCapture(t *testing.T) {
+func TestProvider_CaptureSnapshot_ReturnsSpentStateIDsAndFromBlock(t *testing.T) {
 	ctx := t.Context()
 	tracker := statevisibilitytracker.NewStore()
-	g := grapher.NewGrapher(dependencytracker.NewDependencyTracker(), tracker, 10)
+	g := grapher.NewGrapher(dependencytracker.NewDependencyTracker(), tracker, 10, true)
+	g.ForgetConfirmedLocks(ctx, 100)
 
 	spentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("cc", 32))
 	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: spentStateID.String()}}, uuid.New())
 
 	p := NewProvider("test-domain", testContractAddress, testutil.NewSentMessageRecorder(), g, componentsmocks.NewStateManager(t))
-	p.CaptureSnapshot(ctx, testAssembleRequestID, "node1")
+	spentStateIDs, fromBlock := p.CaptureSnapshot(ctx, testAssembleRequestID, "node1", true)
 
-	// A state spend-locked after the view was captured must not appear: the view froze at capture.
-	lateSpentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("dd", 32))
-	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: lateSpentStateID.String()}}, uuid.New())
+	assert.Equal(t, []pldtypes.HexBytes{spentStateID}, spentStateIDs)
+	assert.Equal(t, int64(91), fromBlock)
 
-	assert.Equal(t, []pldtypes.HexBytes{spentStateID}, p.SpentStateIDs(testAssembleRequestID))
-	assert.Nil(t, p.SpentStateIDs("unknown-assemble"))
+	// Capturing again under the same assemble request ID keeps the existing view and returns its values, even though
+	// the grapher has since moved on.
+	g.ForgetConfirmedLocks(ctx, 101)
+	g.LockMintsOnReadAndSpend(ctx, nil, []*prototk.EndorsableState{{Id: pldtypes.RandHex(32)}}, uuid.New())
+	spentStateIDs, fromBlock = p.CaptureSnapshot(ctx, testAssembleRequestID, "node1", true)
+	assert.Equal(t, []pldtypes.HexBytes{spentStateID}, spentStateIDs)
+	assert.Equal(t, int64(91), fromBlock)
 }
 
 func TestProvider_CaptureSnapshot_ExistingViewKept(t *testing.T) {
@@ -294,7 +299,7 @@ func TestProvider_CaptureSnapshot_ExistingViewKept(t *testing.T) {
 
 	// Re-opening the same assemble request ID for a different node keeps the existing view: it
 	// still belongs to node1, so node2 is rejected.
-	p.CaptureSnapshot(ctx, testAssembleRequestID, "node2")
+	p.CaptureSnapshot(ctx, testAssembleRequestID, "node2", true)
 
 	p.HandleQueryAvailableStates(ctx, "node2", &engineProto.QueryAvailableStatesRequest{
 		ContractAddress:   testContractAddress,

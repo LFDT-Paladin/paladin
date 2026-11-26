@@ -38,6 +38,7 @@ func action_AssembleRequestReceived(ctx context.Context, t *originatorTransactio
 		requestID:               e.RequestID,
 		expiry:                  e.Expiry,
 		spentStateIDs:           e.SpentStateIDs,
+		viewFromBlock:           e.ViewFromBlock,
 	}
 	return nil
 }
@@ -125,7 +126,7 @@ func (txn *originatorTransaction) handleAssemble(ctx context.Context, txID uuid.
 	// The domain query context answers each FindAvailableStates callback the domain makes by querying
 	// the coordinator's ahead-of-chain view through this remote view (bound to the node the request came from) and
 	// merging the matches with its own DB results.
-	view := txn.stateViewReader.ForCoordinator(req.coordinator, req.requestID.String(), req.spentStateIDs)
+	view := txn.stateViewReader.ForCoordinator(req.coordinator, req.requestID.String(), req.spentStateIDs, req.viewFromBlock)
 
 	assembleResponse, err := txn.engineIntegration.Assemble(ctx, txID, preAssembly, resolvedVerifiers, view, req.coordinatorsBlockHeight, localTx)
 	if err != nil {
@@ -237,15 +238,14 @@ func action_RejectAssemblyPrivateStateDataPending(ctx context.Context, t *origin
 	})
 }
 
-// validator_AssembleBlockHeightToleranceExceeded returns true when the absolute difference between
-// the coordinator's block height (from the assemble request) and this originator's block height
-// exceeds the tolerance carried on the event.
+// validator_AssembleBlockHeightToleranceExceeded returns true when this originator's indexed block height is
+// more than the tolerance carried on the event behind the coordinator's block height (from the assemble
+// request). The assembly reads this originator's state store alongside a snapshot of the coordinator's
+// grapher, so the store's height is checked against the height that snapshot reflects. An originator ahead
+// of the coordinator holds everything the coordinator expects it to.
 func validator_AssembleBlockHeightToleranceExceeded(_ context.Context, t *originatorTransaction, event common.Event) (bool, error) {
 	e := event.(*AssembleRequestReceivedEvent)
-	receiverBH := uint64(t.getBlockHeight())
-	coordinatorBH := uint64(e.CoordinatorBlockHeight)
-	diff := max(receiverBH, coordinatorBH) - min(receiverBH, coordinatorBH)
-	return diff > uint64(e.BlockHeightTolerance), nil
+	return t.getBlockHeight()+e.BlockHeightTolerance < e.CoordinatorBlockHeight, nil
 }
 
 // action_SendAssembleBlockHeightRejection sends an AssembleRejection indicating the block height

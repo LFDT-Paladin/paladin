@@ -107,16 +107,15 @@ func checkConfirmedHash(ctx context.Context, t *coordinatorTransaction, hash pld
 	}
 }
 
-func action_NotifyOriginatorOfConfirmation(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
-	e := event.(*ConfirmedSuccessEvent)
+func action_NotifyOriginatorOfConfirmation(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	msg := &engine.TransactionConfirmed{
 		Id:              uuid.New().String(),
 		TransactionId:   t.pt.ID.String(),
 		ContractAddress: t.pt.Address.HexString(),
 		Outcome:         engine.TransactionConfirmed_OUTCOME_SUCCESS,
 	}
-	if e.Nonce != nil {
-		msg.Nonce = int64(*e.Nonce)
+	if t.nonce != nil {
+		msg.Nonce = int64(*t.nonce)
 	}
 	return t.transportWriter.SendTransactionConfirmed(ctx, t.originatorNode, msg)
 }

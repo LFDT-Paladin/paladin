@@ -40,7 +40,7 @@ import (
 
 func newTestGrapher() (grapher.Grapher, dependencytracker.DependencyTracker) {
 	dt := dependencytracker.NewDependencyTracker()
-	return grapher.NewGrapher(dt, statevisibilitytracker.NewStore(), 5), dt
+	return grapher.NewGrapher(dt, statevisibilitytracker.NewStore(), 5, true), dt
 }
 
 func TestTransaction_HasDependenciesNotReady_FalseIfNoDependencies(t *testing.T) {
@@ -260,6 +260,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		ctx,
 		"sender@node1",
 		"originator-node",
+		common.SequencerVersion,
 		"node1",
 		pt,
 		func() string { return "coordinator-signer" },
@@ -272,7 +273,6 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
 		func(context.Context, ...string) {}, // notifyEndorserCandidates
 		sequencercommonmocks.NewEngineIntegration(t),
-		func(_ context.Context) {},
 		func() int64 { return 0 },
 		0,
 		&syncpointsmocks.SyncPoints{},
@@ -316,6 +316,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		ctx,
 		"sender@node1",
 		"originator-node",
+		common.SequencerVersion,
 		"node1",
 		pt,
 		func() string { return "coordinator-signer" },
@@ -328,7 +329,6 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
 		func(context.Context, ...string) {}, // notifyEndorserCandidates
 		sequencercommonmocks.NewEngineIntegration(t),
-		func(_ context.Context) {},
 		func() int64 { return 0 },
 		0,
 		&syncpointsmocks.SyncPoints{},
@@ -349,6 +349,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 	)
 	require.NotNil(t, txn)
 	assert.Equal(t, pt.ID, txn.GetID())
+	assert.Equal(t, common.SequencerVersion, txn.(*coordinatorTransaction).originatorSequencerVersion)
 	assert.Equal(t, State_Initial, txn.GetCurrentState())
 }
 
@@ -481,6 +482,7 @@ func TestNewTransaction_ChainedDependsOn_InvalidUUIDIsSkipped(t *testing.T) {
 		ctx,
 		"sender@node1",
 		"originator-node",
+		common.SequencerVersion,
 		"node1",
 		pt,
 		func() string { return "coordinator-signer" },
@@ -493,7 +495,6 @@ func TestNewTransaction_ChainedDependsOn_InvalidUUIDIsSkipped(t *testing.T) {
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
 		func(context.Context, ...string) {},
 		sequencercommonmocks.NewEngineIntegration(t),
-		func(_ context.Context) {},
 		func() int64 { return 0 },
 		0,
 		&syncpointsmocks.SyncPoints{},

@@ -92,6 +92,9 @@ type StateManager interface {
 type RemoteStateView interface {
 	QueryAvailableStates(ctx context.Context, schemaID string, queryJSON string) ([]*prototk.QueriedState, error)
 	GetSpentStateIDs() []pldtypes.HexBytes
+	// FromBlock is the first block whose available states the view supplies; this node's own store must supply
+	// the available states confirmed before it.
+	FromBlock() *int64
 }
 
 type PendingPrivateStateDataEntry struct {

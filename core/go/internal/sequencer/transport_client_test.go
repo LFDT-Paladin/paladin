@@ -411,6 +411,7 @@ func newDelegationRequestMessage(fromNode string, contractAddr *pldtypes.EthAddr
 		ContractAddress:       contractAddr.HexString(),
 		Transactions:          delegations,
 		OriginatorBlockHeight: blockHeight,
+		SequencerVersion:      common.SequencerVersion,
 	}
 	payload, _ := proto.Marshal(delegationRequest)
 	return &components.ReceivedMessage{
@@ -465,7 +466,8 @@ func TestHandleDelegationRequest_Success(t *testing.T) {
 			event.Transactions[0].ID == privateTx.ID &&
 			event.FromNode == "node1" &&
 			event.Originator == "originator@node1" &&
-			event.OriginatorsBlockHeight == 100
+			event.OriginatorsBlockHeight == 100 &&
+			event.SequencerVersion == common.SequencerVersion
 	})).Once()
 
 	sm.handleDelegationRequest(ctx, message)

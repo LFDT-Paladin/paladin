@@ -1231,6 +1231,74 @@ func TestDispatcherBlockConfirmedCheckpointRetriesTransientError(t *testing.T) {
 	require.NoError(t, p.Mock.ExpectationsWereMet())
 }
 
+func TestRunBatchCheckpointAdvancesOnlyAfterCommit(t *testing.T) {
+	_, bi, _, p, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(2)
+
+	var seenByHandler, seenByPostCommit []int64
+	var order []string
+	var es *eventStream
+	es = &eventStream{
+		bi:  bi,
+		ctx: t.Context(),
+		definition: &EventStreamDefinition{
+			ID:   uuid.New(),
+			Type: EventStreamTypeInternal.Enum(),
+		},
+		handlerDBTX: func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
+			seenByHandler = append(seenByHandler, es.CheckpointBlock())
+			dbTX.AddPostCommit(func(ctx context.Context) {
+				seenByPostCommit = append(seenByPostCommit, es.CheckpointBlock())
+				order = append(order, "handler post-commit")
+			})
+			return nil
+		},
+		onCheckpointCommitted: func(blockNumber int64) {
+			assert.Equal(t, blockNumber, es.CheckpointBlock())
+			order = append(order, fmt.Sprintf("checkpoint %d", blockNumber))
+		},
+	}
+	es.checkpoint.Store(4)
+
+	// The first commit fails, the retry succeeds
+	p.Mock.ExpectBegin()
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnResult(sqlmock.NewResult(1, 1))
+	p.Mock.ExpectCommit().WillReturnError(fmt.Errorf("pop"))
+	p.Mock.ExpectBegin()
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnResult(sqlmock.NewResult(1, 1))
+	p.Mock.ExpectCommit()
+
+	err := es.runBatch(&eventBatch{checkpointAfterBatch: 5})
+	require.NoError(t, err)
+
+	assert.Equal(t, []int64{4, 4}, seenByHandler)
+	assert.Equal(t, []int64{4}, seenByPostCommit)
+	assert.Equal(t, []string{"handler post-commit", "checkpoint 5"}, order)
+	assert.Equal(t, int64(5), es.CheckpointBlock())
+	require.NoError(t, p.Mock.ExpectationsWereMet())
+}
+
+func TestEmptyBlockCheckpointNotifiesCommit(t *testing.T) {
+	_, bi, _, p, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	committed := make(chan int64, 1)
+	es := &eventStream{
+		bi:                    bi,
+		ctx:                   t.Context(),
+		definition:            &EventStreamDefinition{ID: uuid.New(), Type: EventStreamTypeInternal.Enum()},
+		onCheckpointCommitted: func(blockNumber int64) { committed <- blockNumber },
+	}
+
+	p.Mock.ExpectExec("INSERT.*event_stream_checkpoints").WillReturnResult(sqlmock.NewResult(1, 1))
+	require.NoError(t, es.updateCheckpoint(t.Context(), bi.persistence.NOTX(), 7))
+
+	assert.Equal(t, int64(7), <-committed)
+	require.NoError(t, p.Mock.ExpectationsWereMet())
+}
+
 func TestProcessCatchupEventPageFailRPC(t *testing.T) {
 	ctx, bi, mRPC, p, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
 	defer done()

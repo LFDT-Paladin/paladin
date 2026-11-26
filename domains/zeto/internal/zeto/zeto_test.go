@@ -281,7 +281,7 @@ func TestInitContract(t *testing.T) {
 	req := &pb.InitContractRequest{
 		ContractConfig: []byte("bad config"),
 	}
-	res, err := z.InitContract(context.Background(), req)
+	res, err := z.InitContract(t.Context(), req)
 	assert.NoError(t, err) // so we don't block the indexing
 	require.False(t, res.Valid)
 
@@ -298,7 +298,7 @@ func TestInitContract(t *testing.T) {
 	encoded, err := types.DomainInstanceConfigABI.EncodeABIDataJSON(configJSON)
 	assert.NoError(t, err)
 	req.ContractConfig = encoded
-	res, err = z.InitContract(context.Background(), req)
+	res, err = z.InitContract(t.Context(), req)
 	assert.NoError(t, err)
 	require.True(t, res.Valid)
 	require.JSONEq(t, `{
@@ -310,6 +310,16 @@ func TestInitContract(t *testing.T) {
 		},
 		"tokenName": "testToken1"
 	}`, res.ContractConfig.ContractConfigJson)
+	assert.False(t, res.ContractConfig.UseNullifiers)
+
+	conf.TokenName = constants.TOKEN_ANON_NULLIFIER
+	configJSON, _ = json.Marshal(conf)
+	req.ContractConfig, err = types.DomainInstanceConfigABI.EncodeABIDataJSON(configJSON)
+	require.NoError(t, err)
+	res, err = z.InitContract(t.Context(), req)
+	require.NoError(t, err)
+	require.True(t, res.Valid)
+	assert.True(t, res.ContractConfig.UseNullifiers)
 }
 
 func TestInitTransaction(t *testing.T) {

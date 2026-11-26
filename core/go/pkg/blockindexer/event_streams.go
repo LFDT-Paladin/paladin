@@ -38,28 +38,29 @@ import (
 )
 
 type eventStream struct {
-	ctx                 context.Context
-	cancelCtx           context.CancelFunc
-	bi                  *blockIndexer
-	definition          *EventStreamDefinition
-	signatures          map[string]bool
-	signatureList       []pldtypes.Bytes32
-	batchSize           int
-	batchTimeout        time.Duration
-	blocks              chan *eventStreamBlock
-	dispatch            chan *detectorMsg
-	useNOTXHandler      bool
-	handlerDBTX         InternalStreamCallbackDBTX
-	handlerNOTX         InternalStreamCallbackNOTX
-	serializer          *abi.Serializer
-	detectorDone        chan struct{}
-	detectorStarted     chan struct{}
-	dispatcherDone      chan struct{}
-	dispatcherStarted   chan struct{}
-	fromBlock           *ethtypes.HexUint64 // nil == latest
-	checkpoint          atomic.Int64        // set after we persist checkpoint
-	catchup             atomic.Bool
-	checkpointCommitted chan int64
+	ctx                   context.Context
+	cancelCtx             context.CancelFunc
+	bi                    *blockIndexer
+	definition            *EventStreamDefinition
+	signatures            map[string]bool
+	signatureList         []pldtypes.Bytes32
+	batchSize             int
+	batchTimeout          time.Duration
+	blocks                chan *eventStreamBlock
+	dispatch              chan *detectorMsg
+	useNOTXHandler        bool
+	handlerDBTX           InternalStreamCallbackDBTX
+	handlerNOTX           InternalStreamCallbackNOTX
+	serializer            *abi.Serializer
+	detectorDone          chan struct{}
+	detectorStarted       chan struct{}
+	dispatcherDone        chan struct{}
+	dispatcherStarted     chan struct{}
+	fromBlock             *ethtypes.HexUint64 // nil == latest
+	checkpoint            atomic.Int64        // set after we persist checkpoint
+	catchup               atomic.Bool
+	checkpointCommitted   chan int64
+	onCheckpointCommitted func(blockNumber int64)
 }
 
 type eventBatch struct {
@@ -220,28 +221,30 @@ func (bi *blockIndexer) upsertInternalEventStream(ctx context.Context, dbTX pers
 	}
 
 	if ies.Type == IESTypeEventStreamDBTX {
-		return bi.initEventStreamDBTX(ctx, def, ies.HandlerDBTX), nil
+		return bi.initEventStreamDBTX(ctx, def, ies.HandlerDBTX, ies.CheckpointCommitted), nil
 	}
-	return bi.initEventStreamNOTX(ctx, def, ies.HandlerNOTX), nil
+	return bi.initEventStreamNOTX(ctx, def, ies.HandlerNOTX, ies.CheckpointCommitted), nil
 }
 
-func (bi *blockIndexer) initEventStreamNOTX(ctx context.Context, definition *EventStreamDefinition, handlerNOTX InternalStreamCallbackNOTX) *eventStream {
+func (bi *blockIndexer) initEventStreamNOTX(ctx context.Context, definition *EventStreamDefinition, handlerNOTX InternalStreamCallbackNOTX, onCheckpointCommitted func(blockNumber int64)) *eventStream {
 	bi.eventStreamsLock.Lock()
 	defer bi.eventStreamsLock.Unlock()
 
 	es := bi.initEventStream(ctx, definition)
 	es.useNOTXHandler = true
 	es.handlerNOTX = handlerNOTX
+	es.onCheckpointCommitted = onCheckpointCommitted
 
 	return es
 }
 
-func (bi *blockIndexer) initEventStreamDBTX(ctx context.Context, definition *EventStreamDefinition, handlerDBTX InternalStreamCallbackDBTX) *eventStream {
+func (bi *blockIndexer) initEventStreamDBTX(ctx context.Context, definition *EventStreamDefinition, handlerDBTX InternalStreamCallbackDBTX, onCheckpointCommitted func(blockNumber int64)) *eventStream {
 	bi.eventStreamsLock.Lock()
 	defer bi.eventStreamsLock.Unlock()
 
 	es := bi.initEventStream(ctx, definition)
 	es.handlerDBTX = handlerDBTX
+	es.onCheckpointCommitted = onCheckpointCommitted
 
 	return es
 }
@@ -769,18 +772,23 @@ func (es *eventStream) updateCheckpoint(ctx context.Context, dbTX persistence.DB
 		}).
 		Error
 	if err == nil {
-		es.checkpoint.Store(blockNumber)
 		if dbTX.FullTransaction() {
-			dbTX.AddPostCommit(func(txCtx context.Context) { es.notifyCheckpointCommitted(blockNumber) })
+			dbTX.AddPostCommit(func(txCtx context.Context) { es.setCommittedCheckpoint(blockNumber) })
 		} else {
 			// The statement above is the whole transaction, so it is already committed
-			es.notifyCheckpointCommitted(blockNumber)
+			es.setCommittedCheckpoint(blockNumber)
 		}
 	}
 	return err
 }
 
-func (es *eventStream) notifyCheckpointCommitted(blockNumber int64) {
+// Readers of the checkpoint rely on everything the batch wrote, including the post-commit handlers the
+// batch registered before the checkpoint's, so it only advances after those have run.
+func (es *eventStream) setCommittedCheckpoint(blockNumber int64) {
+	es.checkpoint.Store(blockNumber)
+	if es.onCheckpointCommitted != nil {
+		es.onCheckpointCommitted(blockNumber)
+	}
 	select {
 	case es.checkpointCommitted <- blockNumber:
 	default: // a previous update is still unread

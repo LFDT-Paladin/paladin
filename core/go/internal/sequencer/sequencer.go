@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	coordinatorTx "github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator"
@@ -633,44 +634,6 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 	return nil
 }
 
-func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Context, confirmedTxn *components.TxCompletion, nonce *pldtypes.HexUint64) {
-	log.L(sMgr.ctx).Tracef("handleTransactionConfirmedSuccess %s nonce=%v", confirmedTxn.TransactionID.String(), nonce)
-	sMgr.metrics.IncConfirmedTransactions()
-
-	// A transaction can be confirmed after the coordinating node has restarted. The coordinator doesn't persist the private TX, it relies
-	// on the originating node to delegate the private TX to it. handleTransactionConfirmedSuccess first checks if a public TX for that request has been confirmed
-	// on chain, so in this context we will assume we have the private TX in memory from which we can determine the originating node for confirmation events.
-
-	// For a deploy we won't have tracked the transaction through the state machine
-	if confirmedTxn.ContractAddress != nil {
-		return
-	}
-
-	// Invoke of an existing contract.
-	contractAddress := confirmedTxn.PSC.Address()
-
-	// If we don't have a loaded sequencer already then a newly loaded one will not know about this transaction.
-	sequencer := sMgr.GetSequencer(ctx, contractAddress)
-	if sequencer == nil {
-		return
-	}
-
-	// we leave it to the coordinator to decide whether it is in a state where it handles the event
-	// and check whether it's a transaction that it is tracking
-	// the transaction was successful
-	sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedSuccessEvent{
-		BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
-			BaseEvent: common.BaseEvent{
-				EventTime: time.Now(),
-			},
-			TransactionID: confirmedTxn.TransactionID,
-		},
-		Hash:    confirmedTxn.OnChain.TransactionHash,
-		Nonce:   nonce,
-		OnChain: confirmedTxn.OnChain,
-	})
-}
-
 func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation, nonce *pldtypes.HexUint64) {
 	// If we don't have a loaded sequencer already then a newly loaded one will not know about this transaction
 	sequencer := sMgr.GetSequencer(ctx, contractAddress)
@@ -705,17 +668,6 @@ func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Contex
 	}
 
 	switch receiptType {
-	case components.RT_Success:
-		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedSuccessEvent for parent txID=%s on contract=%s", txID, contractAddress)
-		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedSuccessEvent{
-			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
-				BaseEvent: common.BaseEvent{
-					EventTime: time.Now(),
-				},
-				TransactionID: txID,
-			},
-			OnChain: onChain,
-		})
 	case components.RT_FailedOnChainWithRevertData:
 		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedRevertedEvent (on-chain) for parent txID=%s on contract=%s hasRevertData=%t", txID, contractAddress, len(revertData) > 0)
 		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedRevertedEvent{
@@ -875,56 +827,42 @@ func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *c
 	return common.NewStateDistributionBuilder(sMgr.nodeName, tx).Build(ctx)
 }
 
-// PrivateTransactionsConfirmed processes a pre-sorted batch of completions synchronously.
-// It is expected to be called from a per-domain worker goroutine so that ordering
-// within a domain's event stream is preserved.
-func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, completions []*components.TxCompletion) {
-	persistence := sMgr.components.Persistence()
-	publicTxManager := sMgr.components.PublicTxManager()
-
+// PrivateTransactionsConfirmed gives every loaded coordinator of the domain the confirmations for its contract and the
+// checkpoint that covers them. It is called from the domain's completion goroutine, so batches arrive in commit order.
+func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, domainName string, completions []*components.TxCompletion, checkpoint int64) {
+	confirmations := make(map[string][]*coordinatorTx.ConfirmedSuccessEvent)
 	for _, completion := range completions {
-		pubBindingTx, err := publicTxManager.QueryPublicTxForTransactions(ctx, persistence.NOTX(), []uuid.UUID{completion.TransactionID}, nil)
-		if err != nil {
-			log.L(ctx).Errorf("Error getting public transaction by ID: %s", err)
+		// A deploy is not tracked through the coordinator's state machine
+		if completion.ContractAddress != nil {
 			continue
 		}
+		contractAddress := completion.PSC.Address().String()
+		confirmations[contractAddress] = append(confirmations[contractAddress], &coordinatorTx.ConfirmedSuccessEvent{
+			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+				BaseEvent: common.BaseEvent{
+					EventTime: time.Now(),
+				},
+				TransactionID: completion.TransactionID,
+			},
+			Hash:    completion.OnChain.TransactionHash,
+			OnChain: completion.OnChain,
+		})
+	}
 
-		confirmedWithPublicTX := false
-
-		for _, pubTx := range pubBindingTx {
-			for _, publicTx := range pubTx {
-				log.L(ctx).Debugf("Checking public transactions for TX ID %s to find a match for the receipt we are processing %s", completion.TransactionID, publicTx.TransactionHash)
-				if publicTx.TransactionHash.Equals(&completion.OnChain.TransactionHash) {
-					confirmedWithPublicTX = true
-					log.L(ctx).Debugf("Found a match for the receipt we are processing %s", publicTx.TransactionHash)
-					sMgr.handleTransactionConfirmedSuccess(ctx, completion, publicTx.Nonce)
-				}
-			}
+	var domainSequencers []*sequencer
+	sMgr.sequencersLock.RLock()
+	for _, seq := range sMgr.sequencers {
+		if seq.domainName == domainName {
+			domainSequencers = append(domainSequencers, seq)
 		}
+	}
+	sMgr.sequencersLock.RUnlock()
 
-		// For private transactions that are being confirmed by virtue of a successful chained private transaction, we don't give the distributed sequencer any information
-		// about the underlying chained public TX.
-		if !confirmedWithPublicTX {
-			// Only treat "no public TX match" as chained if this transaction has locally recorded chained children.
-			// Otherwise this node is not the relevant coordinator context for this confirmation.
-			if completion.ContractAddress == nil {
-				var chainedCount int64
-				err := persistence.NOTX().DB(ctx).
-					Table("chained_dispatches").
-					Where(`"transaction" = ?`, completion.TransactionID).
-					Count(&chainedCount).
-					Error
-				if err != nil {
-					log.L(ctx).Errorf("Error checking chained records for transaction %s: %s", completion.TransactionID, err)
-					continue
-				}
-				if chainedCount == 0 {
-					log.L(ctx).Debugf("No public TX found for %s and no locally chained transactions recorded; skipping sequencer confirmation", completion.TransactionID)
-					continue
-				}
-			}
-			log.L(ctx).Debugf("No public TX found, confirming %s via locally chained transaction", completion.TransactionID)
-			sMgr.handleTransactionConfirmedSuccess(ctx, completion, nil)
-		}
+	for _, seq := range domainSequencers {
+		seq.GetCoordinator().QueueEvent(ctx, &coordinator.TransactionsConfirmedEvent{
+			BaseEvent:     common.BaseEvent{EventTime: time.Now()},
+			Confirmations: confirmations[seq.contractAddress],
+			BlockHeight:   checkpoint,
+		})
 	}
 }

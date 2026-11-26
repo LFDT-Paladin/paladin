@@ -1874,11 +1874,56 @@ func TestEnqueueCompletionsContextDone(t *testing.T) {
 
 	// Fill the completion queue to capacity so any subsequent send would block
 	for i := 0; i < 100; i++ {
-		d.completionQueue <- []*components.TxCompletion{}
+		d.completionQueue <- &completionQueueItem{}
 	}
 
 	// This should take the ctx.Done() path and log a warning instead of blocking
 	d.enqueueCompletions([]*components.TxCompletion{{}})
+}
+
+func TestCompletionLoopForwardsCompletionsWithTheirCheckpoint(t *testing.T) {
+	ctx, cancelCtx := context.WithCancel(t.Context())
+	sequencerManager := componentsmocks.NewSequencerManager(t)
+	d := &domain{
+		ctx:             ctx,
+		name:            "test1",
+		dm:              &domainManager{sequencerManager: sequencerManager},
+		completionQueue: make(chan *completionQueueItem, 10),
+	}
+
+	type forwarded struct {
+		completions []*components.TxCompletion
+		checkpoint  int64
+	}
+	calls := make(chan forwarded, 3)
+	sequencerManager.EXPECT().PrivateTransactionsConfirmed(ctx, "test1", mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, completions []*components.TxCompletion, checkpoint int64) {
+			calls <- forwarded{completions, checkpoint}
+		})
+
+	c1, c2, c3 := &components.TxCompletion{}, &components.TxCompletion{}, &components.TxCompletion{}
+	d.enqueueCompletions([]*components.TxCompletion{c1})
+	d.enqueueCheckpoint(10)
+	d.enqueueCompletions([]*components.TxCompletion{c2})
+	d.enqueueCheckpoint(11)
+	d.enqueueCompletions([]*components.TxCompletion{c3})
+	d.startCompletionLoop()
+
+	// Each checkpoint is forwarded with the completions queued since the one before; c3 waits for its own
+	first := <-calls
+	assert.Equal(t, int64(10), first.checkpoint)
+	assert.Equal(t, []*components.TxCompletion{c1}, first.completions)
+	second := <-calls
+	assert.Equal(t, int64(11), second.checkpoint)
+	assert.Equal(t, []*components.TxCompletion{c2}, second.completions)
+
+	d.enqueueCheckpoint(12)
+	third := <-calls
+	assert.Equal(t, int64(12), third.checkpoint)
+	assert.Equal(t, []*components.TxCompletion{c3}, third.completions)
+
+	cancelCtx()
+	d.completionWG.Wait()
 }
 
 func TestDomainInitStream(t *testing.T) {

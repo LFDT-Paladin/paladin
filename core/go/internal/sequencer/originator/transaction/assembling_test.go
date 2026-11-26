@@ -870,11 +870,13 @@ func Test_handleAssemble_BindsQuerierToRequestingCoordinator(t *testing.T) {
 	require.NotNil(t, txn.latestAssembleRequest)
 	txn.latestAssembleRequest.coordinator = "coordinator-node"
 	txn.latestAssembleRequest.spentStateIDs = []pldtypes.HexBytes{pldtypes.RandBytes(32)}
+	viewFromBlock := int64(7)
+	txn.latestAssembleRequest.viewFromBlock = &viewFromBlock
 	req := *txn.latestAssembleRequest
 
 	// The view is bound to the node the assemble request came from — state view requests are
-	// answered by (and only by) that coordinator — and serves the spent state IDs the request carried.
-	mockReader.EXPECT().ForCoordinator("coordinator-node", req.requestID.String(), req.spentStateIDs).Return(mockView).Once()
+	// answered by (and only by) that coordinator — and serves the spent state IDs and view from block the request carried.
+	mockReader.EXPECT().ForCoordinator("coordinator-node", req.requestID.String(), req.spentStateIDs, &viewFromBlock).Return(mockView).Once()
 
 	preAssembly := &prototk.TransactionPreAssembly{}
 	mocks.EngineIntegration.On(

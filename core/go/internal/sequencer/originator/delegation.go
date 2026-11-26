@@ -163,6 +163,7 @@ func sendDelegationRequest(ctx context.Context, o *originator, full bool) error 
 		OriginatorBlockHeight: int64(o.currentBlockHeight),
 		ContractAddress:       o.contractAddress.HexString(),
 		Transactions:          delegations,
+		SequencerVersion:      common.SequencerVersion,
 	})
 }
 

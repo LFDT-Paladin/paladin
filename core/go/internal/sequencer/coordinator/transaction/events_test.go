@@ -685,7 +685,6 @@ func TestConfirmedSuccessEvent_GetTransactionID(t *testing.T) {
 
 func TestConfirmedSuccessEvent_Fields(t *testing.T) {
 	txID := uuid.New()
-	nonce := pldtypes.HexUint64(42)
 	hash := pldtypes.RandBytes32()
 
 	event := &ConfirmedSuccessEvent{
@@ -695,13 +694,10 @@ func TestConfirmedSuccessEvent_Fields(t *testing.T) {
 			},
 			TransactionID: txID,
 		},
-		Nonce: &nonce,
-		Hash:  hash,
+		Hash: hash,
 	}
 
 	assert.Equal(t, txID, event.GetTransactionID())
-	require.NotNil(t, event.Nonce, "Nonce should be set")
-	assert.Equal(t, uint64(42), event.Nonce.Uint64())
 	assert.Equal(t, hash, event.Hash)
 }
 

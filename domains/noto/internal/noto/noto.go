@@ -769,6 +769,7 @@ func (n *Noto) InitContract(ctx context.Context, req *prototk.InitContractReques
 			CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
 			StaticCoordinator:    &decodedData.NotaryLookup,
 			SubmitterSelection:   prototk.ContractConfig_SUBMITTER_COORDINATOR,
+			UseNullifiers:        parsedConfig.IsNullifierVariant(),
 		},
 	}, err
 }

@@ -106,6 +106,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 	}
 
 	transactionIDResults := make(map[uuid.UUID]bool)
+	var storedSuccesses map[uuid.UUID]bool
 	transactionIDs := make([]uuid.UUID, 0, len(info))
 	receiptsToInsert := make([]*transactionReceipt, 0, len(info))
 	for _, ri := range info {
@@ -182,7 +183,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			err = tx.Error
 			if err == nil && tx.RowsAffected != int64(len(receiptsToInsert)) {
 				log.L(ctx).Warnf("Potential duplicate receipt receipts=%d inserted=%d", len(receiptsToInsert), tx.RowsAffected)
-				err = tm.ensureSuccessOverridesFailure(ctx, dbTX, transactionIDs, receiptsToInsert)
+				storedSuccesses, err = tm.ensureSuccessOverridesFailure(ctx, dbTX, transactionIDs, receiptsToInsert)
 			}
 		}
 		if err != nil {
@@ -190,10 +191,19 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		}
 	}
 
-	if len(transactionIDs) > 0 {
+	// The original transaction's own domain reports its success, in order with its other confirmations,
+	// so only failures of chained transactions are passed to the original transaction's coordinator. A failure
+	// discarded because a success is already stored is not one.
+	failedTransactionIDs := make([]uuid.UUID, 0, len(transactionIDs))
+	for _, txID := range transactionIDs {
+		if !transactionIDResults[txID] && !storedSuccesses[txID] {
+			failedTransactionIDs = append(failedTransactionIDs, txID)
+		}
+	}
+	if len(failedTransactionIDs) > 0 {
 		var chainingRecords []*persistedChainedDispatch
 		err := dbTX.DB(ctx).
-			Where(`"chained_transaction" IN ?`, transactionIDs).
+			Where(`"chained_transaction" IN ?`, failedTransactionIDs).
 			Find(&chainingRecords).
 			Error
 		// Recurse into the sequencer manager to notify the original coordinator of chained outcomes.
@@ -203,7 +213,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 					if receipt.TransactionID == cr.ChainedTransaction {
 						log.L(ctx).Infof("Chained mapping resolved: chained=%s -> original=%s receiptType=%d contract=%s", receipt.TransactionID, cr.Transaction, receipt.ReceiptType, cr.ContractAddress)
 
-						// Notify the original transaction's coordinator of the chained outcome (success, on-chain revert, or off-chain revert).
+						// Notify the original transaction's coordinator of the chained outcome (on-chain revert, or off-chain revert).
 						// The chained transaction was originated on this node, so if there is a coordinator loaded with this transaction in State_Dispatched
 						// it will be on this node.
 						contractAddr, parseErr := pldtypes.ParseEthAddress(cr.ContractAddress)
@@ -254,7 +264,9 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 // Note we cannot just edit the receipt, as it might already have been dispatched to a listener.
 //
 // Function is only called after a rowsAffected check on the simple ON CONFLICT inserts.
-func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX persistence.DBTX, transactionIDs []uuid.UUID, newReceipts []*transactionReceipt) error {
+// Returns the transactions whose stored receipt is a success.
+func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX persistence.DBTX, transactionIDs []uuid.UUID, newReceipts []*transactionReceipt) (map[uuid.UUID]bool, error) {
+	storedSuccesses := make(map[uuid.UUID]bool)
 	var replacementIDsToDelete []uuid.UUID
 	var replacementInserts []*transactionReceipt
 	var existingReceipts []*transactionReceipt
@@ -263,6 +275,11 @@ func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX per
 		Find(&existingReceipts).
 		Error
 	if err == nil {
+		for _, existing := range existingReceipts {
+			if existing.Success {
+				storedSuccesses[existing.TransactionID] = true
+			}
+		}
 		for _, receipt := range newReceipts {
 			var existing *transactionReceipt
 			for _, candidate := range existingReceipts {
@@ -297,7 +314,7 @@ func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX per
 			Create(replacementInserts). // note no OnConflict, as we just deleted all the conflicts
 			Error
 	}
-	return err
+	return storedSuccesses, err
 }
 
 func (tm *txManager) CalculateRevertError(ctx context.Context, dbTX persistence.DBTX, revertData pldtypes.HexBytes) error {

@@ -682,7 +682,7 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 
 	depTracker := dependencytracker.NewDependencyTracker()
 	visibilityStore := statevisibilitytracker.NewStore()
-	g := grapher.NewGrapher(depTracker, visibilityStore, 5)
+	g := grapher.NewGrapher(depTracker, visibilityStore, 5, true)
 
 	// Seed a confirmed create lock (confirmed at block 100, due to be forgotten at block 105)
 	// with private state data visible to node1
@@ -742,7 +742,7 @@ func TestCoordinatorTransaction_Assembling_StateVisibleAtRequestTimeSurvivesInFl
 	// The coordinator advances well past the tolerance window mid-assemble; the block-driven forget
 	// removes the state from the live grapher, but the frozen snapshot keeps serving it.
 	g.ForgetConfirmedLocks(ctx, 200)
-	liveCandidates, _ := g.SnapshotView(ctx, "node1")
+	liveCandidates, _, _ := g.SnapshotView(ctx, "node1", true)
 	require.Empty(t, liveCandidates, "the live grapher view forgets the confirmed lock")
 	require.Equal(t, 1, runQuery(), "state must stay visible to per-select queries while the assemble is in flight")
 
@@ -1762,16 +1762,14 @@ func TestCoordinatorTransaction_ToDispatched_WithPublicTx_MarksInFlight(t *testi
 // TestCoordinatorTransaction_LeavingDispatched_MarksNotInFlight verifies the state transition
 // callback clears the in-flight marker when a transaction leaves State_Dispatched.
 func TestCoordinatorTransaction_LeavingDispatched_MarksNotInFlight(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var inFlightCalls []bool
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		SetDispatchedInFlight(func(_ uuid.UUID, inFlight bool) { inFlightCalls = append(inFlightCalls, inFlight) }).
 		Build()
 
-	nonce := pldtypes.HexUint64(77)
 	err := txn.HandleEvent(ctx, &ConfirmedSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.GetID()},
-		Nonce:                &nonce,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_Confirmed, txn.GetCurrentState())

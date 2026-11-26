@@ -76,8 +76,15 @@ type domain struct {
 	inFlight     map[string]*inFlightDomainRequest
 	inFlightLock sync.Mutex
 
-	completionQueue chan []*components.TxCompletion
+	completionQueue chan *completionQueueItem
 	completionWG    sync.WaitGroup
+}
+
+// Completions are queued after their batch commits, and the event stream's checkpoint after them, so the queue
+// is in commit order and a checkpoint follows every completion it covers.
+type completionQueueItem struct {
+	completions []*components.TxCompletion
+	checkpoint  *int64
 }
 
 type inFlightDomainRequest struct {
@@ -103,7 +110,7 @@ func (dm *domainManager) newDomain(name string, conf *pldconf.DomainConfig, toDo
 		fixedSigningIdentity: conf.FixedSigningIdentity,
 		schemasByID:          make(map[string]components.Schema),
 		inFlight:             make(map[string]*inFlightDomainRequest),
-		completionQueue:      make(chan []*components.TxCompletion, 100),
+		completionQueue:      make(chan *completionQueueItem, 100),
 		indexedContracts:     cache.NewCache[pldtypes.EthAddress, *domainContract](&dm.conf.DomainManager.ContractCache, &pldconf.PaladinConfigDefaults.DomainManager.ContractCache),
 	}
 	if conf.DefaultGasLimit != nil {
@@ -183,8 +190,9 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 
 	// Create the event stream
 	d.eventStream, err = d.dm.blockIndexer.AddEventStream(d.ctx, dbTX, &blockindexer.InternalEventStream{
-		Definition:  stream,
-		HandlerDBTX: d.handleEventBatch,
+		Definition:          stream,
+		HandlerDBTX:         d.handleEventBatch,
+		CheckpointCommitted: d.enqueueCheckpoint,
 	})
 	if err != nil {
 		return nil, err
@@ -691,12 +699,18 @@ func (d *domain) startCompletionLoop() {
 	}()
 }
 
+// Completions are forwarded together with the checkpoint that covers them.
 func (d *domain) completionLoop() {
 	log.L(d.ctx).Debugf("domain %s completion loop started", d.name)
+	var pending []*components.TxCompletion
 	for {
 		select {
-		case batch := <-d.completionQueue:
-			d.dm.sequencerManager.PrivateTransactionsConfirmed(d.ctx, batch)
+		case item := <-d.completionQueue:
+			pending = append(pending, item.completions...)
+			if item.checkpoint != nil {
+				d.dm.sequencerManager.PrivateTransactionsConfirmed(d.ctx, d.name, pending, *item.checkpoint)
+				pending = nil
+			}
 		case <-d.ctx.Done():
 			log.L(d.ctx).Debugf("domain %s completion loop stopping", d.name)
 			return
@@ -705,10 +719,18 @@ func (d *domain) completionLoop() {
 }
 
 func (d *domain) enqueueCompletions(completions []*components.TxCompletion) {
+	d.enqueueCompletionQueueItem(&completionQueueItem{completions: completions})
+}
+
+func (d *domain) enqueueCheckpoint(blockNumber int64) {
+	d.enqueueCompletionQueueItem(&completionQueueItem{checkpoint: &blockNumber})
+}
+
+func (d *domain) enqueueCompletionQueueItem(item *completionQueueItem) {
 	select {
-	case d.completionQueue <- completions:
+	case d.completionQueue <- item:
 	case <-d.ctx.Done():
-		log.L(d.ctx).Warnf("domain %s context cancelled, dropping %d completion notifications", d.name, len(completions))
+		log.L(d.ctx).Warnf("domain %s context cancelled, dropping %d completion notifications", d.name, len(item.completions))
 	}
 }
 

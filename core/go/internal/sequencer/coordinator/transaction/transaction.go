@@ -56,6 +56,7 @@ type coordinatorTransaction struct {
 	// immutable properties of the transaction
 	originator                    string // The fully qualified identity of the originator e.g. "member1@node1"
 	originatorNode                string // The node the originator is running on e.g. "node1"
+	originatorSequencerVersion    uint32 // The version of sequencer messaging the originator speaks
 	nodeName                      string // The local node coordinating this transaction
 	domainSigningIdentity         string // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
 	getCoordinatorSigningIdentity func() string
@@ -106,7 +107,6 @@ type coordinatorTransaction struct {
 	stateVisibilityTracker            statevisibilitytracker.StateVisibilityStore
 	dependencyTracker                 dependencytracker.DependencyTracker
 	engineIntegration                 common.EngineIntegration
-	refreshBlockHeight                func(context.Context)
 	getBlockHeight                    func() int64
 	syncPoints                        syncpoints.SyncPoints
 	components                        components.AllComponents
@@ -123,6 +123,7 @@ type coordinatorTransaction struct {
 func NewTransaction(ctx context.Context,
 	originator string,
 	originatorNode string,
+	originatorSequencerVersion uint32,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	getCoordinatorSigningIdentity func() string,
@@ -135,7 +136,6 @@ func NewTransaction(ctx context.Context,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
-	refreshBlockHeight func(context.Context),
 	getBlockHeight func() int64,
 	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
@@ -158,6 +158,7 @@ func NewTransaction(ctx context.Context,
 		ctx,
 		originator,
 		originatorNode,
+		originatorSequencerVersion,
 		nodeName,
 		pt,
 		getCoordinatorSigningIdentity,
@@ -170,7 +171,6 @@ func NewTransaction(ctx context.Context,
 		getCoordinatorTransactionState,
 		notifyEndorserCandidates,
 		engineIntegration,
-		refreshBlockHeight,
 		getBlockHeight,
 		blockHeightTolerance,
 		syncPoints,
@@ -195,6 +195,7 @@ func newTransaction(
 	ctx context.Context,
 	originator string,
 	originatorNode string,
+	originatorSequencerVersion uint32,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	getCoordinatorSigningIdentity func() string,
@@ -207,7 +208,6 @@ func newTransaction(
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	notifyEndorserCandidates func(context.Context, ...string),
 	engineIntegration common.EngineIntegration,
-	refreshBlockHeight func(context.Context),
 	getBlockHeight func() int64,
 	blockHeightTolerance uint64,
 	syncPoints syncpoints.SyncPoints,
@@ -231,6 +231,7 @@ func newTransaction(
 	txn := &coordinatorTransaction{
 		originator:                        originator,
 		originatorNode:                    originatorNode,
+		originatorSequencerVersion:        originatorSequencerVersion,
 		nodeName:                          nodeName,
 		pt:                                pt,
 		transportWriter:                   transportWriter,
@@ -243,7 +244,6 @@ func newTransaction(
 		notifyEndorserCandidates:          notifyEndorserCandidates,
 		engineIntegration:                 engineIntegration,
 		getBlockHeight:                    getBlockHeight,
-		refreshBlockHeight:                refreshBlockHeight,
 		blockHeightTolerance:              blockHeightTolerance,
 		syncPoints:                        syncPoints,
 		components:                        allComponents,

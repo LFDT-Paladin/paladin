@@ -49,8 +49,13 @@ type testRemoteView struct {
 	domainName    string
 	candidates    []*prototk.SnapshotState
 	spentStateIDs []pldtypes.HexBytes
+	fromBlock     *int64
 	calls         []string
 	err           error
+}
+
+func (q *testRemoteView) FromBlock() *int64 {
+	return q.fromBlock
 }
 
 func (q *testRemoteView) GetSpentStateIDs() []pldtypes.HexBytes {
@@ -86,6 +91,10 @@ func (q *staticView) QueryAvailableStates(_ context.Context, _ string, _ string)
 }
 
 func (q *staticView) GetSpentStateIDs() []pldtypes.HexBytes {
+	return nil
+}
+
+func (q *staticView) FromBlock() *int64 {
 	return nil
 }
 
@@ -1302,4 +1311,65 @@ func TestFindAvailableStatesLabelSortOrdersInt64Label(t *testing.T) {
 	require.Len(t, states, 3)
 	assert.Equal(t, []pldtypes.HexBytes{db9.ID, db10.ID, view11.ID},
 		[]pldtypes.HexBytes{states[0].ID, states[1].ID, states[2].ID})
+}
+
+func TestFindAvailableStatesBoundedByViewFromBlock(t *testing.T) {
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schema1, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	err = ss.persistSchemas(ctx, ss.p.NOTX(), []*pldapi.Schema{schema1.Schema})
+	require.NoError(t, err)
+
+	contractAddress, _ := newTestDomainContext(t, ctx, ss, "domain1", false)
+	resolve := newTestStateResolver(t, ctx, ss, "domain1", *contractAddress, false)
+
+	states, err := resolve(
+		genWidget(t, schema1.ID(), fmt.Sprintf(`{"amount": 1, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
+		genWidget(t, schema1.ID(), fmt.Sprintf(`{"amount": 2, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
+		genWidget(t, schema1.ID(), fmt.Sprintf(`{"amount": 3, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`, pldtypes.RandHex(32))),
+	)
+	require.NoError(t, err)
+	nullifiers := make([]*pldapi.StateNullifier, len(states))
+	for i, s := range states {
+		nullifiers[i] = &pldapi.StateNullifier{DomainName: "domain1", State: s.ID, ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}
+	}
+	writeStateBatch(t, ctx, ss, states, nullifiers...)
+
+	// Confirmed before the view, at its first block, and with no recorded block (confirmed before the block was recorded).
+	block := func(b int64) *int64 { return &b }
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(), nil, nil, []*pldapi.StateConfirmRecord{
+		{DomainName: "domain1", State: states[0].ID, Transaction: uuid.New(), BlockNumber: block(5)},
+		{DomainName: "domain1", State: states[1].ID, Transaction: uuid.New(), BlockNumber: block(10)},
+		{DomainName: "domain1", State: states[2].ID, Transaction: uuid.New()},
+	}, nil)
+	require.NoError(t, err)
+
+	ids := func(found []*pldapi.State) []pldtypes.HexBytes {
+		ids := make([]pldtypes.HexBytes, len(found))
+		for i, s := range found {
+			ids[i] = s.ID
+		}
+		return ids
+	}
+	q := query.NewQueryBuilder().Sort(".created").Query()
+
+	bounded := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, &testRemoteView{ss: ss, domainName: "domain1", fromBlock: block(10)})
+	_, found, err := bounded.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), q)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []pldtypes.HexBytes{states[0].ID, states[2].ID}, ids(found))
+	// A label predicate drives the query from the label table's available-state index.
+	byOwner := query.NewQueryBuilder().Equal("owner", "0x615dD09124271D8008225054d85Ffe720E7a447A").Sort(".created").Query()
+	_, found, err = bounded.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), byOwner)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []pldtypes.HexBytes{states[0].ID, states[2].ID}, ids(found))
+
+	unbounded := newTestAssemblyContext(t, ctx, ss, "domain1", false, contractAddress, &testRemoteView{ss: ss, domainName: "domain1"})
+	_, found, err = unbounded.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), q)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []pldtypes.HexBytes{states[0].ID, states[1].ID, states[2].ID}, ids(found))
+	_, found, err = unbounded.FindAvailableNullifierBackedStates(ctx, ss.p.NOTX(), schema1.ID(), q)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []pldtypes.HexBytes{states[0].ID, states[1].ID, states[2].ID}, ids(found))
 }

@@ -162,7 +162,7 @@ func Test_validator_IsPrivateStateDataPendingForEndorsement_Error_Propagates(t *
 }
 
 func Test_action_RejectEndorsementPrivateStateDataPending_SendsRejection(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).
 		WithMockTransportWriter().
 		Build()
@@ -171,6 +171,7 @@ func Test_action_RejectEndorsementPrivateStateDataPending_SendsRejection(t *test
 		mock.Anything, "node2", matchEndorsementRejectionMsg("tx-1", "ik-1",
 			engineProto.RejectionReason_PRIVATE_STATE_DATA_PENDING, int64(100), int64(0), int64(10)),
 	).Return(nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
 
 	event := &EndorsementRequestReceivedEvent{
 		TransactionId:          "tx-1",
@@ -1019,4 +1020,21 @@ func Test_action_HandleEndorsementRequest_IgnoresRequestWithNoIdempotencyKey(t *
 	require.NoError(t, action_HandleEndorsementRequest(ctx, c, event))
 
 	assert.Empty(t, inFlightEndorsementKeys(c))
+}
+
+func Test_validator_IsEndorsementBlockHeightToleranceExceeded_OnlyWhenBehind(t *testing.T) {
+	for _, tc := range []struct {
+		indexed, coordinator int64
+		exceeded             bool
+	}{
+		{indexed: 89, coordinator: 100, exceeded: true},
+		{indexed: 90, coordinator: 100, exceeded: false},
+		{indexed: 500, coordinator: 100, exceeded: false},
+	} {
+		c, mocks := NewCoordinatorBuilderForTesting(t, State_Idle).BlockHeightTolerance(10).Build()
+		mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(tc.indexed)
+		exceeded, err := validator_IsEndorsementBlockHeightToleranceExceeded(t.Context(), c, &EndorsementRequestReceivedEvent{CoordinatorBlockHeight: tc.coordinator})
+		require.NoError(t, err)
+		assert.Equal(t, tc.exceeded, exceeded, "indexed=%d coordinator=%d", tc.indexed, tc.coordinator)
+	}
 }

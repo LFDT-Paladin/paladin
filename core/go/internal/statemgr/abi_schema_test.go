@@ -252,7 +252,7 @@ func TestStoreRetrieveABISchema(t *testing.T) {
 		]
 	}`), &query)
 	require.NoError(t, err)
-	_, states, err = ss.findStates(ctx, ss.p.NOTX(), as.Persisted().DomainName, contractAddress, schemaID, query, "all", nil)
+	_, states, err = ss.findStates(ctx, ss.p.NOTX(), as.Persisted().DomainName, contractAddress, schemaID, query, "all", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, states, 1)
 
@@ -263,7 +263,7 @@ func TestStoreRetrieveABISchema(t *testing.T) {
 		]
 	}`), &query)
 	require.NoError(t, err)
-	_, states, err = ss.findStates(ctx, ss.p.NOTX(), as.Persisted().DomainName, contractAddress, schemaID, query, "all", nil)
+	_, states, err = ss.findStates(ctx, ss.p.NOTX(), as.Persisted().DomainName, contractAddress, schemaID, query, "all", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, states, 0)
 
@@ -274,7 +274,7 @@ func TestStoreRetrieveABISchema(t *testing.T) {
 		]
 	}`), &query)
 	require.NoError(t, err)
-	_, states, err = ss.findStates(ctx, ss.p.NOTX(), as.Persisted().DomainName, contractAddress, schemaID, query, "all", nil)
+	_, states, err = ss.findStates(ctx, ss.p.NOTX(), as.Persisted().DomainName, contractAddress, schemaID, query, "all", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, states, 0)
 }

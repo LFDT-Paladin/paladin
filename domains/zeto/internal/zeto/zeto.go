@@ -299,6 +299,7 @@ func (z *Zeto) InitContract(ctx context.Context, req *prototk.InitContractReques
 			ContractConfigJson:   string(zetoContractConfigJSON),
 			CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 			SubmitterSelection:   prototk.ContractConfig_SUBMITTER_SENDER,
+			UseNullifiers:        common.IsNullifiersToken(domainConfig.TokenName),
 		},
 	}, nil
 }

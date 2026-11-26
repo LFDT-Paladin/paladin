@@ -62,7 +62,6 @@ func (s *ChainedDependenciesSuite) SetupTest() {
 
 func (s *ChainedDependenciesSuite) buildCoordinator() {
 	s.c, s.mocks = s.builder.Build()
-	s.mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0))
 	s.mocks.EngineIntegration.On("ResolveStatesForTransaction", mock.Anything, mock.Anything).Return(nil).Maybe()
 	s.mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything).Return(nil).Maybe()
 	s.mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()

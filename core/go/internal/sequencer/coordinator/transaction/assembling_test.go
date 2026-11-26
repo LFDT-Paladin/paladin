@@ -275,7 +275,7 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 	assert.NotNil(t, txn.pendingAssembleRequest)
 	assert.NotNil(t, txn.cancelRequestTimeoutSchedule)
@@ -293,7 +293,7 @@ func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(errors.New("send error"))
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	assert.Error(t, err)
 }
 
@@ -318,7 +318,7 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 
 	// Now nudge it - should succeed since request exists; nudge reuses the same idempotency key
@@ -343,7 +343,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 
 	requestID := txn.pendingAssembleRequest.IdempotencyKey()
@@ -368,7 +368,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NoMatch(t
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 
 	event := &AssembleSuccessEvent{
@@ -405,7 +405,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleRevertEvent_Match(t *t
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 
 	requestID := txn.pendingAssembleRequest.IdempotencyKey()
@@ -430,7 +430,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorEvent_Match(t *te
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 
 	requestID := txn.pendingAssembleRequest.IdempotencyKey()
@@ -456,7 +456,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorEvent_NoMatch(t *
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 
 	event := &AssembleErrorEvent{
@@ -524,7 +524,7 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 
 	// Now nudge it - nudge reuses the same idempotency key
@@ -611,7 +611,7 @@ func Test_sendAssembleRequest_schedulesTimer(t *testing.T) {
 		mock.Anything, txn.originatorNode, matchSendAssembleRequestMsg(txn, int64(100), nil),
 	).Return(nil)
 
-	err := txn.sendAssembleRequest(ctx)
+	err := txn.sendAssembleRequest(ctx, nil, 0)
 	require.NoError(t, err)
 	assert.True(t, timeoutEventReceived)
 }
@@ -945,7 +945,7 @@ func Test_validator_IsAssembleRejection_NoMatch(t *testing.T) {
 	assert.False(t, match)
 }
 
-func Test_sendAssembleRequest_CarriesCapturedSpentStateIDs(t *testing.T) {
+func Test_action_SendAssembleRequest_CarriesCapturedSpentStateIDsAndFromBlock(t *testing.T) {
 	ctx := t.Context()
 	mockProvider := coordinatorstateviewmocks.NewProvider(t)
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -955,7 +955,10 @@ func Test_sendAssembleRequest_CarriesCapturedSpentStateIDs(t *testing.T) {
 		Build()
 
 	spentStateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
-	mockProvider.EXPECT().SpentStateIDs(txn.assembleRequestID.String()).Return([]pldtypes.HexBytes{spentStateID}).Once()
+	var capturedID string
+	mockProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, "node1", true).
+		Run(func(_ context.Context, assembleRequestID string, _ string, _ bool) { capturedID = assembleRequestID }).
+		Return([]pldtypes.HexBytes{spentStateID}, 7).Once()
 
 	var sent []*engineProto.AssembleRequest
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
@@ -964,31 +967,34 @@ func Test_sendAssembleRequest_CarriesCapturedSpentStateIDs(t *testing.T) {
 		sent = append(sent, msg)
 	}).Return(nil).Twice()
 
-	err := txn.sendAssembleRequest(ctx)
-	require.NoError(t, err)
+	require.NoError(t, action_SendAssembleRequest(ctx, txn, nil))
 	require.Len(t, sent, 1)
+	assert.Equal(t, txn.assembleRequestID.String(), capturedID)
 	assert.Equal(t, txn.assembleRequestID.String(), sent[0].GetAssembleRequestId())
 	assert.Equal(t, [][]byte{spentStateID}, sent[0].GetSpentStateIds())
+	require.NotNil(t, sent[0].ViewFromBlock)
+	assert.Equal(t, int64(7), *sent[0].ViewFromBlock)
 
-	// A nudge re-sends the same request: same assemble request ID, same spent state IDs.
-	err = txn.nudgeAssembleRequest(ctx)
-	require.NoError(t, err)
+	// A nudge re-sends the same request: same assemble request ID, spent state IDs and from block.
+	require.NoError(t, txn.nudgeAssembleRequest(ctx))
 	require.Len(t, sent, 2)
 	assert.Equal(t, sent[0].GetAssembleRequestId(), sent[1].GetAssembleRequestId())
 	assert.Equal(t, [][]byte{spentStateID}, sent[1].GetSpentStateIds())
+	assert.Equal(t, int64(7), *sent[1].ViewFromBlock)
 }
 
-func Test_action_CaptureGrapherSnapshot_CapturesViewForOriginatorNode(t *testing.T) {
-	ctx := t.Context()
+func Test_action_SendAssembleRequest_OriginatorBeforeVersioningDoesNotAcceptFromBlock(t *testing.T) {
 	mockProvider := coordinatorstateviewmocks.NewProvider(t)
-	mockProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, "node1").Return()
+	mockProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, "node1", false).Return(nil, 0).Once()
 
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		OriginatorSequencerVersion(0).
 		StateViewProvider(mockProvider).
+		UseMockTransportWriter().
 		Build()
+	mocks.TransportWriter.EXPECT().SendAssembleRequest(mock.Anything, txn.originatorNode, mock.Anything).Return(nil).Once()
 
-	require.NoError(t, action_CaptureGrapherSnapshot(ctx, txn, nil))
-	require.NotEqual(t, uuid.Nil, txn.assembleRequestID)
+	require.NoError(t, action_SendAssembleRequest(t.Context(), txn, nil))
 }
 
 func Test_action_DeleteGrapherSnapshot_DiscardsView(t *testing.T) {

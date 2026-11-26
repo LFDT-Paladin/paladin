@@ -233,11 +233,6 @@ func action_Endorsed(ctx context.Context, t *coordinatorTransaction, event commo
 	return t.applyEndorsement(ctx, e.Endorsement)
 }
 
-func action_RefreshBlockHeight(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	txn.refreshBlockHeight(ctx)
-	return nil
-}
-
 func action_SendEndorsementRequests(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.sendEndorsementRequests(ctx)
 }

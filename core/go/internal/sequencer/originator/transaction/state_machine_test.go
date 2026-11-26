@@ -419,23 +419,30 @@ func TestOriginatorTransaction_Delegated_StaysInState_OnAssembleRequestReceived_
 	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestOriginatorTransaction_Delegated_StaysInState_OnAssembleRequestReceived_BlockHeightToleranceExceeded_OriginatorAhead(t *testing.T) {
-	// Covers the branch in validator_AssembleBlockHeightToleranceExceeded where the originator's
-	// block height is higher than the coordinator's (receiverBlockHeight > senderBH).
-	ctx := context.Background()
+func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_OriginatorAhead(t *testing.T) {
+	// An originator more than the tolerance ahead of the coordinator holds everything the coordinator
+	// expects it to, so it assembles.
+	ctx := t.Context()
 	builder := NewTransactionBuilderForTesting(t, State_Delegated).
 		CurrentBlockHeight(100)
 	txn, mocks := builder.BuildWithMocks()
+
+	mocks.MockForAssembleRequestOK().Once()
 
 	err := txn.HandleEvent(ctx, &AssembleRequestReceivedEvent{
 		BaseEvent:              BaseEvent{TransactionID: txn.GetID()},
 		RequestID:              uuid.New(),
 		Coordinator:            builder.GetCoordinator(),
-		CoordinatorBlockHeight: 50, // originator(100) > coordinator(50), diff=50 > tolerance=0
+		CoordinatorBlockHeight: 50, // originator(100) ahead of coordinator(50) by more than tolerance=0
 	})
 	assert.NoError(t, err)
-	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRejection(), "assemble rejection was not sent to coordinator")
-	assert.Equal(t, State_Delegated, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+
+	e0 := <-mocks.Events
+	e1 := <-mocks.Events
+	require.IsType(t, &common.TransactionStateTransitionEvent[State]{}, e0)
+	require.IsType(t, &AssembleSuccessEvent{}, e1)
+	assert.False(t, mocks.SentMessageRecorder.HasSentAssembleRejection())
+	assert.Equal(t, State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Delegated_StaysInState_OnAssembleRequestReceived_NotCurrentDelegate(t *testing.T) {

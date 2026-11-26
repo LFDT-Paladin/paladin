@@ -343,13 +343,17 @@ type stateQueryScope struct {
 // statusScope scopes a states query to a status qualifier and excludes the given state IDs. The
 // confirmed qualifier is served from the maintained confirmed/spent flags and their partial indexes,
 // so it needs neither the Confirmed/Spent joins nor whereClauseForQual. Every other qualifier
-// expresses status via those joins.
-func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.StateStatusQualifier, excludedIDs []pldtypes.HexBytes) stateQueryScope {
+// expresses status via those joins. With confirmedBefore, the confirmed qualifier takes only the
+// states confirmed before that block.
+func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.StateStatusQualifier, excludedIDs []pldtypes.HexBytes, confirmedBefore *int64) stateQueryScope {
 	apply := func(q *gorm.DB, source string) *gorm.DB {
 		var whereClause *gorm.DB
 		if status == pldapi.StateStatusConfirmed {
 			// source is the label table when the query is driven from its available-state index.
 			whereClause = dbTX.DB(ctx).Where(fmt.Sprintf(`%[1]s."confirmed" AND NOT %[1]s."spent"`, source))
+			if confirmedBefore != nil {
+				whereClause = whereClause.Where(fmt.Sprintf(confirmedBeforeClause, source), *confirmedBefore)
+			}
 		} else {
 			whereClause = whereClauseForQual(dbTX.DB(ctx), status, "Spent")
 			q = q.Joins("Confirmed", dbTX.DB(ctx).Select("transaction")).
@@ -366,8 +370,15 @@ func statusScope(ctx context.Context, dbTX persistence.DBTX, status pldapi.State
 	}
 }
 
+// A state confirmed with the zero transaction ID has no confirmed block because no Paladin transaction created it. No remote
+// view will ever supply it, so it must always be queried from the database
+const confirmedBeforeClause = `(%[1]s."confirmed_block" IS NULL OR %[1]s."confirmed_block" < ?)`
+
 // findStates reads states from the local DB, scoped by the given status qualifier and query,
-// excluding any of the given state IDs.
+// excluding any of the given state IDs and, with confirmedBefore, any confirmed at or after that block.
+// confirmedBefore is an optimisation added in v1.2.0 to limit duplication with the remote view.
+// If an assemble request is received from coordinator running an older version, the originator must query
+// all available states from the statestore and then deduplicate with the remote view.
 func (ss *stateManager) findStates(
 	ctx context.Context,
 	dbTX persistence.DBTX,
@@ -377,8 +388,9 @@ func (ss *stateManager) findStates(
 	jq *query.QueryJSON,
 	status pldapi.StateStatusQualifier,
 	excludedIDs []pldtypes.HexBytes,
+	confirmedBefore *int64,
 ) (components.Schema, []*pldapi.State, error) {
-	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, statusScope(ctx, dbTX, status, excludedIDs))
+	return ss.findStatesCommon(ctx, dbTX, domainName, contractAddress, schemaID, jq, statusScope(ctx, dbTX, status, excludedIDs, confirmedBefore))
 }
 
 // findNullifierBackedStates reads states that carry a nullifier, dropping those that do not. Status is
@@ -406,7 +418,6 @@ func (ss *stateManager) findNullifierBackedStates(
 		if len(excludedIDs) > 0 {
 			q = q.Not(`"states"."id" IN(?)`, excludedIDs)
 		}
-
 		return q.Where(whereClause)
 	}})
 }

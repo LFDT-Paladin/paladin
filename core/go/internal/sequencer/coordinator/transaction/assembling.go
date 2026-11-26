@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -132,7 +133,7 @@ func (t *coordinatorTransaction) recordOutputStateVisibility(ctx context.Context
 	t.stateVisibilityTracker.RecordAssemblyOutput(ctx, outputs, labels, distributionLists)
 }
 
-func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error {
+func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context, spentStateIDs []pldtypes.HexBytes, fromBlock int64) error {
 	// assemble requests have a short and long timeout
 	// the short timeout is for toleration of unreliable networks whereby the action is to retry the request with the same idempotency key
 	// the long timeout is to prevent an unavailable transaction originator/assemble from holding up the entire contract / privacy group given that the assemble step is single threaded
@@ -141,7 +142,6 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// When we first send the request, we start a ticker to emit a requestTimeout event for each tick
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
-	spentStateIDs := t.stateViewProvider.SpentStateIDs(t.assembleRequestID.String())
 	spentIDBytes := make([][]byte, len(spentStateIDs))
 	for i, id := range spentStateIDs {
 		spentIDBytes[i] = id
@@ -155,6 +155,7 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 			CoordinatorBlockHeight: t.getBlockHeight(),
 			ExpiryTimeUnixMs:       t.clock.Now().Add(t.stateTimeout).UnixMilli(),
 			BlockHeightTolerance:   int64(t.blockHeightTolerance),
+			ViewFromBlock:          &fromBlock,
 		})
 	})
 
@@ -254,18 +255,15 @@ func action_AssembleError(ctx context.Context, t *coordinatorTransaction, event 
 	return nil
 }
 
+// action_SendAssembleRequest initialises the assembleRequestID for this attempt, captures the state view
+// served to the originator — the states currently available to it plus the IDs of the states already
+// spend-locked — and sends the assemble request. Every state view request for this assemble is answered from
+// that captured view, so the originator's view cannot shift while the assemble is in flight.
 func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	return txn.sendAssembleRequest(ctx)
-}
-
-// action_CaptureGrapherSnapshot initialises the assembleRequestID for this attempt and captures the state view
-// served to the originator: the states currently available to it plus the IDs of the states already
-// spend-locked. Every state view request for this assemble is answered from that captured view, so the
-// originator's view cannot shift while the assemble is in flight.
-func action_CaptureGrapherSnapshot(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	txn.assembleRequestID = uuid.New()
-	txn.stateViewProvider.CaptureSnapshot(ctx, txn.assembleRequestID.String(), txn.originatorNode)
-	return nil
+	acceptsFromBlock := txn.originatorSequencerVersion >= common.SequencerVersionViewFromBlock
+	spentStateIDs, fromBlock := txn.stateViewProvider.CaptureSnapshot(ctx, txn.assembleRequestID.String(), txn.originatorNode, acceptsFromBlock)
+	return txn.sendAssembleRequest(ctx, spentStateIDs, fromBlock)
 }
 
 func action_DeleteGrapherSnapshot(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {

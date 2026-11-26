@@ -41,15 +41,14 @@ func validator_IsHandoverRequestFromHigherPriorityCoordinator(_ context.Context,
 	return common.IsHigherPriority(c.coordinatorPriorityList, e.FromNode, c.nodeName), nil
 }
 
-// validator_IsDelegationBlockHeightToleranceExceeded returns true when the absolute difference
-// between this coordinator's stored block height (refreshed by action_RefreshBlockHeight)
-// and the originator's block height exceeds the configured block height tolerance.
+// validator_IsDelegationBlockHeightToleranceExceeded returns true when the originator's indexed block height
+// is more than the configured block height tolerance behind this coordinator's block height. The originator
+// will assemble from its state store alongside snapshots of this coordinator's grapher, so its store must
+// reach the height those snapshots reflect. An originator ahead of the coordinator holds everything the
+// coordinator expects it to.
 func validator_IsDelegationBlockHeightToleranceExceeded(_ context.Context, c *coordinator, event common.Event) (bool, error) {
 	e := event.(*TransactionsDelegatedEvent)
-	ch := uint64(c.currentBlockHeight)
-	oh := e.OriginatorsBlockHeight
-	diff := max(ch, oh) - min(ch, oh)
-	return diff > c.blockHeightTolerance, nil
+	return int64(e.OriginatorsBlockHeight)+int64(c.blockHeightTolerance) < c.currentBlockHeight, nil
 }
 
 // action_RejectDelegationRequestBlockHeight sends a DelegationRejection indicating the block

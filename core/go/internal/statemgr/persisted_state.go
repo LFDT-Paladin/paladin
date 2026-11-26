@@ -242,7 +242,8 @@ type persistedStateConfirmRecord struct {
 	DomainName  string            `gorm:"primaryKey"`
 	State       pldtypes.HexBytes `gorm:"primaryKey"`
 	Transaction uuid.UUID
-	Index       int `gorm:"column:idx"`
+	Index       int    `gorm:"column:idx"`
+	BlockNumber *int64 `gorm:"column:block_number"`
 }
 
 func (persistedStateConfirmRecord) TableName() string {
@@ -257,13 +258,14 @@ func newPersistedStateConfirmRecords(records []*pldapi.StateConfirmRecord) []*pe
 			State:       r.State,
 			Transaction: r.Transaction,
 			Index:       r.Index,
+			BlockNumber: r.BlockNumber,
 		}
 	}
 	return persisted
 }
 
 func (pr *persistedStateConfirmRecord) mapToAPI() *pldapi.StateConfirmRecord {
-	return &pldapi.StateConfirmRecord{DomainName: pr.DomainName, State: pr.State, Transaction: pr.Transaction, Index: pr.Index}
+	return &pldapi.StateConfirmRecord{DomainName: pr.DomainName, State: pr.State, Transaction: pr.Transaction, Index: pr.Index, BlockNumber: pr.BlockNumber}
 }
 
 type persistedStateReadRecord struct {
