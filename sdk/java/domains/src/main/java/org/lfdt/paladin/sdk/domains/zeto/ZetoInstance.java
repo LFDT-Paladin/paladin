@@ -15,6 +15,8 @@
 package org.lfdt.paladin.sdk.domains.zeto;
 
 import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -198,14 +200,20 @@ public final class ZetoInstance {
       final ZetoDelegateLockParams params,
       final Optional<String> idempotencyKey) {
     Objects.requireNonNull(params, "params");
-    final Map<String, Object> inputs =
-        Map.of(
-            "utxos",
-            params.utxos(),
-            "delegate",
-            params.delegate(),
-            "data",
-            ZetoDefaults.EMPTY_BYTES);
+
+    final Map<String, Object> inputs = new HashMap<>();
+
+    if (params.utxos() != null) {
+      inputs.put("utxos", params.utxos());
+    }
+
+    if (params.delegate() != null) {
+      inputs.put("delegate", params.delegate());
+    }
+    
+
+    inputs.put("data", ZetoDefaults.EMPTY_BYTES);
+
     return invoke("delegateLock", from, inputs)
         .publicTx()
         .abi(ZetoAbi.PUBLIC)
