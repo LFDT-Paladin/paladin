@@ -310,9 +310,9 @@ func TestGetForNode_FiltersByNodeAndLabelPresence(t *testing.T) {
 	assert.Empty(t, s.GetForNode("node3"), "nodes with no visibility get nothing")
 }
 
-// --- RangeForNode — same node/label filter as GetForNode, without the intermediate slice ---
+// --- GetByIDForNode — one state, if GetForNode would include it ---
 
-func TestRangeForNode_FiltersByNodeAndLabelPresence(t *testing.T) {
+func TestGetByIDForNode_FiltersByNodeAndLabelPresence(t *testing.T) {
 	ctx := t.Context()
 	s := newTestStore()
 	labelled := testStateID("b8")
@@ -327,16 +327,29 @@ func TestRangeForNode_FiltersByNodeAndLabelPresence(t *testing.T) {
 		output(endorsableState(otherNode), []string{"bob@node2"}, resolvedState(otherNode, map[string]string{"owner": "0xbead"}, nil)),
 	)
 
-	var seen []*prototk.SnapshotState
-	s.RangeForNode("node1", func(state *prototk.SnapshotState) {
-		seen = append(seen, state)
-	})
-	require.Len(t, seen, 1, "only labelled states visible to node1 must be ranged over")
-	assert.Equal(t, labelled.String(), seen[0].GetState().GetId())
+	state := s.GetByIDForNode(labelled.String(), "node1")
+	require.NotNil(t, state)
+	assert.Equal(t, labelled.String(), state.GetState().GetId())
+	assert.Nil(t, s.GetByIDForNode(unlabelled.String(), "node1"), "an unlabelled state is never advertised")
+	assert.Nil(t, s.GetByIDForNode(otherNode.String(), "node1"), "a state not distributed to the node is not visible to it")
+	assert.Nil(t, s.GetByIDForNode(labelled.String(), "node3"), "nodes with no visibility get nothing")
+	assert.Nil(t, s.GetByIDForNode(testStateID("bb").String(), "node1"), "an unknown state is not visible")
+}
 
-	s.RangeForNode("node3", func(state *prototk.SnapshotState) {
-		t.Errorf("nodes with no visibility must get no callbacks, got state %s", state.GetState().GetId())
-	})
+func TestAllowedNodes_DistributionOrNilWhenUnknown(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore()
+	distributed := testStateID("bc")
+	undistributed := testStateID("bd")
+
+	record(ctx, s,
+		output(endorsableState(distributed), []string{"alice@node1", "bob@node2"}, nil),
+		output(endorsableState(undistributed), nil, nil),
+	)
+
+	assert.ElementsMatch(t, []string{"node1", "node2"}, s.AllowedNodes(distributed.String()))
+	assert.Nil(t, s.AllowedNodes(undistributed.String()))
+	assert.Nil(t, s.AllowedNodes(testStateID("be").String()), "an unknown state has no known distribution")
 }
 
 // --- ImportIfAbsent — coordinator handover safety ---
