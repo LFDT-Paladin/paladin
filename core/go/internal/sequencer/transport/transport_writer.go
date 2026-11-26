@@ -54,8 +54,6 @@ type TransportWriter interface {
 	SendSignError(ctx context.Context, node string, msg *engineProto.SignError) error
 	SendQueryAvailableStatesRequest(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesRequest) error
 	SendQueryAvailableStatesResponse(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesResponse) error
-	SendGetSpentStateIDsRequest(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsRequest) error
-	SendGetSpentStateIDsResponse(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsResponse) error
 	SendStateViewError(ctx context.Context, node string, msg *engineProto.StateViewError) error
 	SendNonceAssigned(ctx context.Context, node string, msg *engineProto.NonceAssigned) error
 	SendTransactionSubmitted(ctx context.Context, node string, msg *engineProto.TransactionSubmitted) error
@@ -179,14 +177,6 @@ func (tw *transportWriter) SendQueryAvailableStatesRequest(ctx context.Context, 
 
 func (tw *transportWriter) SendQueryAvailableStatesResponse(ctx context.Context, node string, msg *engineProto.QueryAvailableStatesResponse) error {
 	return tw.marshalAndSend(ctx, node, MessageType_QueryAvailableStatesResponse, msg)
-}
-
-func (tw *transportWriter) SendGetSpentStateIDsRequest(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsRequest) error {
-	return tw.marshalAndSend(ctx, node, MessageType_GetSpentStateIDsRequest, msg)
-}
-
-func (tw *transportWriter) SendGetSpentStateIDsResponse(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsResponse) error {
-	return tw.marshalAndSend(ctx, node, MessageType_GetSpentStateIDsResponse, msg)
 }
 
 func (tw *transportWriter) SendStateViewError(ctx context.Context, node string, msg *engineProto.StateViewError) error {

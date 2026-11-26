@@ -47,16 +47,13 @@ type Reader interface {
 	// ForCoordinator returns a RemoteStateView bound to
 	// a) coordinatorNode — the node requests are sent to and the only node whose responses are accepted for them.
 	// b) assembleRequestID — the assemble whose captured view the coordinator answers from. One view is captured per assembly.
-	ForCoordinator(coordinatorNode string, assembleRequestID string) components.RemoteStateView
+	// c) spentStateIDs — the spent state IDs the coordinator sent with the assemble request.
+	ForCoordinator(coordinatorNode string, assembleRequestID string, spentStateIDs []pldtypes.HexBytes) components.RemoteStateView
 
 	// HandleQueryAvailableStatesResponse delivers a state query response to the request that is
 	// waiting for it. Responses for unknown request IDs (stale, duplicate) and responses from any
 	// node other than the one the request was sent to are dropped.
 	HandleQueryAvailableStatesResponse(ctx context.Context, fromNode string, resp *engineProto.QueryAvailableStatesResponse)
-
-	// HandleGetSpentStateIDsResponse delivers a spent state IDs response to the request that is
-	// waiting for it. The same drop rules apply as HandleQueryAvailableStatesResponse.
-	HandleGetSpentStateIDsResponse(ctx context.Context, fromNode string, resp *engineProto.GetSpentStateIDsResponse)
 
 	// HandleError delivers a state view error, failing the request that is waiting for it.
 	// The same drop rules apply as HandleQueryAvailableStatesResponse.
@@ -64,9 +61,8 @@ type Reader interface {
 }
 
 type requestResult struct {
-	states        []*prototk.QueriedState
-	spentStateIDs []pldtypes.HexBytes
-	err           error
+	states []*prototk.QueriedState
+	err    error
 }
 
 type pendingRequest struct {
@@ -97,18 +93,11 @@ type boundView struct {
 	reader            *reader
 	coordinatorNode   string
 	assembleRequestID string
-
-	// The spend exclusion set is fixed for the captured view, so the first GetSpentStateIDs fetches it and
-	// every later call on this view returns the cached slice. A failed fetch is not cached, so a
-	// transient error is retried on the next call. spentMu guards the cache and is held across the
-	// round-trip, so concurrent callers make a single fetch.
-	spentMu       sync.Mutex
-	spentFetched  bool
-	spentStateIDs []pldtypes.HexBytes
+	spentStateIDs     []pldtypes.HexBytes
 }
 
-func (r *reader) ForCoordinator(coordinatorNode string, assembleRequestID string) components.RemoteStateView {
-	return &boundView{reader: r, coordinatorNode: coordinatorNode, assembleRequestID: assembleRequestID}
+func (r *reader) ForCoordinator(coordinatorNode string, assembleRequestID string, spentStateIDs []pldtypes.HexBytes) components.RemoteStateView {
+	return &boundView{reader: r, coordinatorNode: coordinatorNode, assembleRequestID: assembleRequestID, spentStateIDs: spentStateIDs}
 }
 
 // QueryAvailableStates blocks until the response arrives or ctx expires (the assembly deadline).
@@ -129,30 +118,8 @@ func (b *boundView) QueryAvailableStates(ctx context.Context, schemaID string, q
 	return result.states, result.err
 }
 
-// GetSpentStateIDs blocks until the response arrives or ctx expires (the assembly deadline).
-// The result is cached since repeat calls should never return a different set of IDs.
-func (b *boundView) GetSpentStateIDs(ctx context.Context) ([]pldtypes.HexBytes, error) {
-	b.spentMu.Lock()
-	defer b.spentMu.Unlock()
-	if b.spentFetched {
-		return b.spentStateIDs, nil
-	}
-	result, err := b.reader.roundTrip(ctx, b.coordinatorNode, func(requestID string) error {
-		return b.reader.transportWriter.SendGetSpentStateIDsRequest(ctx, b.coordinatorNode, &engineProto.GetSpentStateIDsRequest{
-			ContractAddress:   b.reader.contractAddress,
-			RequestId:         requestID,
-			AssembleRequestId: b.assembleRequestID,
-		})
-	})
-	if err != nil {
-		return nil, err
-	}
-	if result.err != nil {
-		return nil, result.err
-	}
-	b.spentStateIDs = result.spentStateIDs
-	b.spentFetched = true
-	return b.spentStateIDs, nil
+func (b *boundView) GetSpentStateIDs() []pldtypes.HexBytes {
+	return b.spentStateIDs
 }
 
 // roundTrip sends one idempotent request to the coordinator and does not return until a success
@@ -197,15 +164,6 @@ func (r *reader) roundTrip(ctx context.Context, coordinatorNode string, send fun
 
 func (r *reader) HandleQueryAvailableStatesResponse(ctx context.Context, fromNode string, resp *engineProto.QueryAvailableStatesResponse) {
 	r.deliver(ctx, fromNode, resp.GetRequestId(), &requestResult{states: resp.GetStates()})
-}
-
-func (r *reader) HandleGetSpentStateIDsResponse(ctx context.Context, fromNode string, resp *engineProto.GetSpentStateIDsResponse) {
-	raw := resp.GetSpentStateIds()
-	spentStateIDs := make([]pldtypes.HexBytes, len(raw))
-	for i, id := range raw {
-		spentStateIDs[i] = id
-	}
-	r.deliver(ctx, fromNode, resp.GetRequestId(), &requestResult{spentStateIDs: spentStateIDs})
 }
 
 // HandleError delivers a StateViewError. The coordinator replies with an error instead of a

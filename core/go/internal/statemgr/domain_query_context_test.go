@@ -50,17 +50,11 @@ type testRemoteView struct {
 	candidates    []*prototk.SnapshotState
 	spentStateIDs []pldtypes.HexBytes
 	calls         []string
-	spentCalls    int
 	err           error
-	spentErr      error
 }
 
-func (q *testRemoteView) GetSpentStateIDs(_ context.Context) ([]pldtypes.HexBytes, error) {
-	q.spentCalls++
-	if q.spentErr != nil {
-		return nil, q.spentErr
-	}
-	return q.spentStateIDs, nil
+func (q *testRemoteView) GetSpentStateIDs() []pldtypes.HexBytes {
+	return q.spentStateIDs
 }
 
 func (q *testRemoteView) QueryAvailableStates(ctx context.Context, schemaID string, queryJSON string) ([]*prototk.QueriedState, error) {
@@ -91,8 +85,8 @@ func (q *staticView) QueryAvailableStates(_ context.Context, _ string, _ string)
 	return q.states, nil
 }
 
-func (q *staticView) GetSpentStateIDs(_ context.Context) ([]pldtypes.HexBytes, error) {
-	return nil, nil
+func (q *staticView) GetSpentStateIDs() []pldtypes.HexBytes {
+	return nil
 }
 
 // snapshotStateOf builds a remote-view candidate (prototk.SnapshotState) for a resolved state,
@@ -999,34 +993,6 @@ func TestQueriedStateEvalQueryError(t *testing.T) {
 	assert.Regexp(t, "PD010700", err)
 }
 
-// TestFindAvailableStatesSpentIDsFetchError proves a failure fetching the remote view's spend
-// exclusion set fails FindAvailableStates before any DB read or remote fetch.
-func TestFindAvailableStatesSpentIDsFetchError(t *testing.T) {
-	ctx, ss, _, _, done := newDBMockStateManager(t)
-	defer done()
-
-	view := &testRemoteView{spentErr: errors.New("pop")}
-	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, pldtypes.RandAddress(), view)
-
-	_, _, err := dqc.FindAvailableStates(ctx, ss.p.NOTX(), pldtypes.RandBytes32(), query.NewQueryBuilder().Query())
-	assert.Regexp(t, "PD010137.*pop", err)
-	assert.Empty(t, view.calls)
-}
-
-// TestFindAvailableNullifierBackedStatesSpentIDsFetchError proves the same spend exclusion fetch failure
-// fails FindAvailableNullifierBackedStates.
-func TestFindAvailableNullifierBackedStatesSpentIDsFetchError(t *testing.T) {
-	ctx, ss, _, _, done := newDBMockStateManager(t)
-	defer done()
-
-	view := &testRemoteView{spentErr: errors.New("pop")}
-	dqc := newTestAssemblyContext(t, ctx, ss, "domain1", false, pldtypes.RandAddress(), view)
-
-	_, _, err := dqc.FindAvailableNullifierBackedStates(ctx, ss.p.NOTX(), pldtypes.RandBytes32(), query.NewQueryBuilder().Query())
-	assert.Regexp(t, "PD010137.*pop", err)
-	assert.Empty(t, view.calls)
-}
-
 // TestFindAvailableStatesUnmarshalableQuery proves a query that cannot be re-marshaled for the
 // remote round-trip fails the select without the remote fetch ever being launched.
 func TestFindAvailableStatesUnmarshalableQuery(t *testing.T) {
@@ -1164,43 +1130,7 @@ func TestNewDomainQueryContextWithRemoteView_DelegatesSpentIDsToView(t *testing.
 
 	dqc := ss.NewDomainQueryContextWithRemoteView(ctx, md, *pldtypes.RandAddress(), view)
 
-	// Construction does not fetch the exclusion set.
-	assert.Zero(t, view.spentCalls)
-
-	// getSpentStateIDs delegates straight to the view, so each call reaches it.
-	got, err := dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, spent, got)
-	assert.Equal(t, 1, view.spentCalls)
-
-	got, err = dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, spent, got)
-	assert.Equal(t, 2, view.spentCalls)
-}
-
-func TestNewDomainQueryContextWithRemoteView_SpentIDsFetchError(t *testing.T) {
-	ctx, ss, _, _, done := newDBMockStateManager(t)
-	defer done()
-
-	view := &testRemoteView{spentErr: errors.New("pop")}
-
-	md := componentsmocks.NewDomain(t)
-	md.On("Name").Return("domain1")
-	md.On("CustomHashFunction").Return(false)
-
-	dqc := ss.NewDomainQueryContextWithRemoteView(ctx, md, *pldtypes.RandAddress(), view)
-
-	// The fetch is lazy, so the error surfaces from the query rather than construction, and a
-	// failed fetch is not cached — the next call retries.
-	_, err := dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx)
-	assert.Regexp(t, "PD010137", err)
-	assert.Regexp(t, "pop", err)
-	assert.Equal(t, 1, view.spentCalls)
-
-	_, err = dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx)
-	assert.Regexp(t, "PD010137", err)
-	assert.Equal(t, 2, view.spentCalls)
+	assert.Equal(t, spent, dqc.(*domainQueryContext).getRemoteSpentStateIDs(ctx))
 }
 
 // writeAvailableCoin persists one coin and confirms it, so the DB serves it as available.

@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/originatorstateviewmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -302,16 +303,18 @@ func Test_action_Assemble_SpawnsGoroutineThatQueuesEvent(t *testing.T) {
 }
 
 func Test_action_AssembleRequestReceived_SetsDelegateAndLatestRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewTransactionBuilderForTesting(t, State_Delegated)
 	txn, _ := builder.BuildWithMocks()
 	requestID := uuid.New()
 	coordinator := "coord@node1"
+	spentStateIDs := []pldtypes.HexBytes{pldtypes.RandBytes(32)}
 	event := &AssembleRequestReceivedEvent{
 		BaseEvent:              BaseEvent{TransactionID: txn.pt.ID},
 		RequestID:              requestID,
 		Coordinator:            coordinator,
 		CoordinatorBlockHeight: 100,
+		SpentStateIDs:          spentStateIDs,
 	}
 	err := action_AssembleRequestReceived(ctx, txn, event)
 	require.NoError(t, err)
@@ -319,6 +322,7 @@ func Test_action_AssembleRequestReceived_SetsDelegateAndLatestRequest(t *testing
 	require.NotNil(t, txn.latestAssembleRequest)
 	assert.Equal(t, requestID, txn.latestAssembleRequest.requestID)
 	assert.Equal(t, int64(100), txn.latestAssembleRequest.coordinatorsBlockHeight)
+	assert.Equal(t, spentStateIDs, txn.latestAssembleRequest.spentStateIDs)
 }
 
 func Test_action_AssembleSuccess_SetsPostAssemblyAndRequestID(t *testing.T) {
@@ -857,7 +861,7 @@ func TestValidator_AssembleRequestMatchesCurrentAssembly_NoCancelFunc(t *testing
 }
 
 func Test_handleAssemble_BindsQuerierToRequestingCoordinator(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockReader := originatorstateviewmocks.NewReader(t)
 	mockView := componentsmocks.NewRemoteStateView(t)
 	builder := NewTransactionBuilderForTesting(t, State_Assembling).WithStateViewReader(mockReader)
@@ -865,11 +869,12 @@ func Test_handleAssemble_BindsQuerierToRequestingCoordinator(t *testing.T) {
 
 	require.NotNil(t, txn.latestAssembleRequest)
 	txn.latestAssembleRequest.coordinator = "coordinator-node"
+	txn.latestAssembleRequest.spentStateIDs = []pldtypes.HexBytes{pldtypes.RandBytes(32)}
 	req := *txn.latestAssembleRequest
 
 	// The view is bound to the node the assemble request came from — state view requests are
-	// answered by (and only by) that coordinator.
-	mockReader.EXPECT().ForCoordinator("coordinator-node", req.requestID.String()).Return(mockView).Once()
+	// answered by (and only by) that coordinator — and serves the spent state IDs the request carried.
+	mockReader.EXPECT().ForCoordinator("coordinator-node", req.requestID.String(), req.spentStateIDs).Return(mockView).Once()
 
 	preAssembly := &prototk.TransactionPreAssembly{}
 	mocks.EngineIntegration.On(

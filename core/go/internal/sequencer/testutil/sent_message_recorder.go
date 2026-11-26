@@ -68,8 +68,6 @@ type SentMessageRecorder struct {
 	// State view request tracking (both sides)
 	sentQueryAvailableStatesRequests  []*engineProto.QueryAvailableStatesRequest
 	sentQueryAvailableStatesResponses []*engineProto.QueryAvailableStatesResponse
-	sentGetSpentStateIDsRequests      []*engineProto.GetSpentStateIDsRequest
-	sentGetSpentStateIDsResponses     []*engineProto.GetSpentStateIDsResponse
 	sentStateViewErrors               []*engineProto.StateViewError
 }
 
@@ -111,8 +109,6 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.delegatedTransactionIDs = nil
 	r.sentQueryAvailableStatesRequests = nil
 	r.sentQueryAvailableStatesResponses = nil
-	r.sentGetSpentStateIDsRequests = nil
-	r.sentGetSpentStateIDsResponses = nil
 	r.sentStateViewErrors = nil
 	r.sentTransactionConfirmed = nil
 	// per-tx maps are NOT reset — they accumulate across the full test
@@ -331,16 +327,6 @@ func (r *SentMessageRecorder) SendQueryAvailableStatesResponse(ctx context.Conte
 	return nil
 }
 
-func (r *SentMessageRecorder) SendGetSpentStateIDsRequest(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsRequest) error {
-	r.sentGetSpentStateIDsRequests = append(r.sentGetSpentStateIDsRequests, msg)
-	return nil
-}
-
-func (r *SentMessageRecorder) SendGetSpentStateIDsResponse(ctx context.Context, node string, msg *engineProto.GetSpentStateIDsResponse) error {
-	r.sentGetSpentStateIDsResponses = append(r.sentGetSpentStateIDsResponses, msg)
-	return nil
-}
-
 func (r *SentMessageRecorder) SendStateViewError(ctx context.Context, node string, msg *engineProto.StateViewError) error {
 	r.sentStateViewErrors = append(r.sentStateViewErrors, msg)
 	return nil
@@ -352,14 +338,6 @@ func (r *SentMessageRecorder) SentQueryAvailableStatesRequests() []*engineProto.
 
 func (r *SentMessageRecorder) SentQueryAvailableStatesResponses() []*engineProto.QueryAvailableStatesResponse {
 	return r.sentQueryAvailableStatesResponses
-}
-
-func (r *SentMessageRecorder) SentGetSpentStateIDsRequests() []*engineProto.GetSpentStateIDsRequest {
-	return r.sentGetSpentStateIDsRequests
-}
-
-func (r *SentMessageRecorder) SentGetSpentStateIDsResponses() []*engineProto.GetSpentStateIDsResponse {
-	return r.sentGetSpentStateIDsResponses
 }
 
 func (r *SentMessageRecorder) SentStateViewErrors() []*engineProto.StateViewError {

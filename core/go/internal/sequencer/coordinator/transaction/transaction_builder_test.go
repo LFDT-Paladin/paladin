@@ -651,13 +651,14 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		clock = common.RealClock()
 	}
 
-	// Default the stateview provider to a permissive mock: view open/close fire on every
-	// entry/exit of State_Assembling, and most tests do not assert on them. Tests that do can inject
-	// a strict mock via StateViewProvider(...).
+	// Default the stateview provider to a permissive mock: view open/close and the spent state ID
+	// read for the assemble request fire on every entry/exit of State_Assembling, and most tests do
+	// not assert on them. Tests that do can inject a strict mock via StateViewProvider(...).
 	stateViewProvider := b.stateViewProvider
 	if stateViewProvider == nil {
 		mocks.StateViewProvider = coordinatorstateviewmocks.NewProvider(b.t)
 		mocks.StateViewProvider.EXPECT().CaptureSnapshot(mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		mocks.StateViewProvider.EXPECT().SpentStateIDs(mock.Anything).Return(nil).Maybe()
 		mocks.StateViewProvider.EXPECT().DeleteSnapshot(mock.Anything, mock.Anything).Return().Maybe()
 		stateViewProvider = mocks.StateViewProvider
 	}

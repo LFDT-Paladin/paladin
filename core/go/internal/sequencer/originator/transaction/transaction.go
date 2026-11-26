@@ -38,6 +38,7 @@ type assembleRequestFromCoordinator struct {
 	coordinator             string // the node the request came from; state view requests are answered by (and only by) this node
 	requestID               uuid.UUID
 	expiry                  time.Time
+	spentStateIDs           []pldtypes.HexBytes
 }
 
 type OriginatorTransaction interface {

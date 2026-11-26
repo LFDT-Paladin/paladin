@@ -59,10 +59,6 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 		go sMgr.handleQueryAvailableStatesRequest(sMgr.ctx, message)
 	case transport.MessageType_QueryAvailableStatesResponse:
 		go sMgr.handleQueryAvailableStatesResponse(sMgr.ctx, message)
-	case transport.MessageType_GetSpentStateIDsRequest:
-		go sMgr.handleGetSpentStateIDsRequest(sMgr.ctx, message)
-	case transport.MessageType_GetSpentStateIDsResponse:
-		go sMgr.handleGetSpentStateIDsResponse(sMgr.ctx, message)
 	case transport.MessageType_StateViewError:
 		go sMgr.handleStateViewError(sMgr.ctx, message)
 	case transport.MessageType_CoordinatorHeartbeatNotification:
@@ -210,6 +206,10 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 	assembleRequestEvent.Coordinator = message.FromNode
 	assembleRequestEvent.CoordinatorBlockHeight = assembleRequest.CoordinatorBlockHeight
 	assembleRequestEvent.BlockHeightTolerance = assembleRequest.BlockHeightTolerance
+	assembleRequestEvent.SpentStateIDs = make([]pldtypes.HexBytes, len(assembleRequest.SpentStateIds))
+	for i, id := range assembleRequest.SpentStateIds {
+		assembleRequestEvent.SpentStateIDs[i] = id
+	}
 	assembleRequestEvent.EventTime = time.Now()
 	if assembleRequest.ExpiryTimeUnixMs != 0 {
 		assembleRequestEvent.Expiry = time.UnixMilli(assembleRequest.ExpiryTimeUnixMs)
@@ -364,52 +364,6 @@ func (sMgr *sequencerManager) handleQueryAvailableStatesResponse(ctx context.Con
 	}
 
 	seq.GetOriginator().StateViewReader().HandleQueryAvailableStatesResponse(ctx, message.FromNode, queryAvailableStatesResponse)
-}
-
-func (sMgr *sequencerManager) handleGetSpentStateIDsRequest(ctx context.Context, message *components.ReceivedMessage) {
-	getSpentStateIDsRequest := &engineProto.GetSpentStateIDsRequest{}
-	if err := proto.Unmarshal(message.Payload, getSpentStateIDsRequest); err != nil {
-		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
-		return
-	}
-
-	contractAddress := sMgr.parseContractAddressString(ctx, getSpentStateIDsRequest.ContractAddress, message)
-	if contractAddress == nil {
-		return
-	}
-
-	// Get rather than load the sequencer - a state view request is only valid against a coordinator
-	// that has an ahead-of-chain view in memory right now
-	seq := sMgr.GetSequencer(ctx, *contractAddress)
-	if seq == nil {
-		log.L(ctx).Warnf("sequencer for contract %s is not loaded: get spent state IDs request %s cannot be processed unless already in memory",
-			contractAddress, getSpentStateIDsRequest.RequestId)
-		return
-	}
-
-	seq.GetCoordinator().StateViewProvider().HandleGetSpentStateIDs(ctx, message.FromNode, getSpentStateIDsRequest)
-}
-
-func (sMgr *sequencerManager) handleGetSpentStateIDsResponse(ctx context.Context, message *components.ReceivedMessage) {
-	getSpentStateIDsResponse := &engineProto.GetSpentStateIDsResponse{}
-	if err := proto.Unmarshal(message.Payload, getSpentStateIDsResponse); err != nil {
-		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
-		return
-	}
-
-	contractAddress := sMgr.parseContractAddressString(ctx, getSpentStateIDsResponse.ContractAddress, message)
-	if contractAddress == nil {
-		return
-	}
-
-	seq := sMgr.GetSequencer(ctx, *contractAddress)
-	if seq == nil {
-		log.L(ctx).Warnf("sequencer for contract %s is not loaded: get spent state IDs response %s cannot be processed unless already in memory",
-			contractAddress, getSpentStateIDsResponse.RequestId)
-		return
-	}
-
-	seq.GetOriginator().StateViewReader().HandleGetSpentStateIDsResponse(ctx, message.FromNode, getSpentStateIDsResponse)
 }
 
 func (sMgr *sequencerManager) handleStateViewError(ctx context.Context, message *components.ReceivedMessage) {

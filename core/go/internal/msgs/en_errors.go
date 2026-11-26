@@ -119,7 +119,6 @@ var (
 	MsgStateViewQueryFailed            = pde("PD010134", "Remote state view query failed")
 	MsgStateQueriedStateNoMatch        = pde("PD010135", "Coordinator returned state %s whose validated labels do not match the query")
 	MsgStateQueriedStateSchemaMismatch = pde("PD010136", "Coordinator returned state %s with schema %s for a query against schema %s")
-	MsgStateViewSpentIDsFailed         = pde("PD010137", "Failed to fetch spent state IDs from the remote state view")
 
 	// Persistence PD0102XX
 	MsgPersistenceInvalidType          = pde("PD010200", "Invalid persistence type: %s")

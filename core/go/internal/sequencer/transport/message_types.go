@@ -29,8 +29,6 @@ const (
 	MessageType_EndorsementResponse              = "EndorsementResponse"
 	MessageType_EndorsementError                 = "EndorsementError"
 	MessageType_EndorsementRejection             = "EndorsementRejection"
-	MessageType_GetSpentStateIDsRequest          = "GetSpentStateIDsRequest"
-	MessageType_GetSpentStateIDsResponse         = "GetSpentStateIDsResponse"
 	MessageType_HandoverRequest                  = "HandoverRequest"
 	MessageType_NonceAssigned                    = "NonceAssigned"
 	MessageType_PreDispatchRequest               = "PreDispatchRequest"

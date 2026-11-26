@@ -140,6 +140,7 @@ type AssembleRequestReceivedEvent struct {
 	CoordinatorBlockHeight int64
 	BlockHeightTolerance   int64
 	Expiry                 time.Time
+	SpentStateIDs          []pldtypes.HexBytes
 }
 
 func (*AssembleRequestReceivedEvent) Type() EventType {
