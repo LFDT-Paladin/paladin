@@ -39,6 +39,7 @@ import org.lfdt.paladin.sdk.core.abi.AbiEntry;
 import org.lfdt.paladin.sdk.core.types.EthAddress;
 import org.lfdt.paladin.sdk.domains.FakeRpcClient;
 
+@SuppressWarnings("resource") // FakeRpcClient.close() is a no-op
 class PentePrivateContractTest {
 
   private static final EthAddress ADDRESS = EthAddress.fromString(PRIVATE_ADDRESS);
