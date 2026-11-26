@@ -259,12 +259,12 @@ func (dc *domainContract) AssembleTransaction(ctx context.Context, dqc component
 		// which provides back to the engine the full sequence locking information of the
 		// states (inputs, and read)
 		log.L(ctx).Debugf("Loading post-assembly input states from context")
-		inputStates, err := dc.loadStatesFromContext(ctx, dqc, readTX, res.AssembledTransaction.InputStates)
+		inputStates, err := dc.loadStatesFromContext(ctx, dqc, res.AssembledTransaction.InputStates)
 		if err != nil {
 			return nil, err
 		}
 		log.L(ctx).Debugf("Loading post-assembly read states from context")
-		readStates, err := dc.loadStatesFromContext(ctx, dqc, readTX, res.AssembledTransaction.ReadStates)
+		readStates, err := dc.loadStatesFromContext(ctx, dqc, res.AssembledTransaction.ReadStates)
 		if err != nil {
 			return nil, err
 		}
@@ -571,47 +571,23 @@ func (dc *domainContract) allAttestations(tx *components.PrivateTransaction) []*
 	return attestations
 }
 
-func (dc *domainContract) loadStatesFromContext(ctx context.Context, dqc components.DomainQueryContext, readTX persistence.DBTX, refs []*prototk.StateRef) ([]*prototk.EndorsableState, error) {
-	rawIDsBySchema := make(map[pldtypes.Bytes32][]pldtypes.RawJSON)
-	stateIDs := make([]pldtypes.HexBytes, len(refs))
-	for i, s := range refs {
-		stateID, err := pldtypes.ParseHexBytes(ctx, s.Id)
+// loadStatesFromContext resolves the domain's input and read state references against the states the
+// assembly's own available-state queries returned. A domain may only spend or read states it obtained
+// as available through this context, so any other reference fails the assembly.
+func (dc *domainContract) loadStatesFromContext(ctx context.Context, dqc components.DomainQueryContext, refs []*prototk.StateRef) ([]*prototk.EndorsableState, error) {
+	states := make([]*prototk.EndorsableState, len(refs))
+	for i, ref := range refs {
+		stateID, err := pldtypes.ParseHexBytes(ctx, ref.Id)
 		var schemaID pldtypes.Bytes32
 		if err == nil {
-			schemaID, err = pldtypes.ParseBytes32(s.SchemaId)
+			schemaID, err = pldtypes.ParseBytes32(ref.SchemaId)
 		}
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidStateIDFromDomain, s.Id, i)
+			return nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidStateIDFromDomain, ref.Id, i)
 		}
-		rawIDsBySchema[schemaID] = append(rawIDsBySchema[schemaID], pldtypes.JSONString(stateID.String()))
-		stateIDs[i] = stateID
-	}
-	statesByID := make(map[string]*pldapi.State)
-	for schemaID, stateIDs := range rawIDsBySchema {
-		log.L(ctx).Debugf("Finding available states for state IDs %+v", stateIDs)
-		_, statesForSchema, err := dqc.FindAvailableStates(ctx, readTX, schemaID, &query.QueryJSON{
-			Statements: query.Statements{
-				Ops: query.Ops{
-					In: []*query.OpMultiVal{
-						{Op: query.Op{Field: ".id"}, Values: stateIDs},
-					},
-				},
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, s := range statesForSchema {
-			statesByID[s.ID.HexString()] = s
-		}
-	}
-
-	// Check we found all the states, and restore the original order
-	states := make([]*prototk.EndorsableState, len(stateIDs))
-	for i, id := range stateIDs {
-		s := statesByID[id.HexString()]
+		s := dqc.ReturnedAvailableState(stateID, schemaID)
 		if s == nil {
-			return nil, i18n.NewError(ctx, msgs.MsgDomainInputStateNotFound, i, id)
+			return nil, i18n.NewError(ctx, msgs.MsgDomainInputStateNotFound, i, stateID)
 		}
 		states[i] = &prototk.EndorsableState{
 			Id:            s.ID.String(),
